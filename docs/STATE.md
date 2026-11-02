@@ -7,7 +7,7 @@
 - User's UI-reference PDF links Cult UI, React Bits, Skiper UI and Awwwards; reference approval and licensing still needed.
 - Public event lists four advertised cash awards: Founder 30k, Judges 20k, Visa 15k, Metal 15k; stacking not verified.
 
-## NOT yet verified
+## Foundation review findings and control gates\n- Nov 2: Full documentation PR #1 manually reviewed, but no application CI or executable code tests exist yet. Found lack of integrated V0 path, oversized P0 backlog, missing risk-weighted merge policy, and external provider access dependency; mitigations documented in docs/08 and docs/09.\n- A docs-only merge is not evidence of working software, independent security review, or transaction verification.\n- Treat the 'no implementation' statements below as current until a verified code/financial PR changes them.\n\n## NOT yet verified
 No source application, backend, tests, deployment, visual screenshots, approved palette/typeface, 3D asset, Airwallex/Metal transaction, Visa eligibility, T:0 key, CI pass, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
 
 ## Current environment and access
