@@ -6,7 +6,8 @@ One issue = one user-observable contract and acceptance evidence; **integrate co
 ## Dependency-driven order
 **Stage A, Nov 2–4:** choose stack via ADR; establish CI/local checks and financial domain contracts. Unblock sandbox and Metal accounts privately. Independent provider probes must happen early.
 **Stage B, Nov 4–7:** money reservations, approval hashes, idempotency and provider adapters; compare feasible actions. First complete truthful finance operation.
-**Vertical slice gate, no later than Nov 8:** the full financial flow works on a real Airwallex sandbox with authoritative provider readback; optional Metal result separately confirmed. See docs/08. Do not wait to combine providers, planner, UI and case replay until the end.\n**Stage C, Nov 6–10:** reference board, approved design tokens, full operator flow; approved asset spike; synchronized 3D with 2D fallback.
+**Vertical slice gate, no later than Nov 8:** the full financial flow works on a real Airwallex sandbox with authoritative provider readback; optional Metal result separately confirmed. See docs/08. Do not wait to combine providers, planner, UI and case replay until the end.
+**Stage C, Nov 6–10:** reference board, approved design tokens, full operator flow; approved asset spike; synchronized 3D with 2D fallback.
 **Stage D, Nov 10–13:** adversarial tests, visual/camera QA, second adapter only if primary finance path already passes; optional Visa/T:0 integrations behind timeboxes.
 **Stage E, Nov 14–15:** stabilization, deployment, reproducible evidence, five-minute capture, verify submission and links. No major scope additions.
 
