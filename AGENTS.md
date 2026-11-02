@@ -1,6 +1,6 @@
 # MOTERVA — instructions for AI coding agents
 
-These instructions govern work throughout this repository. Read `README.md`, `docs/STATE.md`, `docs/01_ARCHITECTURE_AND_DOMAIN.md`, `docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md`, `docs/06_TESTING_AND_DEMO_EVIDENCE.md`, then the specific assigned GitHub issue **before making changes**.
+These instructions govern work throughout this repository. Read `README.md`, `docs/STATE.md`, `docs/01_ARCHITECTURE_AND_DOMAIN.md`, `docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md`, `docs/06_TESTING_AND_DEMO_EVIDENCE.md`, `docs/08_CTO_RISK_REVIEW_AND_VERTICAL_SLICE.md`, `docs/09_PR_REVIEW_AND_MERGE_PROTOCOL.md`, then the specific assigned GitHub issue **before making changes**.
 
 ## One-issue operating procedure
 1. Identify exact issue, dependencies, branch, main/base SHA, existing code and tests. Restate scope and unknowns briefly.
@@ -9,8 +9,8 @@ These instructions govern work throughout this repository. Read `README.md`, `do
 4. Run actual typecheck/lint/unit/integration/E2E commands as applicable. Record exact outputs and failures; never fabricate.
 5. For UI/3D work, reference exact approved library component, screenshot, license and token source. Capture real browser screenshots at specified breakpoints; fix overlaps, clipping and broken camera paths before declaring done.
 6. For Airwallex/Metal, preserve provider identifiers and verify state independently. Mocks must be labeled; no provider call may be claimed without proof.
-7. Open a small PR linking one issue; list changed files, head SHA, evidence, negative tests, screenshots and known limitations. **Never merge automatically.**
-8. Update `docs/STATE.md` with evidence-backed progress and remaining blockers, not intent.
+7. Open a small PR linking one issue; list changed files, head SHA, evidence, negative tests, screenshots and known limitations. **After substantive review, proactively merge passing PRs with an exact expected head SHA using the risk-tiered policy in docs/09.** Do not fast-merge financial/auth changes without actual negative-path evidence.
+8. Update `docs/STATE.md` with evidence-backed progress and remaining blockers, not intent. Merge passing scoped PRs proactively, verify main afterwards and advance to the next unblocked issue; no founder signoff for routine engineering merges.
 
 ## Safety and correctness laws
 - **No secrets:** bank keys, signing seeds, access tokens, private user data or unredacted sandbox IDs in git, issues, logs, screenshots or demos. Credentials live in server-only environment/secret manager. Do not request them in public comments.
