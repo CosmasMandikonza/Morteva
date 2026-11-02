@@ -32,6 +32,13 @@ Alternate paths: `REJECTED`, `EXPIRED`, `STATUS_UNKNOWN`, `CANCELLED`, `REQUIRES
 7. Release/settle commitments only according to verified operation state.
 8. Ingest operational outcome separately; payment never implies delivery or repair.
 
+## Additional implementation-critical boundaries
+- **Reserved budget vs provider funds:** a reservation in MOTERVA is an internal financial commitment, NOT a hold on the Airwallex account. If an external actor spends from the same wallet, fresh balance snapshots may invalidate the plan; reject further autonomous commitments, reconcile and escalate. The UI must not imply provider-held escrow.
+- **Outbox and crash window:** transactionally persist the reservation, immutable plan/authority digest and provider operation/request identifier before dispatch. A queue worker may execute the outbox at least once; recovery must query provider state by the original operation identifier, not create a new economic instruction. Provider idempotency windows have limits; retain durable records longer than provider de-duplication windows.
+- **Balanced lifecycle:** a financial operation has an independent provider state and case outcome. Reconcile charges/fees in the original currency and account; FX conversion, beneficiary transfer and Metal order may each be separate economic intents with their own request IDs and receipts. 'SETTLED' should mean the specific provider-confirmed status of that operation, not automatic physical service delivery or business reconciliation.
+- **Security:** enforce authentication and least-privilege authorization on server-side routes; disallow public payment endpoints even in a demo. Validate webhook cryptography against the actual provider scheme and reject replay/out-of-order updates. A generic signed webhook is not automatically trusted.
+- **Decision economics:** all expected costs, recovery probabilities and simulated outcomes remain estimates with provenance and uncertainty. The LLM may propose alternatives; deterministic constraint checks and execution gates enforce permissions. If the model is down, a planned financial action is not automatically authorized.
+
 ## Contract gate
 Each provider adapter must expose capability discovery, a typed request/response schema, idempotency behavior, live/test environment label, observable pending/error results and a receipt-verification method. No direct provider SDK calls from the UI or planner.
 
