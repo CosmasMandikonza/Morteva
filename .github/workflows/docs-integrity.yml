@@ -1,0 +1,20 @@
+name: Documentation integrity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  docs-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect runtime
+        run: node --version
+      - name: Validate internal Markdown links and obvious secrets
+        run: node scripts/check-docs.mjs
