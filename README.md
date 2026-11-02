@@ -6,13 +6,13 @@
 
 ## Start here
 - [Release epic #2](https://github.com/CosmasMandikonza/Morteva/issues/2): goals and prize-oriented release requirements.
-- [Draft documentation PR #1](https://github.com/CosmasMandikonza/Morteva/pull/1): review before merge; docs may live only on this branch until approved.
+- [Foundation review PR #1](https://github.com/CosmasMandikonza/Morteva/pull/1): audit history, findings and implementation contract.
 - [Delivery dependencies / decision register](docs/07_DELIVERY_ORDER_AND_DECISIONS.md)
 - [Product charter](docs/00_PRODUCT_AND_COMPETITION.md) and [operator journeys](docs/02_OPERATOR_JOURNEYS.md)
 - [Financial architecture](docs/01_ARCHITECTURE_AND_DOMAIN.md) and [security/provider gates](docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md)
 - [Reference-led UI](docs/03_UI_REFERENCES_AND_DESIGN_GATE.md) and [3D quality](docs/04_3D_ASSET_AND_CAMERA_GATE.md)
 - [Verification / demo criteria](docs/06_TESTING_AND_DEMO_EVIDENCE.md)
-- [Truthful status](docs/STATE.md)
+- [CTO risk analysis and first vertical slice](docs/08_CTO_RISK_REVIEW_AND_VERTICAL_SLICE.md)\n- [Risk-weighted PR review and safe-merge protocol](docs/09_PR_REVIEW_AND_MERGE_PROTOCOL.md)\n- [Truthful status](docs/STATE.md)
 
 ## Recommended issue order
 
@@ -23,7 +23,7 @@
 **Prove and ship:** [#15 adversarial evaluations](https://github.com/CosmasMandikonza/Morteva/issues/15), [#18 buyer/value case](https://github.com/CosmasMandikonza/Morteva/issues/18) → [#19 final release](https://github.com/CosmasMandikonza/Morteva/issues/19). [#16 Visa](https://github.com/CosmasMandikonza/Morteva/issues/16) and [#17 T:0/AWS](https://github.com/CosmasMandikonza/Morteva/issues/17) are *conditional* and must not derail the core.
 
 ## Contribution contract
-One bounded issue per PR with real commands, tests, screenshots and redacted provider evidence where applicable. Do not merge without reviewed head SHA and quality gate. No invented financial success, speculative performance claims, placeholder licensed assets or uncontrolled spending. An unknown payment state is not a failed payment and must not be blindly retried. No secrets or personal data in this **public repository**.
+One bounded issue per PR with real commands, tests, screenshots and redacted provider evidence where applicable. Review and merge promptly when the appropriate documented risk-tier evidence is complete and the exact head SHA matches; never merge on green labels or summaries alone. No invented financial success, speculative performance claims, placeholder licensed assets or uncontrolled spending. An unknown payment state is not a failed payment and must not be blindly retried. No secrets or personal data in this **public repository**.
 
 ## Official sources
 - [Airwallex builder guide](https://airwallexdev.com/guide)
