@@ -265,7 +265,7 @@ describe('outbox replay with the original request id', () => {
     ctx.ledger.close();
   });
 
-  it('does not re-dispatch IN_FLIGHT after claim TTL and completes only after readback', async () => {
+  it('does not re-dispatch IN_FLIGHT after claim TTL; drains only after readback AND human RECONCILED', async () => {
     const ctx = reservedLedger();
     const initial = stubDispatcher('airwallex');
     ctx.ledger.worker.register(initial);
@@ -289,6 +289,32 @@ describe('outbox replay with the original request id', () => {
     expect(readback.dispatchCalls).toEqual([]); // NEVER a second payment submission
     expect(readback.reconcileCalls).toEqual(['outbox-1']);
     expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state).toBe('SETTLED');
+    // PAID is verified-at-readback finality, not irreversible delivery (R3
+    // P0-4): settlement keeps monitoring — the outbox entry stays claimable.
+    expect(ctx.ledger.outbox.pendingCount()).toBe(1);
+
+    // Human confirms funds actually arrived; only then does monitoring stop
+    // and the dispatch envelope drain.
+    ctx.ledger.reservations.transition({
+      orgId: ctx.org.id,
+      operationId: ctx.operationId,
+      to: 'RECONCILED',
+      attestation: { source: 'operator-action', note: 'funds confirmed arrived' },
+    });
+    ctx.clock.advance(120_000);
+    const drain = stubDispatcher('airwallex', {
+      reconcileResult: {
+        status: 'confirmed',
+        environment: 'sandbox',
+        providerState: 'SETTLED',
+        verifiedAt: ctx.clock.iso(),
+      },
+    });
+    ctx.ledger.worker.register(drain);
+    const drainReport = await ctx.ledger.worker.runOnce();
+    expect(drainReport.reconciled).toBe(1);
+    expect(drain.dispatchCalls).toEqual([]);
+    expect(drain.reconcileCalls).toEqual(['outbox-1']);
     expect(ctx.ledger.outbox.pendingCount()).toBe(0);
     const operations = ctx.ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as {
       c: number;

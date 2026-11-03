@@ -256,6 +256,13 @@ export class AirwallexClient {
    * The documented recovery path for a lost create response: list transfers
    * filtered by OUR original request_id.
    */
+  /**
+   * The documented recovery path for a lost create response: list transfers
+   * filtered by OUR original request_id (R3 P1-6: malformed responses fail
+   * closed as AMBIGUOUS — a missing/invalid `items` array is never treated
+   * as an authoritative empty result, because the caller reads "empty" as
+   * definitive non-execution).
+   */
   async listTransfersByRequestId(requestId: string): Promise<AirwallexTransferRecord[]> {
     const response = await this.authorizedRequest({
       method: 'GET',
@@ -269,11 +276,22 @@ export class AirwallexClient {
         `airwallex transfers?request_id non-success ${response.httpStatus}; treating as ambiguous`,
       );
     }
-    const items = (response.body as { items?: unknown } | null)?.items;
-    if (!Array.isArray(items)) return [];
-    return items
-      .filter((item) => item !== null && typeof item === 'object')
-      .map((item) => parseTransferRecord(item));
+    if (
+      response.body === null ||
+      typeof response.body !== 'object' ||
+      Array.isArray(response.body)
+    ) {
+      throw new TransportUnavailableError(
+        'airwallex transfers?request_id returned a malformed body (expected object with items); treating readback as incomplete, not empty',
+      );
+    }
+    const items = (response.body as { items?: unknown }).items;
+    if (!Array.isArray(items)) {
+      throw new TransportUnavailableError(
+        'airwallex transfers?request_id response missing items array; treating readback as incomplete, not empty',
+      );
+    }
+    return items.map((item) => parseTransferRecord(item));
   }
 }
 

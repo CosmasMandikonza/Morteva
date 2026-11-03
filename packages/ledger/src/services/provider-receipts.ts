@@ -92,13 +92,6 @@ export class ProviderReceiptService implements ProviderReceiptStore {
     });
   }
 
-  orgIdForRequestId(requestId: string): string | null {
-    const row = this.db
-      .prepare('SELECT org_id FROM operations WHERE request_id = ? LIMIT 1')
-      .get(requestId) as { org_id: string } | undefined;
-    return row === undefined ? null : row.org_id;
-  }
-
   countByOperation(operationId: string): number {
     const row = this.db
       .prepare('SELECT COUNT(*) AS c FROM provider_receipts WHERE operation_id = ?')

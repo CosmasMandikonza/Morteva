@@ -45,16 +45,29 @@ describe('adapter configuration gate', () => {
   });
 });
 
-describe('transfer status normalization (verified against provider docs)', () => {
-  it('PAID/COMPLETED are terminal success', () => {
+describe('transfer status normalization (verified against provider docs, API version 2025-06-30+)', () => {
+  it('PAID is terminal success AT VERIFICATION TIME (not irreversible delivery)', () => {
     expect(normalizeTransferStatus('PAID')).toBe('terminal-success');
-    expect(normalizeTransferStatus('COMPLETED')).toBe('terminal-success');
   });
 
-  it('CANCELLED/FAILED/REJECTED are terminal failed (funds-returned states)', () => {
+  it('CANCELLED/FAILED are terminal failed (funds-returned states)', () => {
     expect(normalizeTransferStatus('CANCELLED')).toBe('terminal-failed');
     expect(normalizeTransferStatus('FAILED')).toBe('terminal-failed');
-    expect(normalizeTransferStatus('REJECTED')).toBe('terminal-failed');
+  });
+
+  it('COMPLETED is NOT a transfer status in this API — unknown, never guessed', () => {
+    expect(normalizeTransferStatus('COMPLETED')).toBe('unknown');
+  });
+
+  it('approval-flow states are non-final', () => {
+    for (const status of [
+      'APPROVAL_REJECTED',
+      'APPROVAL_RECALLED',
+      'APPROVAL_BLOCKED',
+      'OVERDUE',
+    ]) {
+      expect(normalizeTransferStatus(status)).toBe('pending');
+    }
   });
 
   it('SENT/PROCESSING and pending states are NEVER final', () => {

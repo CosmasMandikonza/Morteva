@@ -39,6 +39,7 @@ const org = ledger.organizations.createOrganization('Airwallex Smoke Org');
 try {
   const transport = new HttpTransport({
     baseUrl: config.baseUrl,
+    allowedOrigin: config.allowedOrigin,
     requestTimeoutMs: config.requestTimeoutMs,
     idempotentReadRetries: config.idempotentReadRetries,
   });

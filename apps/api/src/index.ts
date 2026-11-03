@@ -75,6 +75,7 @@ async function main(): Promise<void> {
         awxConfig,
         new HttpTransport({
           baseUrl: awxConfig.baseUrl,
+          allowedOrigin: awxConfig.allowedOrigin,
           requestTimeoutMs: awxConfig.requestTimeoutMs,
           idempotentReadRetries: awxConfig.idempotentReadRetries,
         }),

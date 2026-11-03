@@ -24,6 +24,7 @@ describe('HttpTransport retry ladder (verified sandbox rate-limit guidance)', ()
     ]);
     const transport = new HttpTransport({
       baseUrl: 'https://api.sandbox.airwallex.com',
+      allowedOrigin: 'https://api.sandbox.airwallex.com',
       requestTimeoutMs: 2000,
       idempotentReadRetries: 3,
       fetchImpl: fake.impl,
@@ -44,6 +45,7 @@ describe('HttpTransport retry ladder (verified sandbox rate-limit guidance)', ()
     const fake = fakeFetch([{ status: 500 }]);
     const transport = new HttpTransport({
       baseUrl: 'https://api.sandbox.airwallex.com',
+      allowedOrigin: 'https://api.sandbox.airwallex.com',
       requestTimeoutMs: 2000,
       idempotentReadRetries: 3,
       fetchImpl: fake.impl,
@@ -66,6 +68,7 @@ describe('HttpTransport retry ladder (verified sandbox rate-limit guidance)', ()
     }) as unknown as typeof fetch;
     const transport = new HttpTransport({
       baseUrl: 'https://api.sandbox.airwallex.com',
+      allowedOrigin: 'https://api.sandbox.airwallex.com',
       requestTimeoutMs: 1000,
       idempotentReadRetries: 0,
       fetchImpl: impl,

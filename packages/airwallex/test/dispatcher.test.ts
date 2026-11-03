@@ -10,6 +10,7 @@ import {
   redactProviderPayload,
 } from '../src/dispatcher.js';
 import { loadAirwallexConfig } from '../src/config.js';
+import { providerRequestIdFor } from '../src/provider-request-id.js';
 import { openLedger, TunableClock } from '@moterva/ledger';
 import { HttpTransport } from '../src/http-transport.js';
 import type { DispatchCommand } from '@moterva/ledger';
@@ -45,9 +46,23 @@ function commandFor(orgId: string, requestId = 'rq-dispatch-1'): DispatchCommand
   };
 }
 
-function makeDispatcher(script: Partial<FixtureScript>, beneficiary = 'ben-1') {
+function makeDispatcher(
+  scriptOrFactory?:
+    | Partial<FixtureScript>
+    | ((ctx: {
+        orgId: string;
+        missionId: string;
+        ns: (ledgerRequestId: string) => string;
+      }) => Partial<FixtureScript>),
+  beneficiary = 'ben-1',
+) {
   const { ledger, store, orgId, missionId } = makeStore();
+  const ns = (ledgerRequestId: string) => providerRequestIdFor(orgId, ledgerRequestId);
   const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+  const script =
+    typeof scriptOrFactory === 'function'
+      ? scriptOrFactory({ orgId, missionId, ns })
+      : (scriptOrFactory ?? {});
   const fixture = new FixtureTransport({
     login: [created({ token: 't', expires_at: '2026-11-03T12:25:00.000Z' })],
     createTransfer: [],
@@ -63,7 +78,7 @@ function makeDispatcher(script: Partial<FixtureScript>, beneficiary = 'ben-1') {
     clock,
     () => beneficiary,
   );
-  return { dispatcher, store, ledger, fixture, orgId, missionId };
+  return { dispatcher, store, ledger, fixture, orgId, missionId, ns };
 }
 
 /**
@@ -217,13 +232,13 @@ describe('reconcileByRequestId()', () => {
   // only through application scoping (see makeStore org rows).
 
   it('terminal PAID readback → confirmed with verifiedAt and readback receipts', async () => {
-    const ctx = makeDispatcher({
+    const ctx = makeDispatcher(({ ns }) => ({
       listTransfers: [
         ok({
           items: [
             {
               id: 'tr_2',
-              request_id: 'rq-r',
+              request_id: ns('rq-r'),
               status: 'PROCESSING',
               transfer_amount: 12.34,
               transfer_currency: 'USD',
@@ -234,15 +249,20 @@ describe('reconcileByRequestId()', () => {
       getTransfer: [
         ok({
           id: 'tr_2',
-          request_id: 'rq-r',
+          request_id: ns('rq-r'),
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
         }),
       ],
+    }));
+    const operationId = seedOperation(ctx, 'rq-r');
+    const result = await ctx.dispatcher.reconcileByRequestId('rq-r', {
+      orgId: ctx.orgId,
+      operationId,
+      amountMinor: 1234,
+      currency: 'USD',
     });
-    seedOperation(ctx, 'rq-r');
-    const result = await ctx.dispatcher.reconcileByRequestId('rq-r');
     expect(result.status).toBe('confirmed');
     expect(result.providerState).toBe('PAID');
     expect(result.verifiedAt).toBeDefined();
@@ -258,13 +278,13 @@ describe('reconcileByRequestId()', () => {
   });
 
   it('terminal CANCELLED readback → failed (definitive non-execution; ledger escalates, never auto-releases)', async () => {
-    const ctx = makeDispatcher({
+    const ctx = makeDispatcher(({ ns }) => ({
       listTransfers: [
         ok({
           items: [
             {
               id: 'tr_3',
-              request_id: 'rq-c',
+              request_id: ns('rq-c'),
               status: 'CANCELLED',
               failure: { code: 'compliance', message: 'blocked' },
             },
@@ -274,26 +294,56 @@ describe('reconcileByRequestId()', () => {
       getTransfer: [
         ok({
           id: 'tr_3',
-          request_id: 'rq-c',
+          request_id: ns('rq-c'),
           status: 'CANCELLED',
           failure: { code: 'compliance', message: 'blocked' },
         }),
       ],
+    }));
+    const operationId = seedOperation(ctx, 'rq-c');
+    const result = await ctx.dispatcher.reconcileByRequestId('rq-c', {
+      orgId: ctx.orgId,
+      operationId,
+      amountMinor: 1234,
+      currency: 'USD',
     });
-    seedOperation(ctx, 'rq-c');
-    const result = await ctx.dispatcher.reconcileByRequestId('rq-c');
     expect(result.status).toBe('failed');
     expect(result.providerState).toBe('CANCELLED');
   });
 
   it('SENT/PROCESSING readback → processing (never final)', async () => {
     for (const status of ['SENT', 'PROCESSING']) {
-      const ctx = makeDispatcher({
-        listTransfers: [ok({ items: [{ id: 'tr_4', request_id: 'rq-p', status }] })],
-        getTransfer: [ok({ id: 'tr_4', request_id: 'rq-p', status })],
+      const ctx = makeDispatcher(({ ns }) => ({
+        listTransfers: [
+          ok({
+            items: [
+              {
+                id: 'tr_4',
+                request_id: ns('rq-p'),
+                status,
+                transfer_amount: 12.34,
+                transfer_currency: 'USD',
+              },
+            ],
+          }),
+        ],
+        getTransfer: [
+          ok({
+            id: 'tr_4',
+            request_id: ns('rq-p'),
+            status,
+            transfer_amount: 12.34,
+            transfer_currency: 'USD',
+          }),
+        ],
+      }));
+      const operationId = seedOperation(ctx, 'rq-p');
+      const result = await ctx.dispatcher.reconcileByRequestId('rq-p', {
+        orgId: ctx.orgId,
+        operationId,
+        amountMinor: 1234,
+        currency: 'USD',
       });
-      seedOperation(ctx, 'rq-p');
-      const result = await ctx.dispatcher.reconcileByRequestId('rq-p');
       expect(result.status).toBe('processing');
       expect(result.providerState).toBe(status);
     }
@@ -301,16 +351,26 @@ describe('reconcileByRequestId()', () => {
 
   it('empty list for our request id → failed NO_TRANSFER_FOR_REQUEST_ID (never silently resubmitted)', async () => {
     const ctx = makeDispatcher({ listTransfers: [ok({ items: [] })] });
-    seedOperation(ctx, 'rq-none');
-    const result = await ctx.dispatcher.reconcileByRequestId('rq-none');
+    const operationId = seedOperation(ctx, 'rq-none');
+    const result = await ctx.dispatcher.reconcileByRequestId('rq-none', {
+      orgId: ctx.orgId,
+      operationId,
+      amountMinor: 1234,
+      currency: 'USD',
+    });
     expect(result.status).toBe('failed');
     expect(result.providerState).toBe('NO_TRANSFER_FOR_REQUEST_ID');
   });
 
   it('readback transport failure → status-unknown (reconciled again later)', async () => {
     const ctx = makeDispatcher({ listTransfers: [unavailable('readback network down')] });
-    seedOperation(ctx, 'rq-any');
-    const result = await ctx.dispatcher.reconcileByRequestId('rq-any');
+    const operationId = seedOperation(ctx, 'rq-any');
+    const result = await ctx.dispatcher.reconcileByRequestId('rq-any', {
+      orgId: ctx.orgId,
+      operationId,
+      amountMinor: 1234,
+      currency: 'USD',
+    });
     expect(result.status).toBe('status-unknown');
   });
 });
@@ -358,10 +418,30 @@ describe('webhook ingestion (at-least-once, out-of-order safe)', () => {
   });
 
   it('webhook with a request id triggers reconciliation but NEVER mutates state directly', async () => {
-    const ctx = makeDispatcher({
-      listTransfers: [ok({ items: [{ id: 'tr_5', request_id: 'rq-w', status: 'PAID' }] })],
-      getTransfer: [ok({ id: 'tr_5', request_id: 'rq-w', status: 'PAID' })],
-    });
+    const ctx = makeDispatcher(({ ns }) => ({
+      listTransfers: [
+        ok({
+          items: [
+            {
+              id: 'tr_5',
+              request_id: ns('rq-w'),
+              status: 'PAID',
+              transfer_amount: 12.34,
+              transfer_currency: 'USD',
+            },
+          ],
+        }),
+      ],
+      getTransfer: [
+        ok({
+          id: 'tr_5',
+          request_id: ns('rq-w'),
+          status: 'PAID',
+          transfer_amount: 12.34,
+          transfer_currency: 'USD',
+        }),
+      ],
+    }));
     seedOperation(ctx, 'rq-w');
     const outcome = await ctx.dispatcher.ingestTransferWebhook({
       orgId: ctx.orgId,
@@ -406,6 +486,7 @@ describe('builder guards', () => {
         enabled,
         new HttpTransport({
           baseUrl: enabled.baseUrl,
+          allowedOrigin: enabled.allowedOrigin,
           requestTimeoutMs: 1000,
           idempotentReadRetries: 1,
         }),

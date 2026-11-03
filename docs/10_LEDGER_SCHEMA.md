@@ -32,7 +32,7 @@ Single source of truth for the persisted financial model. The executable schema 
 
 ## Provider receipts (v3, issue #5)
 
-Every provider interaction persists a tenant-scoped, append-only receipt with the redacted raw payload, HTTP status, original provider status and timestamps. A **submission receipt alone can never settle an operation** — settlement requires a readback receipt showing terminal success AND the ledger's `provider-readback` attestation. Receipts keep tenant scope across restarts via the durable operation lookup (`orgIdForRequestId`); receipts with no owning organization are skipped rather than mis-scoped. See [ADR 0004](adr/0004-airwallex-adapter.md).
+Every provider interaction persists a tenant-scoped, append-only receipt with the redacted raw payload, HTTP status, original provider status and timestamps. A **submission receipt alone can never settle an operation** — settlement requires a readback receipt showing terminal success AND the ledger's `provider-readback` attestation. Receipts keep tenant scope across restarts via the durable operation lookup (`orgIdForRequestId`); receipts with no owning organization are skipped rather than mis-scoped. See [ADR 0005](adr/0005-airwallex-adapter.md).
 
 ## The mandate budget invariant (v2)
 

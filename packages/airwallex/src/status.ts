@@ -1,15 +1,23 @@
 /**
  * Airwallex transfer status mapping — the conservative normalization layer.
  *
- * Sources (official reference + builder guide, verified 2026-11-03):
- *  - "SENT means in-flight, never final; transfers pending simulation stay in
- *    PROCESSING" — the builder guide.
- *  - Success terminal state: "PAID" (guide, kit 3).
- *  - "A failed transfer ends in CANCELLED, not FAILED... CANCELLED does not
- *    mean a person cancelled it; read failure_type and failure_reason" — so a
- *    terminal CANCELLED readback is a definitive non-execution/refund outcome.
- *  - Webhook lifecycle: payout.transfer.{scheduled,processing,paid,sent,
- *    failed,cancelled,in_approval,...}; failed "can retry or cancel".
+ * Sources (official "Transfer statuses" reference, API version 2025-06-30+
+ * documentation checked 2026-11-03, plus the builder guide):
+ *  - The transfer status set is: IN_APPROVAL, APPROVAL_RECALLED,
+ *    APPROVAL_REJECTED, APPROVAL_BLOCKED, SCHEDULED, OVERDUE, PROCESSING,
+ *    SENT, PAID, FAILED, CANCELLED. **COMPLETED is NOT a transfer status**
+ *    in this API — it is deliberately not mapped and normalizes to 'unknown'
+ *    (keep reconciling, never guess).
+ *  - **PAID is not always final**: a PAID transfer "may subsequently fail if
+ *    it is rejected by the local clearing system or the recipient bank, at
+ *    which point its status will transition to FAILED". 'terminal-success'
+ *    therefore means "provider-confirmed success AT VERIFICATION TIME" —
+ *    post-PAID monitoring continues (the ledger settles but keeps
+ *    reconciling, and a later FAILED escalates with an auditable
+ *    settlement.late_failure event; it never rewrites history).
+ *  - FAILED and CANCELLED are terminal non-success states (CANCELLED means
+ *    "paid amount (minus fees) returned to the Wallet" — read failure fields).
+ *  - "SENT means in-flight, never final" — builder guide.
  *
  * Repo law preserved here: SUBMITTED/SENT is never settlement; only terminal
  * success maps to 'confirmed' and ONLY via independent readback (the worker
@@ -20,11 +28,15 @@
 export type AirwallexNormalizedStatus =
   'terminal-success' | 'terminal-failed' | 'pending' | 'unknown';
 
-/** Terminal success states: money provably paid out (verified by readback). */
-const TERMINAL_SUCCESS = new Set(['PAID', 'COMPLETED']);
+/**
+ * Terminal success AT VERIFICATION TIME: provider-confirmed processed
+ * successfully by the banking partner. NOT proof of irreversible delivery —
+ * post-PAID FAILED transitions exist and stay monitored.
+ */
+const TERMINAL_SUCCESS = new Set(['PAID']);
 
 /** Terminal non-success states: transfer will not execute (funds returned). */
-const TERMINAL_FAILED = new Set(['CANCELLED', 'FAILED', 'REJECTED']);
+const TERMINAL_FAILED = new Set(['CANCELLED', 'FAILED']);
 
 /** Explicitly non-final in-flight states observed in the reference. */
 const PENDING = new Set([
@@ -38,6 +50,10 @@ const PENDING = new Set([
   'SENT',
   'IN_APPROVAL',
   'CANCELLATION_REQUESTED',
+  'OVERDUE',
+  'APPROVAL_RECALLED',
+  'APPROVAL_REJECTED',
+  'APPROVAL_BLOCKED',
 ]);
 
 export function normalizeTransferStatus(
@@ -48,7 +64,8 @@ export function normalizeTransferStatus(
   if (TERMINAL_SUCCESS.has(status)) return 'terminal-success';
   if (TERMINAL_FAILED.has(status)) return 'terminal-failed';
   if (PENDING.has(status)) return 'pending';
-  // Undocumented state: never guess finality — treat as pending investigation.
+  // Undocumented state (including the non-transfer status "COMPLETED"):
+  // never guess finality — treat as pending investigation.
   return 'unknown';
 }
 

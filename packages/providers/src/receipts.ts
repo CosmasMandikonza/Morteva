@@ -41,10 +41,4 @@ export interface ProviderReceiptStore {
   append(receipt: ProviderReceipt): void;
   /** All receipts for an economic identity, oldest first (audit/replay). */
   listByRequestId(requestId: string, orgId: string): readonly ProviderReceipt[];
-  /**
-   * Owning org for an economic identity (from the durable operation row).
-   * Readback receipts stay tenant-scoped even after a process restart, when
-   * no dispatch has happened in this process to remember the org.
-   */
-  orgIdForRequestId(requestId: string): string | null;
 }

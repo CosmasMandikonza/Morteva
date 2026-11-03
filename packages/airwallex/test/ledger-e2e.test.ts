@@ -8,6 +8,7 @@ import { TunableClock } from '@moterva/ledger';
 import { FixtureTransport, created, ok, unavailable } from '../src/fixture-transport.js';
 import type { FixtureScript } from '../src/fixture-transport.js';
 import { buildOfflineFixtureDispatcher } from '../src/dispatcher.js';
+import { providerRequestIdFor } from '../src/provider-request-id.js';
 import { loadAirwallexConfig } from '../src/config.js';
 
 /**
@@ -100,14 +101,25 @@ function world() {
   return { path, ledger, clock, org, mission, reserve };
 }
 
-function attach(ledger: Ledger, clock: TunableClock, script: Partial<FixtureScript>) {
+function attach(
+  ledger: Ledger,
+  clock: TunableClock,
+  script:
+    Partial<FixtureScript> | ((ns: (ledgerRequestId: string) => string) => Partial<FixtureScript>),
+  orgId?: string,
+) {
+  const ns =
+    orgId !== undefined
+      ? (ledgerRequestId: string) => providerRequestIdFor(orgId, ledgerRequestId)
+      : (ledgerRequestId: string) => ledgerRequestId;
+  const resolved = typeof script === 'function' ? script(ns) : script;
   const fixture = new FixtureTransport({
     login: [created({ token: 'e2e-tok', expires_at: '2026-11-03T12:25:00.000Z' })],
     createTransfer: [],
     listTransfers: [],
     getTransfer: [],
     balances: [],
-    ...script,
+    ...resolved,
   } as FixtureScript);
   const dispatcher = buildOfflineFixtureDispatcher(
     CONFIG,
@@ -117,36 +129,41 @@ function attach(ledger: Ledger, clock: TunableClock, script: Partial<FixtureScri
     () => 'ben-e2e',
   );
   ledger.worker.register(dispatcher);
-  return { fixture, dispatcher };
+  return { fixture, dispatcher, ns };
 }
 
 describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
   it('happy path: reserve → dispatch → IN_FLIGHT (not settled) → readback PAID → SETTLED with attestation', async () => {
     const w = world();
     const reserved = w.reserve('e2e-happy-1');
-    attach(w.ledger, w.clock, {
-      createTransfer: [
-        created({
-          id: 'tr_h1',
-          request_id: 'e2e-happy-1',
-          status: 'PROCESSING',
-          transfer_amount: 250,
-          transfer_currency: 'USD',
-        }),
-      ],
-      listTransfers: [
-        ok({ items: [{ id: 'tr_h1', request_id: 'e2e-happy-1', status: 'PROCESSING' }] }),
-      ],
-      getTransfer: [
-        ok({
-          id: 'tr_h1',
-          request_id: 'e2e-happy-1',
-          status: 'PAID',
-          transfer_amount: 250,
-          transfer_currency: 'USD',
-        }),
-      ],
-    });
+    attach(
+      w.ledger,
+      w.clock,
+      (ns) => ({
+        createTransfer: [
+          created({
+            id: 'tr_h1',
+            request_id: ns('e2e-happy-1'),
+            status: 'PROCESSING',
+            transfer_amount: 250,
+            transfer_currency: 'USD',
+          }),
+        ],
+        listTransfers: [
+          ok({ items: [{ id: 'tr_h1', request_id: ns('e2e-happy-1'), status: 'PROCESSING' }] }),
+        ],
+        getTransfer: [
+          ok({
+            id: 'tr_h1',
+            request_id: ns('e2e-happy-1'),
+            status: 'PAID',
+            transfer_amount: 250,
+            transfer_currency: 'USD',
+          }),
+        ],
+      }),
+      w.org.id,
+    );
     const pass1 = await w.ledger.worker.runOnce();
     expect(pass1.dispatched).toBe(1);
     const afterDispatch = w.ledger.reservations.getOperation(w.org.id, reserved.operation.id);
@@ -174,9 +191,14 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
   it('crash-after-SUBMITTING-before-reply: STATUS_UNKNOWN, exposure retained, restart reconciles (never resubmits)', async () => {
     const w = world();
     const reserved = w.reserve('e2e-crash-1');
-    attach(w.ledger, w.clock, {
-      createTransfer: [unavailable('process died after provider accepted')], // lost HTTP response
-    });
+    attach(
+      w.ledger,
+      w.clock,
+      {
+        createTransfer: [unavailable('process died after provider accepted')], // lost HTTP response
+      },
+      w.org.id,
+    );
     const pass1 = await w.ledger.worker.runOnce();
     expect(pass1.markedUnknown).toBe(1);
     expect(w.ledger.reservations.getOperation(w.org.id, reserved.operation.id).state).toBe(
@@ -189,6 +211,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
     // Restart: new process, SAME database; the stale claim replays via the
     // RECONCILE path only — the create is never re-sent.
     const reopened = openLedger(w.path, w.clock);
+    const ns2 = (id: string) => providerRequestIdFor(w.org.id, id);
     const fixture2 = new FixtureTransport({
       balances: [],
       login: [created({ token: 'e2e-tok-2', expires_at: '2026-11-03T12:50:00.000Z' })],
@@ -198,7 +221,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
           items: [
             {
               id: 'tr_c1',
-              request_id: 'e2e-crash-1',
+              request_id: ns2('e2e-crash-1'),
               status: 'PAID',
               transfer_amount: 250,
               transfer_currency: 'USD',
@@ -209,7 +232,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
       getTransfer: [
         ok({
           id: 'tr_c1',
-          request_id: 'e2e-crash-1',
+          request_id: ns2('e2e-crash-1'),
           status: 'PAID',
           transfer_amount: 250,
           transfer_currency: 'USD',
@@ -239,21 +262,34 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
   it('provider keeps processing forever → commitment retained, never settled, repeated readbacks scheduled', async () => {
     const w = world();
     const reserved = w.reserve('e2e-pending-1');
-    attach(w.ledger, w.clock, {
-      createTransfer: [
-        created({
-          id: 'tr_p1',
-          request_id: 'e2e-pending-1',
-          status: 'PROCESSING',
-          transfer_amount: 250,
-          transfer_currency: 'USD',
-        }),
-      ],
-      listTransfers: [
-        ok({ items: [{ id: 'tr_p1', request_id: 'e2e-pending-1', status: 'PROCESSING' }] }),
-      ],
-      getTransfer: [ok({ id: 'tr_p1', status: 'PROCESSING' })],
-    });
+    attach(
+      w.ledger,
+      w.clock,
+      (ns) => ({
+        createTransfer: [
+          created({
+            id: 'tr_p1',
+            request_id: ns('e2e-pending-1'),
+            status: 'PROCESSING',
+            transfer_amount: 250,
+            transfer_currency: 'USD',
+          }),
+        ],
+        listTransfers: [
+          ok({ items: [{ id: 'tr_p1', request_id: ns('e2e-pending-1'), status: 'PROCESSING' }] }),
+        ],
+        getTransfer: [
+          ok({
+            id: 'tr_p1',
+            request_id: ns('e2e-pending-1'),
+            status: 'PROCESSING',
+            transfer_amount: 250,
+            transfer_currency: 'USD',
+          }),
+        ],
+      }),
+      w.org.id,
+    );
     await w.ledger.worker.runOnce();
     w.clock.advance(90_000);
     const pass2 = await w.ledger.worker.runOnce();
@@ -270,15 +306,20 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
   it('definitive rejection at dispatch → REQUIRES_HUMAN, exposure retained (no auto-release)', async () => {
     const w = world();
     const reserved = w.reserve('e2e-reject-1');
-    attach(w.ledger, w.clock, {
-      createTransfer: [
-        {
-          kind: 'respond',
-          httpStatus: 400,
-          body: { code: 'invalid_argument', message: 'beneficiary invalid' },
-        },
-      ],
-    });
+    attach(
+      w.ledger,
+      w.clock,
+      {
+        createTransfer: [
+          {
+            kind: 'respond',
+            httpStatus: 400,
+            body: { code: 'invalid_argument', message: 'beneficiary invalid' },
+          },
+        ],
+      },
+      w.org.id,
+    );
     const pass = await w.ledger.worker.runOnce();
     expect(pass.escalated).toBe(1);
     const op = w.ledger.reservations.getOperation(w.org.id, reserved.operation.id);
