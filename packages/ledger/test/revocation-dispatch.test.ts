@@ -94,7 +94,10 @@ describe('revocation during queued dispatch', () => {
     );
     const approver = ledger.authority.getActorByUsername(ctx.org.id, 'test-approver')!;
     const revoked = ledger.approvals.revoke(
-      ctx.org.id, ref.approvalId, approver.id, 'operator cancelled',
+      ctx.org.id,
+      ref.approvalId,
+      approver.id,
+      'operator cancelled',
     );
     expect(revoked.status).toBe('revoked');
     const dispatcher = stubDispatcher('airwallex');
