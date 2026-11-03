@@ -34,15 +34,22 @@ export function TreasuryA({ lab }: { lab: LabState }): JSX.Element {
           </h1>
           <p className="a-sub">
             {offline
-              ? 'Provider OFFLINE — figures below are the last snapshot; retry to refresh.'
+              ? 'Provider OFFLINE (simulated) — displayed balances are synthetic fixtures.'
               : stale
                 ? 'Balance snapshot aged 47 min (policy 30 min) — autonomous commitments suspended.'
                 : `Balances as of ${treasury.asOf} · providers independent of reservations.`}
           </p>
         </div>
-        <button type="button" className="a-btn a-btn--quiet">
-          {offline ? 'Retry provider' : 'Refresh snapshot'}
-        </button>
+        {(offline || stale) && (
+          <button
+            type="button"
+            className="a-btn a-btn--quiet"
+            onClick={() => lab.setOverride('none')}
+            title="Restore the deterministic synthetic snapshot; no provider request is made"
+          >
+            Restore synthetic snapshot
+          </button>
+        )}
       </div>
 
       {(offline || stale) && (
@@ -57,8 +64,8 @@ export function TreasuryA({ lab }: { lab: LabState }): JSX.Element {
             </strong>
             <p>
               {offline
-                ? 'No live provider call succeeded. Values shown are the last verified snapshot; nothing here is live.'
-                : 'Snapshot age 47 min exceeds the 30-minute freshness policy. Autonomous spending is refused until a fresh balance read succeeds.'}
+                ? 'SIMULATED provider-offline state. Amounts remain synthetic fixtures, NOT verified provider funds.'
+                : 'Simulated snapshot age 47 min exceeds the 30-minute freshness policy. Autonomous spending is refused until the synthetic scenario is restored.'}
             </p>
           </div>
         </div>
@@ -153,9 +160,10 @@ export function TreasuryA({ lab }: { lab: LabState }): JSX.Element {
                   Configure the first mission mandate — budget envelope, reserve floor,
                   counterparties, expiry.
                 </p>
-                <button type="button" className="a-btn a-btn--primary">
-                  Configure first mission
-                </button>
+                <p className="a-muted" role="note">
+                  Mission onboarding is scheduled for MTV-10. Creation is unavailable in this
+                  design-only preview; no mission can be persisted here.
+                </p>
               </div>
             ) : loading ? (
               <div className="a-table-skel">
@@ -277,7 +285,14 @@ export function TreasuryA({ lab }: { lab: LabState }): JSX.Element {
                       <p className="a-exception__title">{ex.title}</p>
                       <p className="a-exception__detail">{ex.detail}</p>
                     </div>
-                    <button type="button" className="a-linkbtn">
+                    <button
+                      type="button"
+                      className="a-linkbtn"
+                      aria-label={`Inspect ${ex.title}`}
+                      onClick={() =>
+                        lab.setScreen(ex.kind === 'STALE_EVIDENCE' ? 'decision' : 'authority')
+                      }
+                    >
                       Inspect →
                     </button>
                   </li>
