@@ -507,8 +507,8 @@ describe('denial audit trail', () => {
       permittedOperationKinds: ['airwallex_transfer'],
       expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
     });
-    ledger.mandates.revoke(org.id, mission.id, mandate.id, approver.id, 'test revocation');
     const ref = approvedPlan(ledger, org.id, mission.id, { amountMinor: 1_000, currency: 'USD' });
+    ledger.mandates.revoke(org.id, mission.id, mandate.id, approver.id, 'test revocation');
     try {
       reserveCall(ledger, { org }, mission.id, ref, 'audit-denied');
       expect.unreachable();
