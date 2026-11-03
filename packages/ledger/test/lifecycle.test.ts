@@ -45,7 +45,7 @@ describe('lifecycle transitions and money retention', () => {
       orgId: org.id,
       operationId: operation.id,
       to: 'SETTLED',
-      attestation: { source: 'test-harness' },
+      attestation: { source: 'provider-readback', note: 'synthetic verified status fixture' },
     });
     for (const bad of ['RESERVED', 'SUBMITTING', 'CANCELLED', 'STATUS_UNKNOWN'] as const) {
       try {
@@ -57,6 +57,27 @@ describe('lifecycle transitions and money retention', () => {
     }
     // RECONCILED is the only legal next step from SETTLED.
     ledger.reservations.transition({ orgId: org.id, operationId: operation.id, to: 'RECONCILED' });
+    ledger.close();
+  });
+
+  it('refuses a synthetic settlement or post-dispatch cancellation without provider confirmation', () => {
+    const { ledger, clock } = makeLedger();
+    const { org, mission } = funded(ledger, clock);
+    const ref = approvedPlan(ledger, org.id, mission.id, { amountMinor: 100_000, currency: 'USD' });
+    const { operation } = reserveCall(ledger, { org }, mission.id, ref, 'lc-truth');
+    expect(() => ledger.reservations.transition({
+      orgId: org.id, operationId: operation.id, to: 'SETTLED',
+      attestation: { source: 'test-harness' },
+    })).toThrowError(/without independently verified provider-readback/);
+    ledger.reservations.transition({
+      orgId: org.id, operationId: operation.id, to: 'SUBMITTING',
+    });
+    expect(() => ledger.reservations.transition({
+      orgId: org.id, operationId: operation.id, to: 'CANCELLED',
+      attestation: { source: 'operator-action', note: 'please cancel' },
+    })).toThrowError(/without independently verified provider-readback/);
+    expect(ledger.reservations.getCommitment(org.id, operation.id).state).toBe('reserved');
+    expect(ledger.spendable.compute(org.id, 'USD').outstandingCommittedMinor).toBe(100_000);
     ledger.close();
   });
 
