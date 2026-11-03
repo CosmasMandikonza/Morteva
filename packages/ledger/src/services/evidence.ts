@@ -34,6 +34,19 @@ export class EvidenceService {
   ) {}
 
   append(input: AppendEvidenceInput): EvidenceEventView {
+    // A caller must not attach an event to another organization's mission.
+    // Bare foreign keys verify existence, not tenancy, so enforce here too.
+    if (input.missionId !== undefined) {
+      const row = this.db
+        .prepare('SELECT id FROM missions WHERE id = ? AND org_id = ?')
+        .get(input.missionId, input.orgId);
+      if (row === undefined) {
+        throw new LedgerError(
+          'CROSS_ORG_ACCESS',
+          'evidence mission does not belong to the stated organization',
+        );
+      }
+    }
     const digest = createHash('sha256').update(canonicalJson(input.payload)).digest('hex');
     const recordedAt = this.clock.iso();
     try {
@@ -70,7 +83,7 @@ export class EvidenceService {
       }
       throw error;
     }
-    return this.lastInserted(input.orgId);
+    return this.getByEventKey(input.orgId, input.eventKey);
   }
 
   list(
@@ -104,12 +117,14 @@ export class EvidenceService {
     return num(row.c, 'count');
   }
 
-  private lastInserted(orgId: string): EvidenceEventView {
+  private getByEventKey(orgId: string, eventKey: string): EvidenceEventView {
+    // Do not use "latest event by org": another writer may append after our
+    // INSERT and before the SELECT, producing someone else's evidence receipt.
     const row = this.db
       .prepare(
-        'SELECT seq, id, org_id, mission_id, topic, type, event_key, payload_digest, recorded_at FROM evidence_events WHERE org_id = ? ORDER BY seq DESC LIMIT 1',
+        'SELECT seq, id, org_id, mission_id, topic, type, event_key, payload_digest, recorded_at FROM evidence_events WHERE org_id = ? AND event_key = ?',
       )
-      .get(orgId);
+      .get(orgId, eventKey);
     if (row === undefined)
       throw new LedgerError('DB_CORRUPTED', 'evidence insert reported success but row is missing');
     return this.mapRow(row);
