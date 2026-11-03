@@ -93,6 +93,33 @@ async function login(
 }
 
 describe('config: DEMO_AUTH gate', () => {
+  it('refuses public-facing development bootstraps and origins', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'development', MOTERVA_DEV_AUTH: '1',
+        HOST: '0.0.0.0', WEB_ORIGIN: 'http://localhost:5173',
+      }),
+    ).toThrowError(/loopback HOST/);
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'development', MOTERVA_DEV_AUTH: '1',
+        HOST: '127.0.0.1', WEB_ORIGIN: 'https://public-preview.example',
+      }),
+    ).toThrowError(/loopback WEB_ORIGIN/);
+  });
+
+  it('does not register password login when DEMO_AUTH is disabled', async () => {
+    const { app, ledger } = makeApp({ devAuth: false });
+    fundWorld(ledger);
+    const response = await app.inject({
+      method: 'POST', url: '/api/auth/login',
+      payload: { username: 'http-owner', password: TEST_PASSWORD },
+    });
+    expect(response.statusCode).toBe(404);
+    await app.close();
+    ledger.close();
+  });
+
   it('refuses to boot when MOTERVA_DEV_AUTH=1 meets production', () => {
     expect(() =>
       loadConfig({ NODE_ENV: 'production', MOTERVA_DEV_AUTH: '1', LOG_LEVEL: 'silent' }),
