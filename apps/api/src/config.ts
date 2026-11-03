@@ -122,12 +122,27 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
   if (!parsed.success) {
     issues.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`));
   }
-  // DEMO_AUTH hard gate: fail-closed before boot in any production config.
+  // DEMO_AUTH is deliberately local-only, not merely "non-production".
+  // NODE_ENV is often left at development in preview/cloud deployments.
   const devAuthRequested = (env.MOTERVA_DEV_AUTH ?? '') === '1';
-  if (devAuthRequested && parsed.success && parsed.data.NODE_ENV === 'production') {
-    issues.push(
-      'MOTERVA_DEV_AUTH: demo authentication cannot be enabled in production; refusing to start (remove MOTERVA_DEV_AUTH or set NODE_ENV=development/test)',
-    );
+  if (devAuthRequested && parsed.success) {
+    if (parsed.data.NODE_ENV === 'production') {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo authentication cannot be enabled in production; refusing to start (remove MOTERVA_DEV_AUTH or set NODE_ENV=development/test)',
+      );
+    }
+    const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+    if (!loopbackHosts.has(parsed.data.HOST)) {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo bootstrap requires loopback HOST only; refusing network-exposed demo actor creation',
+      );
+    }
+    const origin = new URL(parsed.data.WEB_ORIGIN);
+    if (!loopbackHosts.has(origin.hostname)) {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo bootstrap requires a loopback WEB_ORIGIN, not a public website',
+      );
+    }
   }
   if (providerMode === undefined || !parsed.success || issues.length > 0) {
     throw new StartupConfigError(issues);
