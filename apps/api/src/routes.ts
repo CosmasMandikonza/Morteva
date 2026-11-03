@@ -25,7 +25,10 @@ export function registerAuthAndFinancialRoutes(
 
   // ------------------------------------------------------------------ auth
 
-  app.post('/api/auth/login', async (request, reply) => {
+  // Password login is a local/demo bridge, not production authentication.
+  // Production auth requires a separately verified IdP integration.
+  if (config.devAuth) {
+    app.post('/api/auth/login', async (request, reply) => {
     const body = (request.body ?? {}) as {
       username?: unknown;
       password?: unknown;
@@ -67,6 +70,8 @@ export function registerAuthAndFinancialRoutes(
       demoAuth: config.devAuth,
     };
   });
+
+  }
 
   app.post('/api/auth/logout', async (request, reply) => {
     if (request.session === null) {
