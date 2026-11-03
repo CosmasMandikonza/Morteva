@@ -51,6 +51,43 @@ function fundedMission(
 }
 
 describe('cumulative mandate budgets', () => {
+  it('a NEW mandate ID cannot reset a mission/currency cumulative spend envelope', () => {
+    const { ledger, clock } = makeLedger();
+    const ctx = fundedMission(ledger, clock, { maxAmountMinor: 10_000, totalBudgetMinor: 30_000 });
+    for (let i = 0; i < 3; i += 1) {
+      const ref = approvedPlan(ledger, ctx.org.id, ctx.mission.id, {
+        amountMinor: 10_000,
+        currency: 'USD',
+      });
+      reserveCall(ledger, { org: ctx.org }, ctx.mission.id, ref, `before-new-id-${i}`);
+    }
+    const freshIdentity = ledger.mandates.issue({
+      orgId: ctx.org.id,
+      missionId: ctx.mission.id,
+      currency: 'USD',
+      maxAmountMinor: 10_000,
+      totalBudgetMinor: 30_000,
+      permittedOperationKinds: ['airwallex_transfer'],
+      expiresAt: new Date(clock.now().getTime() + 86_400_000).toISOString(),
+    });
+    expect(freshIdentity.id).not.toBe(ctx.mandate.id);
+    expect(ledger.mandates.latest(ctx.org.id, ctx.mission.id, ctx.mandate.id).status).toBe(
+      'superseded',
+    );
+    expect(ledger.mandates.consumedBudget(ctx.org.id, freshIdentity.id)).toBe(0);
+    expect(ledger.mandates.consumedMissionBudget(ctx.org.id, ctx.mission.id, 'USD')).toBe(
+      30_000,
+    );
+    const ref = approvedPlan(ledger, ctx.org.id, ctx.mission.id, {
+      amountMinor: 1,
+      currency: 'USD',
+    });
+    expect(() =>
+      reserveCall(ledger, { org: ctx.org }, ctx.mission.id, ref, 'new-id-bypass'),
+    ).toThrowError(/cumulative mission budget exceeded/);
+    ledger.close();
+  });
+
   it('ten under-cap payments cannot bypass the total envelope: the 4th of a 3× budget is denied', () => {
     const { ledger, clock } = makeLedger();
     const ctx = fundedMission(ledger, clock, { maxAmountMinor: 10_000, totalBudgetMinor: 30_000 });
