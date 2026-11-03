@@ -1,18 +1,22 @@
 /**
- * App factory. Routes in MTV-01 are exactly: GET /healthz (liveness) and
- * GET /api/system/status (honest read-only integration status).
+ * App factory. Routes are exactly: GET /healthz (liveness) and
+ * GET /api/system/status (honest read-only status incl. local ledger facts).
  *
- * Everything else fails closed with 404 — including future financial routes
- * that do not exist yet, and wrong HTTP methods (docs/01 security boundary:
- * no public payment endpoints, no partially wired routes).
+ * Everything else fails closed with 404 — including financial mutation routes,
+ * which stay internal (service/test boundary) until authentication lands
+ * (docs/01 security boundary; MTV-02 handoff #5: no public financial writes).
  */
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { LedgerStatusView } from '@moterva/domain';
 import type { AppConfig } from './config.js';
 import { systemStatusView } from './routes/system-status.js';
 import { healthView } from './routes/health.js';
 
-export function buildApp(config: AppConfig): FastifyInstance {
+export function buildApp(
+  config: AppConfig,
+  ledgerStatus?: () => LedgerStatusView,
+): FastifyInstance {
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -28,7 +32,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
 
   app.get('/healthz', async () => healthView(config));
 
-  app.get('/api/system/status', async () => systemStatusView(config));
+  app.get('/api/system/status', async () => systemStatusView(config, ledgerStatus?.()));
 
   app.setNotFoundHandler((_request, reply) => {
     void reply.code(404).send({

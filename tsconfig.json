@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/domain" },
     { "path": "packages/providers" },
+    { "path": "packages/ledger" },
     { "path": "apps/api" }
   ]
 }

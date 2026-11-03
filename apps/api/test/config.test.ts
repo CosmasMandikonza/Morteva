@@ -8,7 +8,15 @@ describe('loadConfig — safe startup validation', () => {
     expect(config.host).toBe('127.0.0.1');
     expect(config.webOrigin).toBe('http://localhost:5173');
     expect(config.providerMode).toBe('offline');
+    expect(config.ledgerPath).toBe('data/moterva.sqlite');
     expect(config.warnings).toEqual([]);
+  });
+
+  it('accepts an explicit ledger path (MTV-02)', () => {
+    expect(loadConfig({ MOTERVA_LEDGER_PATH: '/var/lib/moterva/ledger.sqlite' }).ledgerPath).toBe(
+      '/var/lib/moterva/ledger.sqlite',
+    );
+    expect(() => loadConfig({ MOTERVA_LEDGER_PATH: '' })).toThrowError(StartupConfigError);
   });
 
   it('accepts explicit valid values', () => {

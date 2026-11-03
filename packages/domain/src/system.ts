@@ -20,6 +20,14 @@ export interface ProviderStatusView {
   readonly detail: string;
 }
 
+/** Local financial-ledger health (MTV-02): persistence facts, never provider claims. */
+export interface LedgerStatusView {
+  readonly ok: boolean;
+  readonly schemaVersion: number;
+  readonly integrity: 'ok' | 'violations' | 'unchecked';
+  readonly pendingDispatches: number;
+}
+
 export interface SystemStatusView {
   readonly service: string;
   readonly version: string;
@@ -27,4 +35,6 @@ export interface SystemStatusView {
   readonly providerMode: ProviderMode;
   readonly providers: readonly ProviderStatusView[];
   readonly simulationNotice: string;
+  /** Present once the API boots with the financial ledger wired (MTV-02). */
+  readonly ledger?: LedgerStatusView;
 }
