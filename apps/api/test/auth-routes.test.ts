@@ -408,14 +408,6 @@ describe('HTTP auth boundary', () => {
     });
     expect(okRead.statusCode).toBe(200);
 
-    // Owner revokes the mandate → a further reserve attempt is denied 403.
-    const revokeResponse = await app.inject({
-      method: 'POST',
-      url: `/api/mandates/${mandate.id}/revoke`,
-      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrfToken },
-      payload: { missionId: world.mission.id, reason: 'halt' },
-    });
-    expect(revokeResponse.statusCode).toBe(200);
     const plan2Response = await app.inject({
       method: 'POST',
       url: '/api/plans',
@@ -438,7 +430,16 @@ describe('HTTP auth boundary', () => {
         expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       },
     });
+    expect(approval2Response.statusCode).toBe(200);
     const approval2 = (approval2Response.json() as { approval: { id: string } }).approval;
+    // Owner revokes the mandate → a further reserve attempt is denied 403.
+    const revokeResponse = await app.inject({
+      method: 'POST',
+      url: `/api/mandates/${mandate.id}/revoke`,
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrfToken },
+      payload: { missionId: world.mission.id, reason: 'halt' },
+    });
+    expect(revokeResponse.statusCode).toBe(200);
     const denied = await app.inject({
       method: 'POST',
       url: '/api/operations/reserve',
