@@ -38,11 +38,9 @@ export function registerAuthAndFinancialRoutes(
       const password = typeof body.password === 'string' ? body.password : '';
       const orgId = typeof body.orgId === 'string' ? body.orgId : undefined;
       if (username === '' || password === '') {
-        return void reply
-          .code(400)
-          .send({
-            error: { code: 'INVALID_INPUT', message: 'username and password are required' },
-          });
+        return void reply.code(400).send({
+          error: { code: 'INVALID_INPUT', message: 'username and password are required' },
+        });
       }
       const limiterKey = `${request.ip}:${username}`;
       if (loginLimiter.isBlocked(limiterKey)) {
