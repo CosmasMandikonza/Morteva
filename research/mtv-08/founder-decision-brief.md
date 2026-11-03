@@ -20,7 +20,7 @@
 | **B · Night Sortie**                         | Memorable command-deck story; strongest demo video                                    | Contrast/perf/motion discipline required (mitigations verified)                  |
 | **B-led hybrid (engineers' recommendation)** | B tokens/motion on Decision Room + 3D flagship; A's calm density on Treasury & Replay | One token system; carries B visual language with A's disciplined content density |
 
-Pick one: `A` / `B` / `B-led hybrid`. After you inspect reference-grounded desktop/mobile style tiles and choose, we record the design ADR + `design/tokens.json` (docs/03 artifacts), and only then does any theme code land in `apps/web`.
+**Both directions are now rendered and interactive** on branch `design/mtv-08-visual-validation` — open the founder console per [design-validation-report.md](design-validation-report.md) and compare them at desktop and mobile widths, with honest states and the approval flow live. Pick one: `A` / `B` / `B-led hybrid`. After you choose, we record the design ADR + `design/tokens.json` (docs/03 artifacts), and only then does any theme code land in `apps/web`.
 
 ## Decision 2 — 3D primary vertical (first asset built in #11)
 
