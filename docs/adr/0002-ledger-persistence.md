@@ -1,9 +1,9 @@
 # ADR 0002 — Ledger persistence: SQLite via node:sqlite, atomic reservations, outbox
 
-- **Status:** Proposed (delivered with MTV-02, issue #4)
+- **Status:** Accepted for the internal MTV-02 ledger foundation (reviewed/merged PR #23; not authorization for live provider payments)
 - **Date:** 2026-11-03
 - **Deciders:** Engineering (agent) per docs/07 founder-input gate
-- **Review:** due at PR review; supersedes the persistence *plan* in ADR 0001 §Decision 3, which this implements
+- **Review:** exact-head CI and security/correctness review passed on `80aa93aeaf47cbf893e42b11440c78211256876f`; merged main `8bb231145deec082caf3c765bd34b3678d6f7fdb`. Supersedes the persistence *plan* in ADR 0001 §Decision 3. See docs/10 for the post-review Metal account and provider-readback limitations.
 
 ## Context
 
