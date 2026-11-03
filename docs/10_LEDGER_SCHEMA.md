@@ -17,14 +17,33 @@ Single source of truth for the persisted financial model. The executable schema 
 | `missions` | org-scoped operating unit | FK org; `status ∈ active/completed/archived` |
 | `accounts` | one treasury account per org+currency | `UNIQUE(org_id, currency, kind)`; `protected_floor_minor >= 0` |
 | `balance_snapshots` | append-only provider/manual balance observations | `minor_units >= 0`; `source ∈ airwallex-sandbox/metal-testnet/manual-seed`; `observed_at <= expires_at` (freshness) |
-| `mandates` | immutable versioned spending authority per mission | `PK(id, version)`; `max_amount_minor > 0`; status active/superseded/expired |
-| `candidate_plans` | immutable versioned plan terms + canonical digest | `PK(id, version)`; digest = sha256(canonicalJson(terms)) |
-| `approvals` | exact-term approval binding one plan version | FK to `candidate_plans(id, version)`; `amount_minor > 0`; status valid/consumed/invalidated |
+| `mandates` (v2) | immutable versioned spending authority per mission | `PK(id, version)`; `max_amount_minor > 0`; **`total_budget_minor` cumulative **mission/currency** envelope; -1 denotes historical, disabled v1 authority**; rails/beneficiary/purpose allowlists; `require_separate_approver`; status active/superseded/expired/**revoked** + `revoked_at` |
+| `candidate_plans` (v2) | immutable versioned plan terms + canonical digest | `PK(id, version)`; digest = sha256(canonicalJson(terms)); **`proposed_by` actor** (separation of duties) |
+| `approvals` (v2) | exact-term approval binding one plan version | FK to `candidate_plans(id, version)`; **`UNIQUE(plan_id, plan_version)`** (one approval per immutable version); binds kind + mandate id/version + **quote digest + evidence digest**; `auth_key` single-use identity; status valid/consumed/invalidated/**revoked** |
 | `operations` | the durable economic intent | `UNIQUE(org_id, request_id)` = idempotency identity; lifecycle state CHECK; FKs to plan version + mandate version |
 | `commitments` | the money view of an operation (1:1) | `UNIQUE(operation_id)`; `state ∈ reserved/unknown/settled/released`; `finalized_at` set on settlement |
 | `outbox_dispatches` | transactional dispatch record (1:1 per rail op) | `UNIQUE(operation_id)`; `rail ∈ airwallex/metal`; status pending/claimed/dispatched/abandoned |
 | `evidence_events` | append-only audit journal | `UNIQUE(org_id, event_key)` (replay suppression); UPDATE/DELETE blocked by triggers |
+| `actors` (v2) | persisted identity: role + scrypt credential | `UNIQUE(org_id, username)`; role ∈ owner/admin/approver/operator/viewer/service; service actors have no password |
+| `sessions` (v2) | hashed-token expiring sessions | `token_hash`/`csrf_hash` UNIQUE (sha256); `expires_at`; `revoked_at` |
+| `mission_grants` (v2) | explicit per-mission machine authority | `UNIQUE(mission_id, actor_id)`; `revoked_at` |
 | `schema_migrations` | applied versions | PK `version` |
+
+## The mandate budget invariant (v2)
+
+```
+mission_consumed = SUM(operations WHERE org_id = O AND mission_id = M AND currency = C
+                       AND state IN (RESERVED, SUBMITTING, IN_FLIGHT,
+                                     STATUS_UNKNOWN, SETTLED, RECONCILED, REQUIRES_HUMAN))
+reserve allowed ⇔ mission_consumed + requested ≤ current_mandate.total_budget_minor
+                   (one BEGIN IMMEDIATE transaction; across all mandate IDs)
+```
+
+**Settled payments consume the envelope for the lifetime of the mandate** — a fresher provider balance snapshot frees treasury *spendable* (the bank already knows), never *authority*. Only provably-never-executed states (CANCELLED/REJECTED/EXPIRED) release budget. The budget check shares the reservation's `BEGIN IMMEDIATE` transaction, so concurrent workers cannot exceed the envelope (proved by real worker-thread races).
+
+## The authority gate (v2)
+
+The dispatch worker's authoritative decision is ONE transaction: claim outbox row → reload operation → if still RESERVED, re-verify (mandate not revoked/superseded/expired, active version unchanged, **approval valid for this queued operation and actor, global mission consumption within envelope**) → `RESERVED→SUBMITTING` or **block** (`CANCELLED` + outbox `abandoned` + `dispatch.blocked` evidence; provider never called). Revocation after the gate retains the commitment and reconciles by the original request id. See [ADR 0003](adr/0003-financial-authority.md).
 
 ## The spendable invariant
 
@@ -86,3 +105,11 @@ The v1 SQLite schema tracks **ISO 4217 fiat** currencies and one treasury accoun
 - Per-org mission cumulative budgets, real approval identity, release/reversal authorization, segregated rail asset units and provider-backed balances.
 - Multi-instance deployment and durable job scheduling; the single-host SQLite adapter is a deliberate local MVP limit.
 
+
+### MTV-05 CTO review boundary
+
+- All monetary consumption is assessed per org/mission/currency, **across mandate identities**. One active mandate per mission/currency is permitted. Reissued/superseded credentials cannot silently reset previous settled/unknown payments.
+- V1 mandates and unverified approvals are preserved as **historical data, not authorization to spend**: migration supersedes active legacy mandates and invalidates unconsumed legacy approvals. Existing attempted operations still reconcile against provider truth.
+- The worker rechecks queued approval revocation, expiry, actor revocation and bound mandate version before calling any provider; post-attempt revocation retains exposure. Provider connectors remain disabled.
+- Foreign key verification happens inside migration transactions, so a failed integrity check rolls back both the schema and migration version.
+- Real financial HTTP routes require a future production IdP. For now they are enabled only in loopback DEMO_AUTH; do not expose the demo listener or classify demo credentials as customer access.

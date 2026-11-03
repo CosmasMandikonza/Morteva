@@ -17,19 +17,20 @@ The web app is the honest shell: primary navigation to the planned capabilities 
 
 ### All commands
 
-| Command                                | What it does                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------ |
-| `npm ci`                               | Cold install exactly from `package-lock.json` (fails if lockfile is tampered)  |
-| `npm run dev`                          | Both servers in watch mode (API + web)                                         |
-| `npm run lint`                         | ESLint across all workspaces                                                   |
-| `npm run format:check`                 | Prettier check                                                                 |
-| `npm run typecheck`                    | `tsc` strict across packages, apps, e2e and tests                              |
-| `npm run test:unit`                    | Vitest per workspace (domain, API, providers, ledger incl. race/restart tests) |
-| `npm run build`                        | Compile packages + API (`tsc`), build web (`vite build`)                       |
-| `npm run test:e2e`                     | Build, then Playwright chromium against the real servers                       |
-| `npm run check:docs`                   | Markdown link integrity + secret patterns in docs                              |
-| `npm run check:secrets`                | Secret-pattern scan over source files                                          |
-| `npm run seed:demo -w @moterva/ledger` | Temp-database demo: two missions contend for one pool, honest outcomes         |
+| Command                                     | What it does                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `npm ci`                                    | Cold install exactly from `package-lock.json` (fails if lockfile is tampered)                |
+| `npm run dev`                               | Both servers in watch mode (API + web)                                                       |
+| `npm run lint`                              | ESLint across all workspaces                                                                 |
+| `npm run format:check`                      | Prettier check                                                                               |
+| `npm run typecheck`                         | `tsc` strict across packages, apps, e2e and tests                                            |
+| `npm run test:unit`                         | Vitest per workspace (domain, API, providers, ledger incl. race/restart tests)               |
+| `npm run build`                             | Compile packages + API (`tsc`), build web (`vite build`)                                     |
+| `npm run test:e2e`                          | Build, then Playwright chromium against the real servers                                     |
+| `npm run check:docs`                        | Markdown link integrity + secret patterns in docs                                            |
+| `npm run check:secrets`                     | Secret-pattern scan over source files                                                        |
+| `npm run seed:demo -w @moterva/ledger`      | Temp-database demo: two missions contend for one pool, honest outcomes                       |
+| `npm run seed:authority -w @moterva/ledger` | Authority journey: actors → mandate/approval → reserve → revocation denials → restart replay |
 
 `npm ci` and every script above run on a cold checkout in CI (`.github/workflows/ci.yml`, Linux/Node 24). A red CI check blocks a green claim — see docs/09.
 
@@ -43,7 +44,7 @@ All configuration is optional and safe by default (see [.env.example](.env.examp
 - **Liveness:** `curl http://127.0.0.1:8787/healthz` → `{"status":"ok",...}`. This is process liveness only; it never claims provider state.
 - **Honest status:** `curl http://127.0.0.1:8787/api/system/status` — providers list with `OFFLINE` labels, a simulation notice, and local ledger facts (schema version, integrity, pending dispatches). The UI renders this verbatim and shows a `DEMO_SIMULATED` notice in simulated mode.
 - **Failure states:** backend offline → the web shell shows an explicit "API offline" alert with a Retry button (covered by E2E). Config missing/invalid → API exits 1 before binding a port. Corrupted/failed-migration ledger → API refuses to boot; migrations run transactionally at startup ([schema doc](docs/10_LEDGER_SCHEMA.md)).
-- **Financial endpoints:** none are public; every unknown `/api/*` route fails closed with a 404 (negative-tested). Financial mutations live behind the internal ledger service boundary until authentication lands; provider dispatch arrives only with issues #5/#6.
+- **Financial endpoints (MTV-05):** authenticated session routes (`POST /api/auth/login|logout`, `GET /api/auth/session`) plus role-guarded, CSRF-protected financial routes (`/api/missions`, `/api/mandates` (+`/:id/revoke`), `/api/plans`, `/api/approvals` (+`/:id/revoke`), `/api/operations/reserve`, `/api/operations/:id`). Identity comes only from the session cookie → persisted actor; cross-tenant resources 404; unauthenticated 401; insufficient role / missing CSRF / missing mission grant 403 with machine-readable codes. Login + one-time dev bootstrap exist ONLY under `MOTERVA_DEV_AUTH=1` with non-production `NODE_ENV` (the config refuses to boot otherwise). Unknown routes still fail closed with 404; no provider write paths exist (issues #5/#6).
 - **Rollback:** `git revert`; ledger schema changes are forward-only migrations — do not edit applied migration files, append new ones.
 
 ## Repository layout

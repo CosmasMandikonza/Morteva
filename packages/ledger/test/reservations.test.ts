@@ -39,7 +39,13 @@ describe('reservation — spendable math and atomicity', () => {
   it('fails closed for Metal token orders until a distinct token-asset ledger exists', () => {
     const { ledger, clock } = makeLedger();
     const { org, mission } = fundedOrg(ledger, clock);
-    const ref = approvedPlan(ledger, org.id, mission.id, { amountMinor: 10_000, currency: 'USD' });
+    const ref = approvedPlan(
+      ledger,
+      org.id,
+      mission.id,
+      { amountMinor: 10_000, currency: 'USD' },
+      { kind: 'metal_order' },
+    );
     expect(() =>
       reserveCall(ledger, { org }, mission.id, ref, 'no-fiat-bridge', 'metal_order'),
     ).toThrowError(/Metal token orders require a separate/);
@@ -183,7 +189,10 @@ describe('reservation — spendable math and atomicity', () => {
       reserveCall(ledger, { org }, mission.id, second, 'rq-huge-2');
       expect.unreachable('second MAX_SAFE reservation must fail');
     } catch (error) {
-      expect((error as LedgerError).code).toBe('INSUFFICIENT_SPENDABLE');
+      // The cumulative mandate envelope (default = per-op max) is consumed by
+      // the first operation, so the budget invariant fires first — exactly the
+      // "N under-cap payments must not bypass the total budget" rule.
+      expect((error as LedgerError).code).toBe('MANDATE_BUDGET_EXCEEDED');
     }
     expect(ledger.spendable.compute(org.id, 'USD').overcommitted).toBe(false);
     ledger.close();

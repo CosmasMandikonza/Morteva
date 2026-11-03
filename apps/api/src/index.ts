@@ -57,12 +57,16 @@ async function main(): Promise<void> {
     return;
   }
 
-  const app = buildApp(config, () => ({
-    ok: ledger.db.open,
-    schemaVersion: ledger.schemaVersion(),
-    integrity: 'ok',
-    pendingDispatches: ledger.outbox.pendingCount(),
-  }));
+  const app = buildApp(
+    config,
+    () => ({
+      ok: ledger.db.open,
+      schemaVersion: ledger.schemaVersion(),
+      integrity: 'ok',
+      pendingDispatches: ledger.outbox.pendingCount(),
+    }),
+    ledger,
+  );
 
   for (const warning of config.warnings) {
     app.log.warn(warning);

@@ -36,9 +36,26 @@ export { commitmentConsumesCapacity, commitmentStateFor } from './commitments.js
 
 export { canonicalJson, termsDigest } from './digest.js';
 
+export type { ActorRole, ActorKind } from './roles.js';
+export {
+  ACTOR_ROLES,
+  canApproveFinancialActions,
+  canManageAuthority,
+  canOperate,
+  canProposePlans,
+  canReadFinancialState,
+  isActorRole,
+} from './roles.js';
+
+export type { PolicyOutcome, PolicyReasonCode, PolicyDecision } from './policy.js';
+export { authorized, denied, needsHuman, revoked, staleApproval } from './policy.js';
+
+export { MANDATE_BUDGET_CONSUMING_STATES, operationConsumesMandateBudget } from './budget.js';
+
 export type {
   AccountId,
   AccountView,
+  ActorView,
   ApprovalId,
   ApprovalView,
   BalanceSnapshotView,
@@ -49,6 +66,7 @@ export type {
   FinancialOperationView,
   MandateId,
   MandateView,
+  MissionGrantView,
   MissionId,
   MissionStatus,
   MissionView,
@@ -59,5 +77,6 @@ export type {
   OutboxDispatchView,
   OutboxStatus,
   PlanId,
+  SessionContextView,
   SpendableView,
 } from './entities.js';
