@@ -64,7 +64,19 @@ export class PlanService {
   }): CandidatePlanView {
     requireValidTerms(input.terms);
     const digest = termsDigest(input.terms as Record<string, unknown>);
+    const owningMission = this.db
+      .prepare('SELECT id FROM missions WHERE id = ? AND org_id = ?')
+      .get(input.missionId, input.orgId);
+    if (owningMission === undefined) {
+      throw new LedgerError('CROSS_ORG_ACCESS', 'plan mission does not belong to organization');
+    }
     const planId = input.planId ?? newId('plan');
+    const previous = this.db
+      .prepare('SELECT mission_id FROM candidate_plans WHERE id = ? AND org_id = ? LIMIT 1')
+      .get(planId, input.orgId) as { mission_id: string } | undefined;
+    if (previous !== undefined && previous.mission_id !== input.missionId) {
+      throw new LedgerError('CROSS_ORG_ACCESS', 'one plan identity cannot span missions');
+    }
     const versionRow = this.db
       .prepare('SELECT MAX(version) AS v FROM candidate_plans WHERE id = ? AND org_id = ?')
       .get(planId, input.orgId) as { v: number | null };
