@@ -38,7 +38,19 @@ export class MandateService {
     if (new Date(input.expiresAt) <= this.clock.now()) {
       throw new LedgerError('MANDATE_EXPIRED', 'mandate expiry must be in the future');
     }
+    const owningMission = this.db
+      .prepare('SELECT id FROM missions WHERE id = ? AND org_id = ?')
+      .get(input.missionId, input.orgId);
+    if (owningMission === undefined) {
+      throw new LedgerError('CROSS_ORG_ACCESS', 'mandate mission does not belong to organization');
+    }
     const mandateId = input.mandateId ?? newId('mnd');
+    const previous = this.db
+      .prepare('SELECT mission_id FROM mandates WHERE id = ? AND org_id = ? LIMIT 1')
+      .get(mandateId, input.orgId) as { mission_id: string } | undefined;
+    if (previous !== undefined && previous.mission_id !== input.missionId) {
+      throw new LedgerError('CROSS_ORG_ACCESS', 'one mandate identity cannot span missions');
+    }
     const versionRow = this.db
       .prepare('SELECT MAX(version) AS v FROM mandates WHERE id = ? AND org_id = ?')
       .get(mandateId, input.orgId) as { v: number | null };
