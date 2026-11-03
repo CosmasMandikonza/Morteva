@@ -387,6 +387,27 @@ export class ReservationService {
           `operation ${operation.id} is STATUS_UNKNOWN; resolving it requires an attestation of the verified source (provider readback, operator action) — never a timeout`,
         );
       }
+      // No test harness/operator assertion can make a provider payment 'settled'.
+      // Once any dispatch may have begun, cancellation/rejection must be
+      // supported by an actual provider readback, otherwise funds stay held.
+      const mightHaveReachedProvider =
+        operation.state === 'SUBMITTING' ||
+        operation.state === 'IN_FLIGHT' ||
+        operation.state === 'STATUS_UNKNOWN' ||
+        operation.state === 'REQUIRES_HUMAN';
+      const releasesFunds =
+        input.to === 'CANCELLED' || input.to === 'REJECTED' || input.to === 'EXPIRED';
+      if (
+        (operation.kind !== 'internal_hold' && input.to === 'SETTLED') ||
+        (mightHaveReachedProvider && releasesFunds)
+      ) {
+        if (input.attestation?.source !== 'provider-readback') {
+          throw new LedgerError(
+            'INVALID_TRANSITION',
+            `operation ${operation.id} cannot move ${operation.state} -> ${input.to} without independently verified provider-readback; retaining financial exposure`,
+          );
+        }
+      }
       if (!canTransitionOperation(operation.state, input.to)) {
         throw new LedgerError(
           'INVALID_TRANSITION',
