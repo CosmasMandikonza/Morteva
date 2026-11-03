@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Cold checkout verify (install, scan, lint, typecheck, test, build, e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Record runtime
+        run: node --version && npm --version
+
+      - name: Install (npm ci — verifies the committed lockfile on a cold checkout)
+        run: npm ci
+
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
+
+      - name: Documentation integrity
+        run: node scripts/check-docs.mjs
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Format check (prettier)
+        run: npm run format:check
+
+      - name: Typecheck (tsc, strict)
+        run: npm run typecheck
+
+      - name: Unit tests (vitest)
+        run: npm run test:unit
+
+      - name: Build (api + packages tsc, web vite)
+        run: npm run build
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (playwright, real servers)
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -1,0 +1,48 @@
+{
+  "name": "moterva",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MOTERVA Mission Treasury — mission-scoped financial autonomy engine for physical operations (hackathon build; no production money movement).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "minimatch": "^11.0.1"
+  },
+  "scripts": {
+    "build:packages": "tsc -b packages/domain packages/providers",
+    "dev": "npm run build:packages && concurrently -n api,web -c blue,green \"npm run dev -w @moterva/api\" \"npm run dev -w @moterva/web\"",
+    "build": "tsc -b && npm run build -w @moterva/web",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.e2e.json && npm run typecheck -w @moterva/web && npm run typecheck -w @moterva/api && npm run typecheck -w @moterva/domain && npm run typecheck -w @moterva/providers",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:unit": "tsc -b && npm run test --workspaces --if-present",
+    "test:e2e": "npm run build && playwright test",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.50.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.0.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.72.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
+  }
+}

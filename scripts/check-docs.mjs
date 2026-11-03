@@ -35,7 +35,9 @@ async function checkFile(file) {
     try { target = decodeURIComponent(target); }
     catch { errors.push(label + ': invalid percent-encoded link ' + match[1]); continue; }
     const full = resolve(dirname(file), target);
-    if (!(full === root || full.startsWith(root + '/'))) {
+    // Path-separator-safe containment check (Windows resolves with '\').
+    const rel = relative(root, full);
+    if (rel === '' || rel.startsWith('..') || resolve(rel) === rel) {
       errors.push(label + ': local link escapes repository: ' + match[1]);
       continue;
     }
