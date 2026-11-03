@@ -2,9 +2,10 @@
 // Design-token contract check (issue #29, ADR 0004).
 //
 // Validates design/tokens.json against three sources of truth:
-//   1. The merged design lab CSS — every color token's value must match the
-//      referenced lab custom property byte-exactly (or be declared lab:new /
-//      a token: reference that resolves to one that does).
+//   1. The merged design lab CSS — every color token's value must equal its
+//      referenced lab custom property AFTER NORMALIZATION (lowercase,
+//      whitespace-insensitive), or be declared lab:new / a token: reference
+//      that resolves to a token which is.
 //   2. The domain package — the presentation status mapping must cover
 //      EXACTLY the OperationState union and ApprovalView.status from
 //      packages/domain/src, and every commitment column must equal
@@ -70,7 +71,7 @@ const parse = (v) => {
 const toHex = (rgb) => '#' + rgb.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('');
 const normColor = (v) => v.toLowerCase().replace(/\s+/g, '');
 
-// --- 1. token↔lab byte-exact verification ----------------------------------
+// --- 1. token↔lab value verification (after normalization) ------------------
 const COLOR_VALUE = /(--[a-z0-9-]+)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^;]*?\))\s*;/gi;
 const labVars = {};
 for (const file of ['apps/web/src/design-lab/a/lab-a.css', 'apps/web/src/design-lab/b/lab-b.css']) {
@@ -80,7 +81,8 @@ for (const file of ['apps/web/src/design-lab/a/lab-a.css', 'apps/web/src/design-
   for (const m of css.matchAll(COLOR_VALUE)) labVars[key][m[1]] = normColor(m[2]);
 }
 
-let labChecked = 0;
+let directLabComparisons = 0;
+let tokenReferenceEdges = 0;
 const labValue = (name, mode) => {
   const entry = dotted[name];
   const ref = entry?.lab?.[mode];
@@ -92,7 +94,7 @@ const labValue = (name, mode) => {
       fail(`${name}.${mode}: token: reference points to itself`);
       return null;
     }
-    labChecked++; // count the reference edge; the target is verified on its own
+    tokenReferenceEdges++; // a reuse edge, NOT an independent lab comparison; the target is verified on its own
     const resolved = dotted[target] ? target : `color.${target}`;
     return labValue(resolved, mode);
   }
@@ -121,10 +123,10 @@ for (const name of Object.keys(dotted)) {
     if (lab.isNew) continue;
     if (normColor(entry[mode]) !== lab.labValue) {
       fail(
-        `${name}.${mode} value ${normColor(entry[mode])} does NOT equal its lab source (${lab.labValue}) — traceability broken`,
+        `${name}.${mode} value ${normColor(entry[mode])} does NOT equal its lab source after normalization (${lab.labValue}) — traceability broken`,
       );
     } else {
-      labChecked++;
+      directLabComparisons++;
     }
   }
 }
@@ -338,7 +340,7 @@ console.log(
   `\nContrast: ${combos} declared combinations evaluated in ${tokens.modes.length} modes = ${rows.length} evaluations — ${rows.length} pass (${aaa} at AAA ≥7:1, ${rows.length - aaa} at AA/UI minimums).`,
 );
 console.log(
-  `Lab traceability: ${labChecked} token↔lab value comparisons byte-exact; 'lab:new' values are explicitly flagged in design/tokens.json.`,
+  `Lab traceability: ${directLabComparisons} direct token↔lab value comparisons matched after normalization (lowercase, whitespace-insensitive); ${tokenReferenceEdges} token-reference edges resolved (reuse of an already-verified token — not independent lab comparisons); 'lab:new' values are explicitly flagged in design/tokens.json.`,
 );
 console.log(
   'Scope: this checker validates DECLARED pairs, source annotations and mapping completeness — not the accessibility of every rendered component. The font gate checks npm dependency presence; the full license posture is documented in the component ledger and ADR 0004, not audited here.',
@@ -349,5 +351,5 @@ if (errors.length) {
   process.exit(1);
 }
 console.log(
-  '\nDesign token contract OK: structure, byte-exact lab traceability, domain-anchored status mapping, font package presence, readability floor and all declared contrast minimums verified for dark and light.',
+  '\nDesign token contract OK: structure, normalized lab traceability, domain-anchored status mapping, font package presence, readability floor and all declared contrast minimums verified for dark and light.',
 );
