@@ -141,13 +141,14 @@ export class MandateService {
       createdAt: this.clock.iso(),
     };
     this.db.transaction(() => {
-      if (nextVersion > 1) {
-        this.db
-          .prepare(
-            "UPDATE mandates SET status = 'superseded' WHERE id = ? AND org_id = ? AND version < ? AND status = 'active'",
-          )
-          .run(mandateId, input.orgId, nextVersion);
-      }
+      // A mission/currency may have ONE active authority envelope. Replacing
+      // its mandate ID must not leave an older active cap to fall back to.
+      // Historical operations under *all* IDs continue consuming mission cap.
+      this.db
+        .prepare(
+          "UPDATE mandates SET status = 'superseded' WHERE org_id = ? AND mission_id = ? AND currency = ? AND status = 'active'",
+        )
+        .run(input.orgId, input.missionId, currency);
       this.db
         .prepare(
           `INSERT INTO mandates (id, org_id, mission_id, version, status, currency, max_amount_minor, total_budget_minor,
@@ -262,17 +263,17 @@ export class MandateService {
          ORDER BY version DESC, created_at DESC, id DESC`,
       )
       .all(...(currency !== undefined ? [orgId, missionId, currency] : [orgId, missionId]));
-    for (const row of rows) {
-      const mandate = this.mapRow(row);
-      if (
-        mandate.status === 'active' &&
-        mandate.revokedAt === null &&
-        new Date(mandate.expiresAt) > now
-      ) {
-        return mandate;
-      }
-    }
+    // Never resurrect an older mandate after the latest authority was
+    // revoked, superseded or expired.
     const newest = rows.length > 0 ? this.mapRow(rows[0] as unknown) : undefined;
+    if (
+      newest !== undefined &&
+      newest.status === 'active' &&
+      newest.revokedAt === null &&
+      new Date(newest.expiresAt) > now
+    ) {
+      return newest;
+    }
     if (newest !== undefined) {
       if (newest.status === 'revoked') {
         throw new LedgerError(
@@ -317,6 +318,22 @@ export class MandateService {
       )
       .get(orgId, mandateId) as { total: number };
     return num(row.total, 'consumed');
+  }
+
+  /**
+   * Mission-wide consumed budget across ALL mandate IDs/versions in one
+   * currency. Reissuing under a new ID cannot silently reset money already
+   * reserved, submitted or settled for the mission. Call in the same write
+   * transaction as the reservation or dispatch gate.
+   */
+  consumedMissionBudget(orgId: string, missionId: string, currency: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS total FROM operations
+         WHERE org_id = ? AND mission_id = ? AND currency = ? AND state IN ${CONSUMING_STATES_SQL}`,
+      )
+      .get(orgId, missionId, currency) as { total: number };
+    return num(row.total, 'mission consumed');
   }
 
   /** Breakdown for UI/audit: envelope, consumed, remaining. */
