@@ -383,10 +383,10 @@ export class ApprovalService {
     return approval;
   }
 
-  /** Explicit revocation by an authorized actor. Blocks any not-yet-consumed use. */
+  /** Explicit revocation; also blocks previously reserved but not-yet-dispatched operations. */
   revoke(orgId: string, approvalId: string, byActorId: string, reason: string): ApprovalView {
     const approval = this.get(orgId, approvalId);
-    if (approval.status !== 'valid') {
+    if (approval.status !== 'valid' && approval.status !== 'consumed') {
       throw new LedgerError(
         'APPROVAL_INVALIDATED',
         `approval ${approvalId} is already ${approval.status}`,
@@ -403,7 +403,7 @@ export class ApprovalService {
     const now = this.clock.iso();
     const result = this.db
       .prepare(
-        `UPDATE approvals SET status = 'revoked', revoked_at = ? WHERE id = ? AND org_id = ? AND status = 'valid'`,
+        `UPDATE approvals SET status = 'revoked', revoked_at = ? WHERE id = ? AND org_id = ? AND status IN ('valid', 'consumed')`,
       )
       .run(now, approvalId, orgId);
     if (result.changes !== 1) {
