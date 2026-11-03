@@ -93,3 +93,11 @@ What the awarded fintech work above teaches, translated into MOTERVA constraints
 ## 5. Implementation-time obligations when importing any ledger row
 
 Per docs/03 §Procedure 4, each import must log: exact component name, canonical URL, copied file path, dependencies added, license/attribution line placed in `NOTICE`/credits, approved UX use, observed keyboard/screen-reader behavior (re-verified in copied source, not assumed from docs), and performance notes. Commons Clause (React Bits) additionally forbids ever re-exporting those files as a library.
+
+## 6. CTO licensing recheck — special risk in a public repository
+
+**React Bits is not unqualified MIT.** The official `LICENSE.md` (https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md) permits use as part of an application but restricts selling, sublicensing and **redistributing the components themselves**, including bundled or ported copies. Because MOTERVA's GitHub repository is public, copying React Bits component source into tracked files raises a redistribution ambiguity. **Do not commit copied React Bits source to this public repository until the maintainer's terms or permission explicitly covers the contemplated distribution**, or choose an alternative MIT component/own original implementation instead. Preserve copyright/license notices wherever use is allowed. This is a license diligence gate, not a claim of legal infringement.
+
+Cult UI's MIT base is a strong default, but verify the actual registry file's copyright notice and third-party dependencies. "Same effect as a reference" does not grant permission to copy another site's implementation. No third-party component source is imported by this research PR.
+
+**Implementation requirement:** each candidate has a `license-status` column or checklist entry `APPROVED_FOR_THIS_REPOSITORY | REVIEW_REQUIRED | REJECTED`, with evidence and reviewer, before code is copied. The current React Bits candidates are `REVIEW_REQUIRED` for public-source distribution, not automatically approved.
