@@ -1,5 +1,5 @@
 /**
- * Airwallex transfer smoke runner (issue #5, final-round P0-1 safety contract).
+ * Airwallex transfer smoke runner (issue #5; final-acceptance safety contract).
  *
  * ONE durable economic intent per state directory — enforced by the DURABLE
  * LEDGER, not just by a file:
@@ -11,18 +11,42 @@
  *  - every rerun REOPENS the same ledger operation and only dispatches
  *    (same id, provider-deduped) or reconciles it. A rerun never creates a
  *    new organization, reservation or economic identity;
- *  - a failed/missing/ambiguous/incomplete readback blocks another create;
- *  - deleting or corrupting the state file does NOT authorize a new payment:
- *    any unresolved smoke operation still in the ledger blocks fresh setup;
- *  - a separate economic intent requires --new-intent (an explicit new
- *    authorization) AND that every prior smoke operation is resolved;
- *  - concurrent invocations are serialized by an exclusive lock file;
- *  - a FRESH VERIFIED sandbox balance read gates every invocation, and the
- *    amount is capped far below observed funds.
+ *  - the one-intent policy covers ALL persisted states: a missing state file
+ *    NEVER authorizes another payment, regardless of the prior operation's
+ *    state (SETTLED awaiting reconciliation and REQUIRES_HUMAN count as
+ *    unresolved, not resolved). A separate economic intent requires
+ *    --new-intent (explicit new authorization) AND that every prior smoke
+ *    operation is fully resolved (RECONCILED/CANCELLED); only then is the
+ *    prior state file ARCHIVED (never deleted — the original request and
+ *    provider identities remain recoverable from the archive, the ledger and
+ *    the provider receipts);
+ *  - concurrent invocations are serialized by an exclusive lock file; state
+ *    writes are temp+rename atomic; a FRESH VERIFIED sandbox balance read
+ *    gates every invocation and the amount is capped far below observed funds.
  *
- * This module is side-effect free and returns structured outcomes so the
- * double-run/crash/restart guarantees are provable in tests; the CLI wrapper
- * (transfer.ts) maps outcomes to console output and exit codes.
+ * Outcome taxonomy (unambiguous by construction):
+ *   blocked        — strictly BEFORE any provider attempt this run: nothing
+ *                    was submitted.
+ *   unverified     — a provider attempt may have occurred (this run or an
+ *                    earlier one): outcome unknown, funds remain committed;
+ *                    the ONLY recovery is reconciling THIS intent by its
+ *                    original identity — never a new one.
+ *   requires-human — explicit escalation (definitive provider failure,
+ *                    authoritative late-failure reversal after settlement,
+ *                    or a contradictory readback after reconciliation).
+ *   confirmed      — an identity-verified PAID readback at a specific
+ *                    verification time AND the ledger state machine says
+ *                    SETTLED/RECONCILED. Late failure remains possible and
+ *                    monitored (PAID is not irreversible delivery).
+ *
+ * Provider-truth handling is routed through the AUTHORITATIVE worker/state
+ * machine (worker.runOnce({claimTtlMs: 0}) reconciles immediately): the
+ * runner's own readback is for reporting and may only SETTLE (never reverse
+ * or rewrite) — reversals and escalations are always the worker's, with
+ * their auditable evidence events.
+ *
+ * This module is side-effect free and returns structured outcomes; the CLI
+ * wrapper (transfer.ts) maps outcomes to console output and exit codes.
  */
 import {
   closeSync,
@@ -51,8 +75,16 @@ export const SMOKE_CURRENCY = 'USD';
 export const MAX_SMOKE_AMOUNT_MINOR = 2_000; // hard cap (USD 20.00 equivalent)
 export const DEFAULT_SMOKE_AMOUNT_MINOR = 500; // USD 5.00 equivalent
 export const FUNDING_SAFETY_FACTOR = 10; // provider funds must exceed 10× the amount
-/** Every request id this smoke creates starts with this marker (orphan guard). */
+/** Every request id this smoke creates starts with this marker (intent guard). */
 export const SMOKE_REQUEST_PREFIX = 'awx-smoke-';
+/**
+ * A smoke operation is RESOLVED only when nothing further is owed: RECONCILED
+ * (funds confirmed arrived, monitoring drained) or CANCELLED (never executed).
+ * SETTLED is NOT resolved — it is provider-verified success still awaiting
+ * reconciliation (PAID can still fail late). REQUIRES_HUMAN is NOT resolved —
+ * a human owns an open money decision. (Kept in sync with the unresolved
+ * list inside unresolvedSmokeOperations.)
+ */
 
 export interface SmokeTransferInput {
   readonly config: AirwallexAdapterConfig;
@@ -88,8 +120,24 @@ export type SmokeTransferResult =
       readonly reason: string;
     }
   | {
+      readonly outcome: 'unverified';
+      readonly reason: string;
+      readonly orgId: string;
+      readonly operationId: string;
+      readonly operationState: string;
+      readonly ledgerRequestId: string;
+      readonly providerRequestId: string;
+      readonly workerReport?: Readonly<Record<string, number>>;
+      readonly receiptCount?: number;
+    }
+  | {
       readonly outcome: 'requires-human';
       readonly reason: string;
+      readonly orgId: string;
+      readonly operationId: string;
+      readonly operationState: string;
+      readonly ledgerRequestId: string;
+      readonly providerRequestId: string;
     }
   | {
       readonly outcome: 'confirmed' | 'monitoring' | 'dispatched';
@@ -119,7 +167,7 @@ interface SmokeState {
   readonly createdAt: string;
 }
 
-interface UnresolvedOperation {
+interface PriorOperation {
   readonly requestId: string;
   readonly operationId: string;
   readonly state: string;
@@ -127,10 +175,7 @@ interface UnresolvedOperation {
 
 function fingerprintOf(clientId: string | null): string {
   // One-way fingerprint of the sandbox-account identity; never the credential.
-  return createHash('sha256')
-    .update(clientId ?? '<disabled>')
-    .digest('hex')
-    .slice(0, 16);
+  return createHash('sha256').update(clientId ?? '<disabled>').digest('hex').slice(0, 16);
 }
 
 function lockPathOf(stateDir: string): string {
@@ -201,26 +246,41 @@ function writeStateAtomic(stateFile: string, state: SmokeState): void {
   renameSync(tmp, stateFile);
 }
 
-function unresolvedSmokeOperations(ledger: Ledger): UnresolvedOperation[] {
+/** Every smoke operation in the durable ledger, in any state. */
+function allSmokeOperations(ledger: Ledger): PriorOperation[] {
   return ledger.db
     .prepare(
       `SELECT o.request_id AS requestId, o.id AS operationId, o.state AS state
          FROM operations o
         WHERE o.request_id LIKE ?
-          AND o.state IN ('RESERVED','SUBMITTING','IN_FLIGHT','STATUS_UNKNOWN')`,
+        ORDER BY o.created_at`,
     )
-    .all(`${SMOKE_REQUEST_PREFIX}%`) as UnresolvedOperation[];
+    .all(`${SMOKE_REQUEST_PREFIX}%`) as PriorOperation[];
 }
 
-function describeUnresolved(unresolved: readonly UnresolvedOperation[]): string {
-  return unresolved
-    .map((o) => `${o.requestId} (${o.operationId.slice(0, 8)}…) state=${o.state}`)
+/** Smoke operations that still owe something (money may be in motion, verified-success still monitored, or a human decision open). */
+function unresolvedSmokeOperations(ledger: Ledger): PriorOperation[] {
+  const unresolvedStates = [
+    'RESERVED',
+    'SUBMITTING',
+    'IN_FLIGHT',
+    'STATUS_UNKNOWN',
+    'SETTLED',
+    'REQUIRES_HUMAN',
+  ];
+  return allSmokeOperations(ledger).filter((o) => unresolvedStates.includes(o.state));
+}
+
+function describeOperations(operations: readonly PriorOperation[]): string {
+  return operations
+    .map((o) => `${o.requestId} (operation ${o.operationId.slice(0, 8)}…) state=${o.state}`)
     .join('; ');
 }
 
 /**
  * The smoke workflow. NEVER process.exits; returns a structured outcome.
- * 'blocked' is fail-closed: nothing was sent to the provider.
+ * 'blocked' is fail-closed and strictly pre-attempt: nothing was sent to the
+ * provider. Anything after a possible provider attempt reports 'unverified'.
  */
 export async function runSmokeTransfer(input: SmokeTransferInput): Promise<SmokeTransferResult> {
   const now = input.now ?? (() => new Date());
@@ -264,61 +324,117 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
     };
   }
 
+  // Set the moment a provider attempt becomes possible in THIS run; after
+  // that point every failure is 'unverified', never 'blocked'.
+  const runState = { providerAttemptPossible: false };
+
   try {
     const client = new AirwallexClient(input.config, input.transport, { now });
 
-    // Read persisted state first: the PERSISTED authorized terms govern reruns.
     let persisted = readState(stateFile);
-    if (input.newIntent && persisted !== null && !('corrupt' in persisted)) {
-      // Explicit new authorization: archive (never delete) the prior state.
-      const archive = join(input.stateDir, `state-${persisted.state.ledgerRequestId}.json`);
-      renameSync(stateFile, archive);
-      persisted = null;
+    if (persisted !== null && 'corrupt' in persisted) {
+      return {
+        outcome: 'blocked',
+        reason: `state file ${stateFile} is corrupt or incomplete. A damaged state file never authorizes a new payment; the original intent's operation and identities remain recoverable from the durable ledger (${dbPath}) and its provider receipts.`,
+      };
     }
 
     // Open the durable ledger (the real backstop for every file-based check).
-    const ledger =
-      input.ledgerClock === undefined ? openLedger(dbPath) : openLedger(dbPath, input.ledgerClock);
+    const ledger = input.ledgerClock === undefined ? openLedger(dbPath) : openLedger(dbPath, input.ledgerClock);
     ledger.migrate();
     try {
-      if (persisted === null || 'corrupt' in persisted) {
-        if (persisted !== null) {
-          return {
-            outcome: 'blocked',
-            reason: `state file ${stateFile} is corrupt or incomplete. A damaged state file never authorizes a new payment; resolve the existing intent manually (its ledger operation id is recoverable from ${dbPath}).`,
-          };
-        }
-        // No state file: fresh intent is allowed ONLY when the durable ledger
-        // holds no unresolved smoke operation (deleting the state file must
-        // not silently authorize a new payment).
+      if (input.newIntent) {
+        // Explicit new authorization. The check comes FIRST; archiving the
+        // prior state file happens only after every prior smoke operation is
+        // fully resolved (RECONCILED/CANCELLED — SETTLED still monitors and
+        // REQUIRES_HUMAN still owes a human decision, so both block).
         const unresolved = unresolvedSmokeOperations(ledger);
         if (unresolved.length > 0) {
           return {
             outcome: 'blocked',
-            reason: `state file is absent but the smoke ledger still holds unresolved operations: ${describeUnresolved(unresolved)}. Restore its state file or resolve manually; refusing to create a new payment. (Use --new-intent only after every prior intent is resolved.)`,
+            reason: `--new-intent refused: prior smoke operations are not fully resolved (SETTLED awaits reconciliation; REQUIRES_HUMAN owes a human decision): ${describeOperations(unresolved)}. Resolve them first; their identities remain recoverable from the ledger and archived state.`,
           };
         }
-        return await createFreshIntent(input, ledger, client, builder, fingerprint, now, stateFile);
+        if (persisted !== null) {
+          // Checks passed: archive (never delete) so the original identities
+          // stay recoverable, then start the explicitly authorized new intent.
+          const archive = join(
+            input.stateDir,
+            `state-${persisted.state.ledgerRequestId}.json`,
+          );
+          renameSync(stateFile, archive);
+          persisted = null;
+        }
+        return await createFreshIntent(
+          input,
+          ledger,
+          client,
+          builder,
+          fingerprint,
+          now,
+          stateFile,
+          runState,
+        );
       }
-      return await continueExistingIntent(
+      if (persisted !== null) {
+        return await continueExistingIntent(
+          input,
+          ledger,
+          client,
+          builder,
+          fingerprint,
+          persisted.state,
+          runState,
+        );
+      }
+      // No state file and no --new-intent: a fresh payment is authorized ONLY
+      // when the durable ledger holds NO prior smoke operation at all — in ANY
+      // state. Deleting the state file must never silently authorize another
+      // payment, regardless of the prior operation's state.
+      const priors = allSmokeOperations(ledger);
+      if (priors.length > 0) {
+        return {
+          outcome: 'blocked',
+          reason: `state file is absent but the smoke ledger holds prior operations: ${describeOperations(priors)}. A missing state file never authorizes a new payment in any state; resolve/reconcile via the existing intent or pass --new-intent (explicit new authorization, only after every prior intent is fully resolved).`,
+        };
+      }
+      return await createFreshIntent(
         input,
         ledger,
         client,
         builder,
         fingerprint,
-        persisted.state,
+        now,
+        stateFile,
+        runState,
       );
     } finally {
       ledger.close();
     }
   } catch (error) {
-    return {
-      outcome: 'blocked',
-      reason: `unexpected failure: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    const message = `unexpected failure: ${error instanceof Error ? error.message : String(error)}`;
+    if (runState.providerAttemptPossible) {
+      return {
+        outcome: 'unverified',
+        reason: `${message} — a provider attempt may already have occurred. Funds remain committed; recover ONLY by reconciling this same intent (rerun this script); never substitute a new identity.`,
+        orgId: '(see state file / durable ledger)',
+        operationId: '(see state file / durable ledger)',
+        operationState: 'unknown',
+        ledgerRequestId: '(see state file / durable ledger)',
+        providerRequestId: '(see state file / durable ledger)',
+      };
+    }
+    return { outcome: 'blocked', reason: message };
   } finally {
     lock.release();
   }
+}
+
+async function readVerifiedUsdBalance(client: AirwallexClient): Promise<number | null> {
+  const balances = await client.balancesCurrent();
+  const usd = balances.find((balance) => balance.currency === SMOKE_CURRENCY);
+  if (usd === undefined) return null;
+  return usd.availableAmount.minorUnits;
 }
 
 async function verifyFreshBalanceGate(
@@ -341,13 +457,6 @@ async function verifyFreshBalanceGate(
   return null;
 }
 
-async function readVerifiedUsdBalance(client: AirwallexClient): Promise<number | null> {
-  const balances = await client.balancesCurrent();
-  const usd = balances.find((balance) => balance.currency === SMOKE_CURRENCY);
-  if (usd === undefined) return null;
-  return usd.availableAmount.minorUnits;
-}
-
 async function createFreshIntent(
   input: SmokeTransferInput,
   ledger: Ledger,
@@ -356,6 +465,7 @@ async function createFreshIntent(
   fingerprint: string,
   now: () => Date,
   stateFile: string,
+  runState: { providerAttemptPossible: boolean },
 ): Promise<SmokeTransferResult> {
   let verifiedMinor: number;
   try {
@@ -414,7 +524,7 @@ async function createFreshIntent(
     observedAt: now().toISOString(),
     expiresAt: new Date(now().getTime() + 3_600_000).toISOString(),
   });
-  return finishIntentSetup(input, ledger, builder, fingerprint, now, stateFile, {
+  return finishIntentSetup(input, ledger, builder, fingerprint, now, stateFile, runState, {
     orgId: org.id,
     missionId: mission.id,
     adminId: admin.id,
@@ -435,6 +545,7 @@ async function finishIntentSetup(
   fingerprint: string,
   now: () => Date,
   stateFile: string,
+  runState: { providerAttemptPossible: boolean },
   ids: {
     orgId: string;
     missionId: string;
@@ -499,7 +610,7 @@ async function finishIntentSetup(
     createdAt: now().toISOString(),
   });
 
-  return dispatchAndReport(input, ledger, builder, {
+  return dispatchAndReport(input, ledger, builder, runState, {
     orgId: ids.orgId,
     operationId: reservation.operation.id,
     ledgerRequestId: ids.requestId,
@@ -517,12 +628,12 @@ async function continueExistingIntent(
   builder: DispatcherBuilder,
   fingerprint: string,
   state: SmokeState,
+  runState: { providerAttemptPossible: boolean },
 ): Promise<SmokeTransferResult> {
   if (state.accountFingerprint !== fingerprint) {
     return {
       outcome: 'blocked',
-      reason:
-        'state file belongs to a different sandbox account (credential fingerprint mismatch); a different account must not resume or replace this intent.',
+      reason: 'state file belongs to a different sandbox account (credential fingerprint mismatch); a different account must not resume or replace this intent.',
     };
   }
   if (state.beneficiaryId !== input.beneficiaryId) {
@@ -548,26 +659,24 @@ async function continueExistingIntent(
   ) {
     return {
       outcome: 'blocked',
-      reason:
-        'persisted state and the durable operation disagree on the authorized terms; resolve manually — never re-create or substitute terms.',
+      reason: 'persisted state and the durable operation disagree on the authorized terms; resolve manually — never re-create or substitute terms.',
     };
   }
   if (providerRequestIdFor(state.orgId, state.ledgerRequestId) !== state.providerRequestId) {
     return {
       outcome: 'blocked',
-      reason:
-        'persisted provider request id does not match the namespacing of the persisted org/request ids; state integrity failure — resolve manually.',
+      reason: 'persisted provider request id does not match the namespacing of the persisted org/request ids; state integrity failure — resolve manually.',
     };
   }
 
   const blocked = await verifyFreshBalanceGate(client, state.amountMinor);
   if (blocked !== null) return { outcome: 'blocked', reason: blocked };
 
-  // Reopen the SAME durable intent: worker pass dispatches only if this
+  // Reopen the SAME durable intent: the worker pass dispatches only if this
   // intent was never attempted (same request id — provider-deduped);
   // otherwise it reconciles by the original identity. Never a second
   // economic identity.
-  return dispatchAndReport(input, ledger, builder, {
+  return dispatchAndReport(input, ledger, builder, runState, {
     orgId: state.orgId,
     operationId: state.operationId,
     ledgerRequestId: state.ledgerRequestId,
@@ -582,6 +691,7 @@ async function dispatchAndReport(
   input: SmokeTransferInput,
   ledger: Ledger,
   builder: DispatcherBuilder,
+  runState: { providerAttemptPossible: boolean },
   identity: {
     orgId: string;
     operationId: string;
@@ -600,8 +710,31 @@ async function dispatchAndReport(
     () => identity.beneficiaryId,
   );
   ledger.worker.register(dispatcher);
-  const workerReport = await ledger.worker.runOnce();
 
+  // A prior run may already have attempted this intent (anything beyond
+  // RESERVED means an attempt happened or was begun).
+  const before = ledger.reservations.getOperation(identity.orgId, identity.operationId);
+  if (before.state !== 'RESERVED') {
+    runState.providerAttemptPossible = true;
+  }
+
+  // AUTHORITATIVE pass first (claimTtlMs 0 → stale claims reconcile
+  // immediately instead of waiting out the TTL): the state machine owns
+  // every escalation and reversal with its auditable evidence events.
+  const firstPass = await ledger.worker.runOnce({ claimTtlMs: 0 });
+  let workerTotals: Readonly<Record<string, number>> = {
+    claimed: firstPass.claimed,
+    dispatched: firstPass.dispatched,
+    reconciled: firstPass.reconciled,
+    markedUnknown: firstPass.markedUnknown,
+    escalated: firstPass.escalated,
+    blocked: firstPass.blocked,
+  };
+  if (firstPass.dispatched > 0 || firstPass.markedUnknown > 0) {
+    runState.providerAttemptPossible = true;
+  }
+
+  // Fresh provider readback — the authoritative observation for reporting.
   let readback: ProviderCallResult<unknown, ProviderCallStatus>;
   try {
     readback = await dispatcher.reconcileByRequestId(identity.ledgerRequestId, {
@@ -612,20 +745,40 @@ async function dispatchAndReport(
       beneficiary: identity.beneficiaryId,
     });
   } catch (error) {
-    return {
-      outcome: 'blocked',
-      reason: `readback failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    return unverified(
+      identity,
+      'readback attempt failed' + `: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
-  let operationState: string;
-  try {
-    const current = ledger.reservations.getOperation(identity.orgId, identity.operationId);
-    operationState = current.state;
-    if (
-      readback.status === 'confirmed' &&
-      ['IN_FLIGHT', 'STATUS_UNKNOWN', 'SUBMITTING'].includes(current.state)
-    ) {
+  let operation = ledger.reservations.getOperation(identity.orgId, identity.operationId);
+
+  // If the FRESH readback contradicts the local state, drive the
+  // authoritative worker once more so the state machine (not this reporter)
+  // resolves it — e.g. a definitive failure the first pass did not see.
+  if (
+    readback.status === 'failed' &&
+    ['SETTLED', 'IN_FLIGHT', 'STATUS_UNKNOWN', 'SUBMITTING'].includes(operation.state)
+  ) {
+    const secondPass = await ledger.worker.runOnce({ claimTtlMs: 0 });
+    workerTotals = {
+      claimed: workerTotals.claimed! + secondPass.claimed,
+      dispatched: workerTotals.dispatched! + secondPass.dispatched,
+      reconciled: workerTotals.reconciled! + secondPass.reconciled,
+      markedUnknown: workerTotals.markedUnknown! + secondPass.markedUnknown,
+      escalated: workerTotals.escalated! + secondPass.escalated,
+      blocked: workerTotals.blocked! + secondPass.blocked,
+    };
+    operation = ledger.reservations.getOperation(identity.orgId, identity.operationId);
+  }
+
+  // The runner may only SETTLE (never reverse or rewrite) and only on a
+  // fresh identity-verified terminal-success readback.
+  if (
+    readback.status === 'confirmed' &&
+    ['IN_FLIGHT', 'STATUS_UNKNOWN', 'SUBMITTING'].includes(operation.state)
+  ) {
+    try {
       ledger.reservations.transition({
         orgId: identity.orgId,
         operationId: identity.operationId,
@@ -635,37 +788,115 @@ async function dispatchAndReport(
           note: 'sandbox smoke: terminal-success readback',
         },
       });
-      operationState = 'SETTLED';
+      operation = ledger.reservations.getOperation(identity.orgId, identity.operationId);
+    } catch (error) {
+      return unverified(
+        identity,
+        `operation state update failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
-  } catch (error) {
-    return {
-      outcome: 'blocked',
-      reason: `operation state update failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
   }
 
   const receipts = ledger.providerReceipts.listByRequestId(
     identity.ledgerRequestId,
     identity.orgId,
   );
-  const outcome: SmokeTransferResult['outcome'] =
-    readback.status === 'confirmed' ||
-    operationState === 'SETTLED' ||
-    operationState === 'RECONCILED'
-      ? 'confirmed'
-      : operationState === 'REQUIRES_HUMAN'
-        ? 'requires-human'
-        : workerReport.dispatched > 0
-          ? 'dispatched'
-          : 'monitoring';
-  if (outcome === 'requires-human') {
+
+  // Outcome mapping — fresh provider truth AND ledger state must agree
+  // before anything positive is reported; a definitive failure always
+  // escalates; unknown outcomes after an attempt are 'unverified'.
+  if (operation.state === 'REQUIRES_HUMAN') {
     return {
       outcome: 'requires-human',
-      reason: `operation escalated (state ${operationState}, providerState ${String(readback.providerState)}); funds remain committed pending human resolution. No further create attempts will be made for this intent.`,
+      reason: `operation escalated (state REQUIRES_HUMAN; fresh readback status=${readback.status} providerState=${String(readback.providerState)}). ${
+        readback.status === 'failed'
+          ? 'The authoritative worker recorded the definitive/late failure with auditable evidence; history is preserved and exposure remains held pending human resolution.'
+          : 'Funds remain committed pending human resolution.'
+      } No further create attempts will be made for this intent.`,
+      orgId: identity.orgId,
+      operationId: identity.operationId,
+      operationState: operation.state,
+      ledgerRequestId: identity.ledgerRequestId,
+      providerRequestId: identity.providerRequestId,
     };
   }
+  if (readback.status === 'failed') {
+    // The worker pass(es) should have escalated; if the state machine could
+    // not (e.g. already RECONCILED — history is never rewritten), escalate
+    // the REPORT and say so. Never a positive or neutral outcome here.
+    return {
+      outcome: 'requires-human',
+      reason:
+        operation.state === 'RECONCILED'
+          ? `contradictory provider readback (${String(readback.providerState)}) AFTER reconciliation: terminal history is never rewritten; the authoritative worker recorded reversal-after-reconciled evidence. Human investigation required; exposure decisions belong to a human.`
+          : `fresh readback is definitive-failure (${String(readback.providerState)}) while the operation state is ${operation.state}; the authoritative escalation did not complete — investigate before any further action. Funds remain committed.`,
+      orgId: identity.orgId,
+      operationId: identity.operationId,
+      operationState: operation.state,
+      ledgerRequestId: identity.ledgerRequestId,
+      providerRequestId: identity.providerRequestId,
+    };
+  }
+  const confirmedNow =
+    readback.status === 'confirmed' && ['SETTLED', 'RECONCILED'].includes(operation.state);
+  if (confirmedNow) {
+    return {
+      outcome: 'confirmed',
+      orgId: identity.orgId,
+      operationId: identity.operationId,
+      operationState: operation.state,
+      ledgerRequestId: identity.ledgerRequestId,
+      providerRequestId: identity.providerRequestId,
+      readbackStatus: readback.status,
+      readbackProviderState: readback.providerState ?? null,
+      verifiedAt: readback.verifiedAt ?? null,
+      workerReport: workerTotals,
+      receiptCount: receipts.length,
+    };
+  }
+  if (readback.status === 'status-unknown') {
+    // The outcome of a provider attempt (this run's or an earlier one's) is
+    // UNKNOWN — distinct from both 'blocked' (nothing was attempted) and
+    // 'dispatched'/'monitoring' (verifiably pending). Recovery is always
+    // reconciling THIS intent by its original identity.
+    return {
+      outcome: 'unverified' as const,
+      reason: `fresh readback is ambiguous (providerState=${String(readback.providerState)}); the outcome of the provider attempt is unknown — a provider attempt may already have occurred; funds remain committed. Recover ONLY by reconciling this same intent (rerun this script); never substitute a new identity.`,
+      orgId: identity.orgId,
+      operationId: identity.operationId,
+      operationState: operation.state,
+      ledgerRequestId: identity.ledgerRequestId,
+      providerRequestId: identity.providerRequestId,
+      workerReport: workerTotals,
+      receiptCount: receipts.length,
+    };
+  }
+  if (providerAttemptedThisRun(workerTotals) && readback.status !== 'confirmed') {
+    // Submitted this run (provider accepted); readback verifiably pending.
+    return dispatchedOrMonitoring(identity, operation.state, workerTotals, receipts.length, readback);
+  }
+  // Nothing dispatched this run and no terminal readback: still monitored.
+  return dispatchedOrMonitoring(identity, operation.state, workerTotals, receipts.length, readback);
+}
+
+function providerAttemptedThisRun(workerTotals: Readonly<Record<string, number>>): boolean {
+  return (workerTotals.dispatched ?? 0) > 0 || (workerTotals.markedUnknown ?? 0) > 0;
+}
+
+function dispatchedOrMonitoring(
+  identity: {
+    orgId: string;
+    operationId: string;
+    ledgerRequestId: string;
+    providerRequestId: string;
+  },
+  operationState: string,
+  workerTotals: Readonly<Record<string, number>>,
+  receiptCount: number,
+  readback: ProviderCallResult<unknown, ProviderCallStatus>,
+): SmokeTransferResult {
   return {
-    outcome,
+    outcome: (workerTotals.dispatched ?? 0) > 0 ? 'dispatched' : 'monitoring',
     orgId: identity.orgId,
     operationId: identity.operationId,
     operationState,
@@ -674,14 +905,27 @@ async function dispatchAndReport(
     readbackStatus: readback.status,
     readbackProviderState: readback.providerState ?? null,
     verifiedAt: readback.verifiedAt ?? null,
-    workerReport: {
-      claimed: workerReport.claimed,
-      dispatched: workerReport.dispatched,
-      reconciled: workerReport.reconciled,
-      markedUnknown: workerReport.markedUnknown,
-      escalated: workerReport.escalated,
-      blocked: workerReport.blocked,
-    },
-    receiptCount: receipts.length,
+    workerReport: { ...workerTotals },
+    receiptCount,
+  };
+}
+
+function unverified(
+  identity: {
+    orgId: string;
+    operationId: string;
+    ledgerRequestId: string;
+    providerRequestId: string;
+  },
+  reason: string,
+): SmokeTransferResult {
+  return {
+    outcome: 'unverified',
+    reason: `${reason} — a provider attempt may already have occurred; funds remain committed. Recover ONLY by reconciling this same intent (rerun this script); never substitute a new identity.`,
+    orgId: identity.orgId,
+    operationId: identity.operationId,
+    operationState: 'STATUS_UNKNOWN (or in flight — see durable ledger)',
+    ledgerRequestId: identity.ledgerRequestId,
+    providerRequestId: identity.providerRequestId,
   };
 }

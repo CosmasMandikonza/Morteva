@@ -174,8 +174,8 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
         listTransfers: [unavailable('readback transport dropped (run 1)')],
       },
     });
-    expect(run1.outcome).toBe('dispatched');
-    if (run1.outcome === 'dispatched') {
+    expect(run1.outcome).toBe('unverified'); // accepted create, readback ambiguous
+    if (run1.outcome === 'unverified') {
       expect(run1.workerReport.dispatched).toBe(1);
       expect(run1.operationState).toBe('IN_FLIGHT'); // submitted is NOT settled
     }
@@ -265,8 +265,8 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
     });
     // The create response was LOST: the attempt is ambiguous — STATUS_UNKNOWN,
     // funds retained, no dispatch success claimed.
-    expect(run1.outcome).toBe('monitoring');
-    if (run1.outcome === 'monitoring') {
+    expect(run1.outcome).toBe('unverified'); // create response LOST: STATUS_UNKNOWN, funds retained
+    if (run1.outcome === 'unverified') {
       expect(run1.operationState).toBe('STATUS_UNKNOWN');
       expect(run1.workerReport.markedUnknown).toBe(1);
     }
@@ -355,7 +355,7 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
         listTransfers: [unavailable('ambiguous')],
       },
     });
-    expect(run1.outcome).toBe('dispatched'); // IN_FLIGHT: money possibly in motion
+    expect(run1.outcome).toBe('unverified'); // IN_FLIGHT: money possibly in motion
 
     rmSync(join(stateDir, 'state.json')); // the "reset" a careless operator would try
     expect(existsSync(join(stateDir, 'state.json'))).toBe(false);
@@ -363,7 +363,7 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
     const run2 = await smoke({ stateDir, clock, script: {} }); // empty script: ANY provider write attempt fails the test
     expect(run2.outcome).toBe('blocked');
     if (run2.outcome === 'blocked') {
-      expect(run2.reason).toMatch(/unresolved operations/);
+      expect(run2.reason).toMatch(/prior operations/);
     }
   }, 30_000);
 
@@ -386,12 +386,12 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
         listTransfers: [unavailable('ambiguous')],
       },
     });
-    expect(run1.outcome).toBe('dispatched');
+    expect(run1.outcome).toBe('unverified'); // accepted create, ambiguous readback
 
     const run2 = await smoke({ stateDir, clock, script: {}, newIntent: true });
     expect(run2.outcome).toBe('blocked');
     if (run2.outcome === 'blocked') {
-      expect(run2.reason).toMatch(/unresolved operations/);
+      expect(run2.reason).toMatch(/not fully resolved/);
     }
   }, 30_000);
 
@@ -416,6 +416,344 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
     expect(run.outcome).toBe('blocked');
     if (run.outcome === 'blocked') {
       expect(run.reason).toMatch(/another smoke invocation holds the lock/);
+    }
+  }, 30_000);
+});
+
+// ---------------------- FINAL ACCEPTANCE: the three merge-gated corrections
+
+/**
+ * Acceptance scenarios run the ACTUAL smoke workflow through
+ * runSmokeTransfer against a deterministic fixture. The create lane is EMPTY
+ * on any run where a create must not happen (an unexpected create exhausts
+ * the lane and fails the test).
+ */
+const ACCEPT_BEN = 'ben-smoke';
+
+function acceptSmoke(input: {
+  stateDir: string;
+  clock: TunableClock;
+  script: Partial<FixtureScript>;
+  newIntent?: boolean;
+}): Promise<SmokeTransferResult> {
+  return smoke({ ...input, beneficiaryId: ACCEPT_BEN });
+}
+
+/** Accepted create (the only run-type that may script a create). */
+const acceptedCreate = [
+  created({
+    id: 'tr_acc',
+    status: 'PROCESSING',
+    transfer_amount: 5,
+    transfer_currency: 'USD',
+    beneficiary_id: ACCEPT_BEN,
+  }),
+];
+
+/** Provider records for a readback of THIS intent's provider request id. */
+function readbackPages(providerRequestId: string, status: string): Partial<FixtureScript> {
+  const listed = {
+    id: 'tr_acc',
+    request_id: providerRequestId,
+    status,
+    transfer_amount: 5,
+    transfer_currency: 'USD',
+    beneficiary_id: ACCEPT_BEN,
+  };
+  return {
+    // worker reconcile + direct readback consume one page each
+    listTransfers: [ok({ items: [listed] }), ok({ items: [listed] })],
+    getTransfer: [ok(listed), ok(listed)],
+  };
+}
+
+/** Provider reports terminal FAILED for this intent (readback-only). */
+function failedReadbackScript(providerRequestId: string): Partial<FixtureScript> {
+  const failed = {
+    id: 'tr_acc',
+    request_id: providerRequestId,
+    status: 'FAILED',
+    transfer_amount: 5,
+    transfer_currency: 'USD',
+    beneficiary_id: ACCEPT_BEN,
+    failure: { code: 'clearing_rejected' },
+  };
+  return {
+    listTransfers: [ok({ items: [failed] }), ok({ items: [failed] })],
+    getTransfer: [ok(failed), ok(failed)],
+  };
+}
+
+/**
+ * Drive the workflow to a confirmed/SETTLED intent: run 1 submits (readback
+ * ambiguous), run 2 reconciles by the persisted identity to identity-verified
+ * PAID. Clock advances only 1s between runs — far below the claim TTL.
+ */
+async function runToConfirmed(
+  stateDir: string,
+  clock: TunableClock,
+): Promise<{ orgId: string; operationId: string; ledgerRequestId: string; providerRequestId: string }> {
+  const run1 = await acceptSmoke({
+    stateDir,
+    clock,
+    script: { createTransfer: acceptedCreate, listTransfers: [unavailable('readback deferred')] },
+  });
+  expect(run1.outcome).toBe('unverified'); // accepted create, readback ambiguous
+  const state = readSmokeState(stateDir);
+  clock.advance(1_000);
+  const run2 = await acceptSmoke({ stateDir, clock, script: readbackPages(state.providerRequestId, 'PAID') });
+  expect(run2.outcome).toBe('confirmed');
+  return state;
+}
+
+function reconcileOperation(
+  stateDir: string,
+  clock: TunableClock,
+  state: { orgId: string; operationId: string },
+): void {
+  const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+  ledger.reservations.transition({
+    orgId: state.orgId,
+    operationId: state.operationId,
+    to: 'RECONCILED',
+    attestation: { source: 'operator-action', note: 'funds confirmed arrived' },
+  });
+  ledger.close();
+}
+
+describe('FINAL ACCEPTANCE 1 — one-intent policy across ALL persisted states', () => {
+  it('deleting the state file never authorizes a new payment when the prior operation is SETTLED (awaiting reconciliation)', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const state = await runToConfirmed(stateDir, clock);
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('SETTLED');
+    ledger.close();
+
+    rmSync(join(stateDir, 'state.json'));
+    const run = await acceptSmoke({ stateDir, clock, script: {} }); // ANY create attempt fails the test
+    expect(run.outcome).toBe('blocked');
+    if (run.outcome === 'blocked') {
+      expect(run.reason).toMatch(/prior operations/);
+      expect(run.reason).toContain('SETTLED');
+    }
+  }, 45_000);
+
+  it('deleting the state file never authorizes a new payment when the prior operation is REQUIRES_HUMAN', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const run1 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: { createTransfer: acceptedCreate, listTransfers: [unavailable('readback deferred')] },
+    });
+    expect(run1.outcome).toBe('unverified'); // accepted create, ambiguous readback
+    const state = readSmokeState(stateDir);
+    clock.advance(1_000);
+    const run2 = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    expect(run2.outcome).toBe('requires-human');
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('REQUIRES_HUMAN');
+    ledger.close();
+
+    rmSync(join(stateDir, 'state.json'));
+    const run3 = await acceptSmoke({ stateDir, clock, script: {} });
+    expect(run3.outcome).toBe('blocked');
+    if (run3.outcome === 'blocked') {
+      expect(run3.reason).toMatch(/prior operations/);
+      expect(run3.reason).toContain('REQUIRES_HUMAN');
+    }
+  }, 45_000);
+
+  it('deleting the state file never authorizes a new payment even when the prior operation is RECONCILED (resolved)', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const state = await runToConfirmed(stateDir, clock);
+    reconcileOperation(stateDir, clock, state);
+
+    rmSync(join(stateDir, 'state.json'));
+    const run = await acceptSmoke({ stateDir, clock, script: {} }); // silent path must be refused
+    expect(run.outcome).toBe('blocked');
+    if (run.outcome === 'blocked') {
+      expect(run.reason).toMatch(/prior operations/);
+      expect(run.reason).toContain('RECONCILED');
+    }
+  }, 45_000);
+
+  it('--new-intent is refused while the prior operation is SETTLED (still monitored, not resolved); state file NOT archived', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    await runToConfirmed(stateDir, clock);
+    const run = await acceptSmoke({ stateDir, clock, script: {}, newIntent: true });
+    expect(run.outcome).toBe('blocked');
+    if (run.outcome === 'blocked') {
+      expect(run.reason).toMatch(/not fully resolved/);
+      expect(run.reason).toContain('SETTLED');
+    }
+    // Archiving happens only AFTER the checks pass — the state file is intact.
+    expect(existsSync(join(stateDir, 'state.json'))).toBe(true);
+  }, 45_000);
+
+  it('--new-intent is refused while the prior operation is REQUIRES_HUMAN', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const run1 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: { createTransfer: acceptedCreate, listTransfers: [unavailable('readback deferred')] },
+    });
+    expect(run1.outcome).toBe('unverified'); // accepted create, ambiguous readback
+    const state = readSmokeState(stateDir);
+    clock.advance(1_000);
+    const run2 = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    expect(run2.outcome).toBe('requires-human');
+
+    const run3 = await acceptSmoke({ stateDir, clock, script: {}, newIntent: true });
+    expect(run3.outcome).toBe('blocked');
+    if (run3.outcome === 'blocked') {
+      expect(run3.reason).toMatch(/not fully resolved/);
+      expect(run3.reason).toContain('REQUIRES_HUMAN');
+    }
+  }, 45_000);
+
+  it('--new-intent after a RECONCILED (fully resolved) prior intent: explicit new authorization; archive keeps the original identity recoverable', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const original = await runToConfirmed(stateDir, clock);
+    reconcileOperation(stateDir, clock, original);
+
+    clock.advance(1_000);
+    const run = await acceptSmoke({
+      stateDir,
+      clock,
+      script: { createTransfer: acceptedCreate, listTransfers: [unavailable('readback deferred')] },
+      newIntent: true,
+    });
+    expect(run.outcome).toBe('unverified'); // the NEW intent submitted; its readback is ambiguous here
+    const next = readSmokeState(stateDir); // state.json now describes the NEW intent
+    expect(next.ledgerRequestId).not.toBe(original.ledgerRequestId);
+    expect(next.orgId).not.toBe(original.orgId);
+
+    // Original identity recoverable: archived state file + ledger + receipts.
+    const archivePath = join(stateDir, `state-${original.ledgerRequestId}.json`);
+    expect(existsSync(archivePath)).toBe(true);
+    const archive = JSON.parse(readFileSync(archivePath, 'utf8')) as {
+      providerRequestId: string;
+      operationId: string;
+    };
+    expect(archive.providerRequestId).toBe(original.providerRequestId);
+    expect(archive.operationId).toBe(original.operationId);
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    const ops = ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number };
+    expect(ops.c).toBe(2); // two DISTINCT authorized intents, never a duplicate of one
+    expect(ledger.reservations.getOperation(original.orgId, original.operationId).state).toBe('RECONCILED');
+    const oldReceipts = ledger.providerReceipts.listByRequestId(original.ledgerRequestId, original.orgId);
+    expect(oldReceipts.length).toBeGreaterThan(0);
+    ledger.close();
+  }, 45_000);
+});
+
+describe('FINAL ACCEPTANCE 2 — fresh provider readback is authoritative for reporting', () => {
+  it('a later FAILED readback after SETTLED is NEVER reported confirmed — even before the claim TTL has elapsed', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const state = await runToConfirmed(stateDir, clock);
+
+    // Restart 1s later: the worker claim TTL (60s+) has NOT elapsed — yet the
+    // authoritative worker path (immediate reconcile) must handle the late
+    // failure, and the report must be requires-human, never confirmed.
+    clock.advance(1_000);
+    const run = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    expect(run.outcome).not.toBe('confirmed');
+    expect(run.outcome).toBe('requires-human');
+    if (run.outcome === 'requires-human') {
+      expect(run.operationState).toBe('REQUIRES_HUMAN');
+    }
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('REQUIRES_HUMAN');
+    // Auditable reversal WITHOUT rewriting history: settlement AND reversal both recorded.
+    const types = ledger.evidence.list(state.orgId, {}).map((e) => e.type);
+    expect(types).toContain('operation.settled');
+    expect(types).toContain('settlement.reversed');
+    // Exposure accounting unchanged pending the human adjustment.
+    const commitment = ledger.reservations.getCommitment(state.orgId, state.operationId);
+    expect(commitment.state).toBe('unknown');
+    ledger.close();
+  }, 45_000);
+
+  it('RECONCILED with a contradictory later FAILED readback escalates WITHOUT rewriting terminal history', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    const state = await runToConfirmed(stateDir, clock);
+    reconcileOperation(stateDir, clock, state);
+
+    clock.advance(1_000);
+    const run = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    expect(run.outcome).not.toBe('confirmed');
+    expect(run.outcome).toBe('requires-human');
+    if (run.outcome === 'requires-human') {
+      expect(run.reason).toMatch(/contradictory|reconciliation/);
+    }
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('RECONCILED');
+    const types = ledger.evidence.list(state.orgId, {}).map((e) => e.type);
+    expect(types).toContain('settlement.reversed.after_reconciled');
+    ledger.close();
+  }, 45_000);
+});
+
+describe('FINAL ACCEPTANCE 3 — BLOCKED is strictly pre-attempt; post-attempt unknown is unambiguous', () => {
+  it('failure after successful provider submission but before readback completion reports STATUS_UNKNOWN (never BLOCKED), and rerun reconciles the same intent', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    // The create is ACCEPTED; the independent get-by-id readback then fails
+    // (lane exhausted → READBACK_INCOMPLETE): the submission happened, the
+    // outcome is unknown — the run must NOT claim BLOCKED.
+    const listedProcessing = {
+      id: 'tr_acc',
+      request_id: 'WILL_NOT_MATCH_READBACK', // readback identity cannot be known yet
+      status: 'PROCESSING',
+      transfer_amount: 5,
+      transfer_currency: 'USD',
+      beneficiary_id: ACCEPT_BEN,
+    };
+    const run1 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: {
+        createTransfer: acceptedCreate,
+        listTransfers: [ok({ items: [listedProcessing] })],
+        getTransfer: [], // readback get-by-id fails AFTER the submission
+      },
+    });
+    expect(run1.outcome).toBe('unverified'); // NOT blocked: a submission occurred
+    if (run1.outcome === 'unverified') {
+      expect(run1.reason).toMatch(/never substitute a new identity/);
+    }
+    const state = readSmokeState(stateDir);
+    const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('IN_FLIGHT');
+    expect(ledger.spendable.compute(state.orgId, 'USD').outstandingCommittedMinor).toBe(500);
+    ledger.close();
+
+    // Recovery reconciles THIS intent by its original identity (create lane EMPTY).
+    clock.advance(1_000);
+    const run2 = await acceptSmoke({ stateDir, clock, script: readbackPages(state.providerRequestId, 'PAID') });
+    expect(run2.outcome).toBe('confirmed');
+    if (run2.outcome === 'confirmed') {
+      expect(run2.workerReport.dispatched).toBe(0);
+      expect(run2.operationId).toBe(state.operationId);
+    }
+  }, 45_000);
+
+  it('BLOCKED stays strictly pre-attempt: a corrupt state file reports blocked and sends nothing', async () => {
+    const stateDir = smokeDir();
+    const clock = new TunableClock('2026-11-03T12:00:00.000Z');
+    writeFileSync(join(stateDir, 'state.json'), '{"version":1,"orgId":');
+    const run = await acceptSmoke({ stateDir, clock, script: {} });
+    expect(run.outcome).toBe('blocked');
+    if (run.outcome === 'blocked') {
+      expect(run.reason).toMatch(/corrupt/);
     }
   }, 30_000);
 });
