@@ -14,6 +14,7 @@ import { newId } from './identity.js';
 import { createMoney, termsDigest } from '@moterva/domain';
 import type { ApprovalView, CandidatePlanView, OperationKind } from '@moterva/domain';
 import type { AuthorityService } from './authority.js';
+import type { MandateService } from './mandates.js';
 import type { EvidenceService } from './evidence.js';
 
 /** The economic fields every plan's terms must carry (minor units, no floats). */
@@ -180,6 +181,7 @@ export class ApprovalService {
     private readonly clock: Clock,
     private readonly authority: AuthorityService,
     private readonly evidence: EvidenceService,
+    private readonly mandates: MandateService,
   ) {}
 
   /**
@@ -263,6 +265,25 @@ export class ApprovalService {
     requireValidTerms(input.plan.terms);
     const terms = input.plan.terms;
 
+    // Resolve the actual current mandate at approval issuance. Optional
+    // client-provided references are assertions, never an authorization to
+    // leave authority scope unspecified or attach an arbitrary version.
+    const mandate = this.mandates.activeFor(
+      input.orgId,
+      input.plan.missionId,
+      this.clock.now(),
+      terms.currency,
+    );
+    if (
+      (input.mandateId !== undefined && input.mandateId !== mandate.id) ||
+      (input.mandateVersion !== undefined && input.mandateVersion !== mandate.version)
+    ) {
+      throw new LedgerError(
+        'APPROVAL_TERMS_MISMATCH',
+        'approval mandate identity/version must match the current persisted authority',
+      );
+    }
+
     // Idempotent double-click: an immutable plan version carries ONE approval.
     const existingRow = this.db
       .prepare(
@@ -302,8 +323,8 @@ export class ApprovalService {
       beneficiary: String(terms.beneficiary),
       purpose: String(terms.purpose),
       kind: input.kind,
-      mandateId: input.mandateId ?? null,
-      mandateVersion: input.mandateVersion ?? null,
+      mandateId: mandate.id,
+      mandateVersion: mandate.version,
       quoteDigest: quoteDigestFor(terms),
       evidenceDigest: (input.evidenceDigest ?? '').trim(),
       authKey: newId('auth'),
