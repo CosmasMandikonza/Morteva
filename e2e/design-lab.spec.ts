@@ -213,14 +213,19 @@ test('no horizontal scrolling of financial content at 320px', async ({ page }) =
   }
 });
 
-test('content reflows intact under genuine 200% browser zoom (not a DPR-only capture)', async ({
+test('content reflows intact at 200%-zoom viewport semantics (CDP device-metrics, post-load reflow)', async ({
   page,
   context,
 }) => {
-  // Real Ctrl+Zoom semantics: the CSS layout viewport halves (1440 → 720)
-  // while devicePixelRatio doubles, applied to the LIVE full-size page so the
-  // reflow is observed after load. A deviceScaleFactor-only capture renders
-  // the same layout at 2× paint density without this post-load reflow.
+  // Models the layout consequence of 200% browser zoom: the CSS layout
+  // viewport halves (1440 → 720) while devicePixelRatio doubles, applied to
+  // the LIVE full-size page so the reflow is observed after load. This is NOT
+  // the native Chrome Ctrl+Zoom codepath — CDP/Playwright expose no page-zoom
+  // API and synthesized Ctrl+Plus (keyboard API and raw
+  // Input.dispatchKeyEvent VK_ADD/VK_OEM_PLUS) does not engage the browser
+  // zoom accelerator; verified empirically in headed Chromium 156
+  // (2026-11-03, NATIVE_ZOOM_NOT_ENGAGED). A deviceScaleFactor-only capture
+  // is weaker still: 2× paint density without this post-load reflow.
   const cdp = await context.newCDPSession(page);
   for (const c of CANDIDATES) {
     for (const screen of ['treasury', 'decision']) {

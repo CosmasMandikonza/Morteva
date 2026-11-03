@@ -128,13 +128,16 @@ test('capture 200% zoom equivalent (720 CSS px @2x dpr) + compare console', asyn
   await page2.close();
 });
 
-test('capture genuine 200% browser zoom (CDP device-metrics reflow of the live 1440 page)', async ({
+test('capture 200%-zoom reflow evidence (CDP device-metrics on the live 1440 page)', async ({
   browser,
 }) => {
   // Distinct from the DPR-equivalent capture above: the page is loaded at
-  // 1440×900 like a real founder session, then browser-zoom semantics are
-  // applied via CDP — CSS layout viewport halves to 720 while
-  // devicePixelRatio doubles to 2 — and the POST-LOAD reflow is captured.
+  // 1440×900 like a real founder session, then the layout consequence of
+  // 200% browser zoom is applied via CDP — CSS layout viewport halves to 720
+  // while devicePixelRatio doubles to 2 — and the POST-LOAD reflow is
+  // captured. Not the native Chrome Ctrl+Zoom codepath (not automatable;
+  // synthesized Ctrl+Plus does not engage browser zoom — probed in headed
+  // Chromium 156, 2026-11-03).
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   const cdp = await ctx.newCDPSession(page);
@@ -154,7 +157,7 @@ test('capture genuine 200% browser zoom (CDP device-metrics reflow of the live 1
     expect(zoom.cw).toBe(720);
     expect(zoom.dpr).toBe(2);
     expect(zoom.sw).toBeLessThanOrEqual(zoom.cw + 1);
-    await page.screenshot({ path: `${DIR}/${c}-treasury-zoom200-real-720.png`, fullPage: true });
+    await page.screenshot({ path: `${DIR}/${c}-treasury-zoom200-reflow-720.png`, fullPage: true });
     await cdp.send('Emulation.clearDeviceMetricsOverride');
   }
   await ctx.close();
