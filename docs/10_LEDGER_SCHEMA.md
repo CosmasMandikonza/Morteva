@@ -61,3 +61,28 @@ Financial and operational events share one append-only table keyed `(org_id, eve
 ## Where the guarantees are proven
 
 `packages/ledger/test/`: migrations & corruption, balance freshness, mandate/plan/approval binding, reservation math, idempotency, lifecycle retention, evidence, cross-org isolation, **real two-/four-worker thread races**, restart & torn-transaction recovery, outbox claim/replay, drift detection. See the MTV-02 PR for exact outputs.
+
+
+## CTO review — safe integration boundaries (review of PR #23)
+
+### Dispatch persistence and finality
+A provider's `submitted` or `processing` response **must not finish the settlement-monitoring job**. The worker retains its outbox claim and records `IN_FLIGHT`, then claims it again after its lease and invokes `reconcileByRequestId`. After a crash in `SUBMITTING` or `IN_FLIGHT`, it reconciles using the original request ID **before** considering another submission. Unknown response remains `STATUS_UNKNOWN` and continues to consume its commitment. Only provider-confirmed finality completes the outbox. The worker is still disabled by default: no real provider dispatchers exist in MTV-02.
+
+A terminal settlement or release **after dispatch may have started** requires an independently verified provider-readback attestation; test-harness or human claims alone cannot release committed exposure. Provider adapters in #5/#6 must additionally verify actual provider ID, receipt/source, signature where appropriate and environment before returning an attested terminal state.
+
+### Separate fiat and token accounts — hard-block Metal until #6
+The v1 SQLite schema tracks **ISO 4217 fiat** currencies and one treasury account per organization/currency. It does **not** model Metal testnet chain, token contract, token precision, wallet identity, token balances or custody. A USDC/token amount is not automatically equivalent to fiat USD cents or Airwallex account liquidity. **`metal_order` reservations deliberately throw `RAIL_ASSET_UNSUPPORTED`** in this version. Issue #6 must introduce asset/rail-specific balances and exact token precision + units, a migration and cross-asset tests before enabling Metal dispatch. This is an explicit unimplemented capability, not a provider credential-only blocker. Do not fabricate an Airwallex-to-Metal funding bridge.
+
+### Conservative money and evidence semantics
+- Settlement `finalized_at >= snapshot.observed_at` keeps consuming funds even when timestamps tie; only a strictly later verified snapshot can free capacity.
+- Balance snapshots reject invalid timestamps and observations more than 30 seconds into the future; maximum source freshness, anti-spoofing and provider identity verification are additional adapter requirements.
+- Approval issuance verifies the persisted org-scoped plan and digest, and requires a valid future expiry. Mandates and plan versions cannot silently bind another organization's mission.
+- Evidence events can only target a mission in their organization; event receipts are looked up by exact `org_id + event_key`, not by the last global/org journal sequence, avoiding cross-writer misattribution.
+- The current `mandates.max_amount_minor` is a **per-operation** ceiling, not an aggregate lifetime or mission budget. This does not yet enforce rolling cumulative limits, merchant allowlists, approval actor authorization, or mandate revocation. Those must be implemented and tested as part of MTV-05/#7 before any autonomous bank/signer action.
+- `manual-seed` is only a synthetic development balance; do not display it as provider-verified. No real Airwallex/Metal receipt or funds have been verified by this issue.
+
+### Outstanding engineering risks (must become #5/#6/#7 acceptance)
+- Signed/attributed provider receipts, verified `providerState` transitions, source authentication and bounded retry/reconciliation cadence.
+- Per-org mission cumulative budgets, real approval identity, release/reversal authorization, segregated rail asset units and provider-backed balances.
+- Multi-instance deployment and durable job scheduling; the single-host SQLite adapter is a deliberate local MVP limit.
+
