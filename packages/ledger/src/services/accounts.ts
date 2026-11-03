@@ -34,7 +34,10 @@ export class AccountService {
     const currency = this.normalizeCurrency(input.currency);
     const floor = createMoney(currency, input.protectedFloorMinor);
     if (floor.minorUnits < 0) {
-      throw new LedgerError('INVALID_AMOUNT', 'protectedFloorMinor must be a non-negative safe integer');
+      throw new LedgerError(
+        'INVALID_AMOUNT',
+        'protectedFloorMinor must be a non-negative safe integer',
+      );
     }
     const existing = this.db
       .prepare(
@@ -127,12 +130,18 @@ export class AccountService {
     const observedMs = Date.parse(observedAt);
     const expiresMs = Date.parse(expiresAt);
     if (!Number.isFinite(observedMs) || !Number.isFinite(expiresMs) || observedMs > expiresMs) {
-      throw new LedgerError('INVALID_INPUT', 'balance observation timestamps must be valid and ordered');
+      throw new LedgerError(
+        'INVALID_INPUT',
+        'balance observation timestamps must be valid and ordered',
+      );
     }
     // A future-dated balance must never make a stale/fabricated account look
     // spendable. Allow only a small clock-skew window for provider timestamps.
     if (observedMs > this.clock.now().getTime() + 30_000) {
-      throw new LedgerError('INVALID_INPUT', 'future-dated balance observations cannot authorize spending');
+      throw new LedgerError(
+        'INVALID_INPUT',
+        'future-dated balance observations cannot authorize spending',
+      );
     }
     const snapshot: BalanceSnapshotView = {
       id: newId('bal'),
