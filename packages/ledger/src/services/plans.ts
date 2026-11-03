@@ -160,6 +160,32 @@ export class ApprovalService {
     decidedBy: string;
     expiresAt: string;
   }): ApprovalView {
+    // Never authorize a caller-constructed plan object or a plan from another
+    // org. Its original persisted terms and digest are the authority boundary.
+    if (input.plan.orgId !== input.orgId) {
+      throw new LedgerError('CROSS_ORG_ACCESS', 'approval plan belongs to another organization');
+    }
+    const record = this.db
+      .prepare('SELECT mission_id, terms_json, digest FROM candidate_plans WHERE id = ? AND version = ? AND org_id = ?')
+      .get(input.plan.id, input.plan.version, input.orgId) as
+      | { mission_id: string; terms_json: string; digest: string }
+      | undefined;
+    if (
+      record === undefined ||
+      record.mission_id !== input.plan.missionId ||
+      record.digest !== input.plan.digest ||
+      termsDigest(JSON.parse(record.terms_json) as Record<string, unknown>) !== record.digest ||
+      termsDigest(input.plan.terms as Record<string, unknown>) !== record.digest
+    ) {
+      throw new LedgerError(
+        'PLAN_DIGEST_MISMATCH',
+        'approval requires exact persisted, untampered plan terms and organization scope',
+      );
+    }
+    const approvalExpiry = Date.parse(input.expiresAt);
+    if (!Number.isFinite(approvalExpiry) || approvalExpiry <= this.clock.now().getTime()) {
+      throw new LedgerError('APPROVAL_EXPIRED', 'approval expiry must be a valid future date');
+    }
     requireValidTerms(input.plan.terms);
     const terms = input.plan.terms;
     const approval: ApprovalView = {
