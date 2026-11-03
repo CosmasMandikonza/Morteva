@@ -3,6 +3,7 @@ export type {
   BalanceReading,
   ProviderCallResult,
   ProviderCallStatus,
+  ProviderSubmissionStatus,
   ProviderCapabilities,
   ProviderCommandBase,
   ProviderExecutionPort,
@@ -10,3 +11,4 @@ export type {
   ProviderReadPort,
 } from './ports.js';
 export { offlineCapabilities, offlineProviderStatus } from './offline.js';
+export { isConfirmedProviderResult } from './ports.js';
