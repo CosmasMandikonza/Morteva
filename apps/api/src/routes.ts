@@ -8,6 +8,7 @@
  * non-production configuration (config refuses production+devAuth at boot).
  * No provider-write routes exist (issues #5/#6).
  */
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { isLedgerError } from '@moterva/ledger';
@@ -118,7 +119,7 @@ export function registerAuthAndFinancialRoutes(
       }
       const org = ledger.organizations.createOrganization('DEMO_AUTH Local Org');
       const passwordFor = (username: string) =>
-        `dev-${username}-${Math.random().toString(36).slice(2, 10)}`;
+        `dev-${username}-${randomBytes(24).toString('base64url')}`;
       const roles = ['owner', 'admin', 'approver', 'operator', 'viewer'] as const;
       const created = roles.map((role) => {
         const password = passwordFor(role);
