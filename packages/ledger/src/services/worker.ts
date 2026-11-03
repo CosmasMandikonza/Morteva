@@ -389,8 +389,7 @@ export class DispatchWorker {
 
       const mandateId = text(joined.mandate_id, 'mandate_id');
       const gateError =
-        this.authorityGateDecision(operation, mandateId) ??
-        this.approvalGateDecision(operation);
+        this.authorityGateDecision(operation, mandateId) ?? this.approvalGateDecision(operation);
       if (gateError !== undefined) {
         // Never dispatched → provably safe internal cancellation + release.
         this.reservations.transition({
@@ -475,7 +474,13 @@ export class DispatchWorker {
   }
 
   private authorityGateDecision(
-    operation: { orgId: string; missionId: string; currency: string; amountMinor: number; mandateVersion: number },
+    operation: {
+      orgId: string;
+      missionId: string;
+      currency: string;
+      amountMinor: number;
+      mandateVersion: number;
+    },
     mandateId: string,
   ): string | undefined {
     const now = this.clock.now();
