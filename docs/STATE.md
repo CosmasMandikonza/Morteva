@@ -20,6 +20,11 @@
 - CI `ci.yml` added: one cold-checkout job (Linux, Node 24) running install → secret scan → docs integrity → lint → format → typecheck → unit → build → Playwright e2e. `docs-integrity` workflow unchanged and passing (its link check was made path-separator-safe for Windows local runs; behavior on Linux unchanged).
 - STILL NOT part of this work by design: no Airwallex/Metal adapter, no credentials read, no financial write path, no deployment, no authentication (API is read-only and fail-closed). Provider status honestly reports OFFLINE; `DEMO_SIMULATED` labeling exists for simulated mode.
 
+## CTO review addendum on provider contracts
+- Provider call status is intentionally split into submitted/processing/confirmed/failed/status-unknown; a write submission cannot return confirmed by type. The provider adapter must independently verify finality.
+- Both Airwallex sandbox and Metal testnet must coexist; MTV-01's provider-mode variable is only a local scenario flag, not the future financial rail selection.
+- These are new code-contract protections, not real provider integrations. Check PR #20's latest CI and head before merge.
+
 ## NOT yet verified
 No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, production deployment, approved palette/typeface, 3D asset, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
 
