@@ -17,7 +17,8 @@ export function loadDotEnvForDev(cwd: string = process.cwd()): void {
   if (process.env.NODE_ENV === 'production' || process.env.MOTERVA_SKIP_DOTENV === '1') return;
   for (const candidate of [resolve(cwd, '.env'), resolve(cwd, '../../.env')]) {
     if (!existsSync(candidate)) continue;
-    for (const rawLine of readFileSync(candidate, 'utf8').split(/\r?\n/)) {
+    for (const rawLine of readFileSync(candidate, 'utf8').split(/\r?
+/)) {
       const line = rawLine.trim();
       if (line === '' || line.startsWith('#')) continue;
       const eq = line.indexOf('=');
@@ -40,8 +41,10 @@ const configSchema = z.object({
 });
 
 /**
- * Parse MOTERVA_PROVIDER_MODE fail-closed: 'offline'/'simulated' work now;
- * 'sandbox'/'testnet' belong to issues #5/#6 and refuse startup until then,
+ * Parse MTV-01's local scenario-data mode fail-closed: 'offline'/'simulated' work now;
+ * 'sandbox'/'testnet' are NOT alternatives in one global rail switch; actual
+ * Airwallex sandbox and Metal testnet must be configured independently (#5/#6).
+ * These values refuse startup in MTV-01,
  * so no half-wired provider mode can ever boot.
  */
 export function parseProviderMode(raw: string | undefined): 'offline' | 'simulated' {
@@ -76,7 +79,9 @@ export interface AppConfig {
 
 export class StartupConfigError extends Error {
   constructor(readonly issues: readonly string[]) {
-    super(`Invalid environment configuration:\n${issues.map((i) => `  - ${i}`).join('\n')}`);
+    super(`Invalid environment configuration:
+${issues.map((i) => `  - ${i}`).join('
+')}`);
     this.name = 'StartupConfigError';
   }
 }
