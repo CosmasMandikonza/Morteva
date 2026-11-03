@@ -347,7 +347,7 @@ export class MandateService {
     remainingMinor: number;
   } {
     const mandate = this.latest(orgId, missionId, mandateId);
-    const consumed = this.consumedBudget(orgId, mandateId);
+    const consumed = this.consumedMissionBudget(orgId, missionId, mandate.currency);
     const envelope = this.effectiveTotalBudget(mandate);
     return { mandate, consumedMinor: consumed, remainingMinor: Math.max(0, envelope - consumed) };
   }
