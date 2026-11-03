@@ -82,8 +82,10 @@ jobs:
       - name: Install (npm ci)
         run: npm ci
 
-      - name: Build web with the design-lab entry enabled
-        run: npm run build -w @moterva/web
+      - name: Build all workspaces with the design-lab entry enabled
+        # Full root build (packages + api + web) because the Playwright
+        # webServer starts the compiled API alongside vite preview.
+        run: npm run build
         env:
           VITE_DESIGN_LAB: '1'
 
