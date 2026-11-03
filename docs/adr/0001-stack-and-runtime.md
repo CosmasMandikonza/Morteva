@@ -50,6 +50,11 @@ Two small apps and shared packages in one repo, one Node process per app, one lo
 7. **Test tooling.** Vitest for unit (money invariants already tested), Fastify `inject` for API integration tests without sockets, Playwright against the real built servers for E2E — all running in one CI job on a cold checkout.
 8. **Hackathon time.** Two small boring processes beat one framework with three deployment paradigms when the deadline is fixed and the win condition is a truthful financial flow (docs/08).
 
+## Financial provider activation boundary
+The MTV-01 `MOTERVA_PROVIDER_MODE=offline|simulated` option labels *local scenario status* and MUST NOT be promoted to a mutually exclusive real payment-rail selector. A single mission must eventually use **Airwallex sandbox AND Metal testnet simultaneously**. Issue #5 will own the Airwallex environment, #6 the Metal environment, each with independently verified capability flags and receipts. Keep the live provider list per-rail and avoid treating `providerMode=offline` as authoritative once actual rails are connected.
+
+Provider execution ports also prohibit a direct write call from claiming independently verified settlement. They represent submitted, processing, failed and unknown separately, and require readback by original request ID/receipt. See `packages/providers/src/ports.ts`.
+
 ## Consequences and trade-offs accepted
 
 - Two processes instead of one; solved by `npm run dev` (concurrently) and the same-origin proxy, and documented in the README.
