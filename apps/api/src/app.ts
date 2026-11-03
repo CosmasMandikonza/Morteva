@@ -42,7 +42,10 @@ export function buildApp(
 
   app.get('/api/system/status', async () => systemStatusView(config, ledgerStatus?.()));
 
-  if (ledger !== undefined) {
+  if (ledger !== undefined && config.devAuth) {
+    // Fail closed: there is NO production human IdP yet. Financial endpoints
+    // are a loopback-only DEMO_AUTH workflow, not a production authentication
+    // surface. A migrated dev session must never authorize deployed routes.
     // One encapsulated scope: cookie parsing, the session decorator/hook and
     // the routes share context, so every guarded route sees request.session.
     void app.register(async (scope) => {
