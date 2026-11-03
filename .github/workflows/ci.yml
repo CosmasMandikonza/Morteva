@@ -66,3 +66,37 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  design-lab:
+    name: Design lab verify (VITE_DESIGN_LAB=1 build + founder-preview tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Build web with the design-lab entry enabled
+        run: npm run build -w @moterva/web
+        env:
+          VITE_DESIGN_LAB: '1'
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Design-lab interaction tests (lab build)
+        run: npx playwright test e2e/design-lab.spec.ts
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-design-lab
+          path: playwright-report/
+          retention-days: 7
