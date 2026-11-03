@@ -1,9 +1,9 @@
 # ADR 0001 — Stack and runtime for MOTERVA
 
-- **Status:** Proposed (delivered with MTV-01, issue #3)
+- **Status:** Accepted for MTV-01 bootstrap (reviewed PR #20, merge `f0348019947b0e9abc3721450656b5e63452fb98`); not a production finance approval
 - **Date:** 2026-11-02
 - **Deciders:** Engineering (agent) per docs/07 founder-input gate; founder reserved decisions (brand, paid services) untouched
-- **Review:** due at PR review; supersession requires a new ADR
+- **Review:** engineering reviewer verified code contracts and full CI on `aea1b992b29a25befcca5f3d29fb8f891247d580`; supersession requires a new ADR
 
 ## Context
 
