@@ -97,7 +97,9 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
               <li>
                 <i className="b-dot b-dot--spend" />
                 spendable{' '}
-                <b className="b-num">{hideFinancialValues ? '—' : moneyAmount(spendable(usdAcc))}</b>
+                <b className="b-num">
+                  {hideFinancialValues ? '—' : moneyAmount(spendable(usdAcc))}
+                </b>
               </li>
               <li>
                 <i className="b-dot b-dot--reserved" />
