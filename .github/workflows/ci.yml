@@ -44,6 +44,18 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
+      - name: Temporary format diagnostic for CTO correction
+        if: failure()
+        run: |
+          npx prettier --write apps/web/src/design-lab/b/screensB.tsx
+          node - <<'NODE'
+          const fs = require('node:fs');
+          console.log('FORMATTED_DESIGN_JSON=' + JSON.stringify({
+            path: 'apps/web/src/design-lab/b/screensB.tsx',
+            content: fs.readFileSync('apps/web/src/design-lab/b/screensB.tsx', 'utf8'),
+          }));
+          NODE
+
       - name: Typecheck (tsc, strict)
         run: npm run typecheck
 
