@@ -187,6 +187,24 @@ describe('lifecycle transitions and money retention', () => {
     ledger.close();
   });
 
+  it('conservatively retains settled funds when balance and finality timestamps tie', () => {
+    const { ledger, clock } = makeLedger();
+    const { org, mission } = funded(ledger, clock);
+    const ref = approvedPlan(ledger, org.id, mission.id, { amountMinor: 400_000, currency: 'USD' });
+    const { operation } = reserveCall(ledger, { org }, mission.id, ref, 'timestamp-tie');
+    // Both events share one millisecond in the fixed clock. Cannot prove the
+    // original snapshot already includes the provider's settlement.
+    ledger.reservations.transition({
+      orgId: org.id,
+      operationId: operation.id,
+      to: 'SETTLED',
+      attestation: { source: 'provider-readback', note: 'synthetic settlement readback' },
+    });
+    expect(ledger.spendable.compute(org.id, 'USD').outstandingCommittedMinor).toBe(400_000);
+    expect(ledger.spendable.compute(org.id, 'USD').spendableMinor).toBe(500_000);
+    ledger.close();
+  });
+
   it('every state change is journaled with a unique event key', () => {
     const { ledger, clock } = makeLedger();
     const { org, mission } = funded(ledger, clock);
