@@ -1,0 +1,28 @@
+{
+  "name": "@moterva/providers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider port contracts (docs/01 'Contract gate') and OFFLINE descriptors. No Airwallex/Metal financial writes are implemented here; issues #5/#6 own them.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@moterva/domain": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^5.1.0"
+  }
+}

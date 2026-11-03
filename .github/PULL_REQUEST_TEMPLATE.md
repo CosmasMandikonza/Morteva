@@ -8,7 +8,7 @@ Deliberately not changed:
 
 ## Proof
 - Base SHA / head SHA:
-- Commands run and exact results:
+- Commands run and exact results (copy real output; the canonical commands are in the README quickstart):
 - Tests (unit/integration/E2E/fault):
 - Browser captures (screen sizes / URLs or artifacts):
 - Accessibility / reduced motion:

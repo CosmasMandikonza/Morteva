@@ -24,5 +24,8 @@ Provider integrations and asset-reference research can proceed in parallel. Fina
 ## Decisions to record (ADR required before coding)
 Framework/monorepo, persistence+transactions, session/tenant auth, runtime hosting, queue/webhook processing, provider SDK/REST choice, scene library, selected reference family and licensed asset, selected first vertical/mission type. For each: options, rationale, failure modes, reversibility, reviewer/date.
 
+Recorded:
+- 2026-11-02 — [ADR 0001: stack and runtime](adr/0001-stack-and-runtime.md) (npm-workspaces monorepo, Vite+React/Fastify, SQLite-first behind a storage port; auth/jobs/deployment plan of record). Reviewer/date pending PR review.
+
 ## Founder input gate (not an endless question loop)
 Agent should make best-effort default choices backed by evidence; only request founder action for external credentials, paid services, legally binding approvals, or aesthetic reference selection. Maintain a single concise unblock list in STATE.md.

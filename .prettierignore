@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+docs/assets/
+*.min.*
+
+# Pre-existing docs/config from PR #1 — formatted by their own conventions; keep this PR's diff scoped.
+AGENTS.md
+docs/
+scripts/check-docs.mjs
+.github/PULL_REQUEST_TEMPLATE.md
+.github/workflows/docs-integrity.yml

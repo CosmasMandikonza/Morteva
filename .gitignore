@@ -1,0 +1,43 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Test and browser-capture artifacts (not evidence; committed screenshots live in docs/assets)
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# Environment files — names only are committed as .env.example; never commit values
+.env
+.env.*
+!.env.example
+
+# Credentials, keys and sensitive traces — never commit
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.secrets
+secrets/
+credentials/
+**/*.trace
+**/*.har
+
+# Logs and local runtime state
+logs/
+*.log
+npm-debug.log*
+data/*.sqlite
+data/*.sqlite-*
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

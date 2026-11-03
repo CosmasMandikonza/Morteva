@@ -1,0 +1,291 @@
+/*
+ * MOTERVA app shell styles (MTV-01).
+ * Deliberately neutral: grayscale system typography only. The final brand
+ * palette/typeface is a founder decision gated on approved references
+ * (docs/03, issue #10) — no hard-coded brand styling yet.
+ * No animations or transitions anywhere, so reduced-motion is respected trivially.
+ */
+
+:root {
+  color-scheme: light dark;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f5;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --line: #d4d4d8;
+  --accent: #3f3f46;
+  --offline: #71717a;
+  --error: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #18181b;
+    --surface-muted: #27272a;
+    --text: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --line: #3f3f46;
+    --accent: #d4d4d8;
+    --offline: #a1a1aa;
+    --error: #f87171;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  background: var(--surface-muted);
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.app {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.app__header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1rem;
+}
+
+.app__mark {
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.app__title {
+  margin: 0.25rem 0 0;
+  font-size: 1.6rem;
+}
+
+.app__subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  max-width: 42rem;
+}
+
+.app__nav ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+}
+
+.app__nav a {
+  display: inline-block;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.app__nav a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app__nav a.is-active {
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
+}
+
+.app__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.planned,
+.status-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 1rem 1.1rem;
+}
+
+.planned h2,
+.status-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.planned__status {
+  color: var(--text-muted);
+  border-top: 1px dashed var(--line);
+  padding-top: 0.6rem;
+  margin-bottom: 0;
+}
+
+.status-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.chip {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  color: var(--text-muted);
+}
+
+.status-card__loading {
+  color: var(--text-muted);
+  margin: 0.5rem 0 0;
+}
+
+.status-card__error {
+  border: 1px solid var(--error);
+  border-radius: 0.4rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.status-card__error p {
+  margin: 0 0 0.4rem;
+}
+
+.status-card__detail {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.status-card__meta {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--text-muted);
+}
+
+.provider-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.provider {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.provider__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.provider__name {
+  font-weight: 600;
+}
+
+.provider__detail {
+  margin: 0.4rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.badge--offline,
+.badge--demo_simulated {
+  background: var(--surface-muted);
+  color: var(--offline);
+  border: 1px solid var(--line);
+}
+
+.status-card__notice {
+  margin: 0.9rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  border-top: 1px dashed var(--line);
+  padding-top: 0.6rem;
+}
+
+.app__footer {
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.app__footer a {
+  color: inherit;
+}
+
+code {
+  background: var(--surface-muted);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.9em;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .app {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .app__title {
+    font-size: 1.35rem;
+  }
+
+  .app__nav a {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.92rem;
+  }
+}
