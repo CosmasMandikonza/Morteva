@@ -43,7 +43,7 @@ for (const c of CANDIDATES) {
   }) => {
     await page.goto(`/design-lab.html?c=${c}`);
     const body = page.locator(`[data-lab="${c}"]`);
-    await expect(body).not.toContainText(/\\bNaN\\b|\\bInfinity\\b|undefined/);
+    await expect(body).not.toContainText(/NaN|Infinity|undefined/);
     await expect(body).toContainText('USD 99,250.00');
     if (c === 'b') {
       // This targeted assertion catches a stale screenshot committed in the
