@@ -278,7 +278,10 @@ export class MandateService {
     const active = activeRows[0];
     if (active !== undefined) {
       if (new Date(active.expiresAt) > now) return active;
-      throw new LedgerError('MANDATE_EXPIRED', `mandate ${active.id} v${active.version} expired at ${active.expiresAt}`);
+      throw new LedgerError(
+        'MANDATE_EXPIRED',
+        `mandate ${active.id} v${active.version} expired at ${active.expiresAt}`,
+      );
     }
     const newest = rows.length > 0 ? this.mapRow(rows[0] as unknown) : undefined;
     if (newest !== undefined) {
