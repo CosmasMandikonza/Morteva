@@ -44,8 +44,8 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
                 : offline
                   ? 'provider OFFLINE — synthetic fixture, never verified provider funds'
                   : stale
-                  ? 'snapshot 47 min old · autonomy suspended until fresh read'
-                  : `of ${money(usdAcc.balance)} on hand · as of ${treasury.asOf}`}
+                    ? 'snapshot 47 min old · autonomy suspended until fresh read'
+                    : `of ${money(usdAcc.balance)} on hand · as of ${treasury.asOf}`}
             </span>
           </p>
           <div className="b-hero__chips">
