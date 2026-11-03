@@ -355,7 +355,7 @@ export class DispatchWorker {
       const joined = this.db
         .prepare(
           `SELECT o.id AS op_id, o.org_id, o.mission_id, o.kind, o.state, o.request_id, o.mandate_id, o.mandate_version,
-                  o.amount_minor, o.currency, o.beneficiary, o.purpose,
+                  o.amount_minor, o.currency, o.beneficiary, o.purpose, o.approval_id,
                   x.id AS dispatch_id, x.rail, x.attempts
            FROM operations o JOIN outbox_dispatches x ON x.operation_id = o.id
            WHERE x.id = ?`,
@@ -372,6 +372,7 @@ export class DispatchWorker {
         beneficiary: text(joined.beneficiary, 'beneficiary'),
         purpose: text(joined.purpose, 'purpose'),
         mandateVersion: joined.mandate_version as number,
+        approvalId: text(joined.approval_id, 'approval_id'),
       };
       const base = {
         dispatchId,
@@ -387,7 +388,9 @@ export class DispatchWorker {
       }
 
       const mandateId = text(joined.mandate_id, 'mandate_id');
-      const gateError = this.authorityGateDecision(operation, mandateId);
+      const gateError =
+        this.authorityGateDecision(operation, mandateId) ??
+        this.approvalGateDecision(operation);
       if (gateError !== undefined) {
         // Never dispatched → provably safe internal cancellation + release.
         this.reservations.transition({
@@ -433,8 +436,46 @@ export class DispatchWorker {
    * envelope must still cover all consuming operations including this one.
    * Returns undefined when authority holds, or a stable denial reason.
    */
+  /**
+   * A consumed approval is still authoritative for its ONE reserved operation,
+   * until explicit revocation, expiry or approver revocation. Check inside the
+   * same write transaction as the final dispatch decision: revoking a queued
+   * approval must prevent dispatch, but never release an attempted payment.
+   */
+  private approvalGateDecision(operation: {
+    orgId: string;
+    approvalId: string;
+    mandateVersion: number;
+  }): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT a.status, a.revoked_at, a.expires_at, a.mandate_version, a.mandate_id,
+                u.revoked_at AS approver_revoked
+         FROM approvals a LEFT JOIN actors u ON u.id = a.decided_by AND u.org_id = a.org_id
+         WHERE a.id = ? AND a.org_id = ?`,
+      )
+      .get(operation.approvalId, operation.orgId) as
+      | {
+          status: string;
+          revoked_at: string | null;
+          expires_at: string;
+          mandate_version: number | null;
+          mandate_id: string | null;
+          approver_revoked: string | null;
+        }
+      | undefined;
+    if (row === undefined || row.status !== 'consumed') return 'APPROVAL_NOT_VALID';
+    if (row.revoked_at !== null) return 'APPROVAL_REVOKED';
+    if (row.approver_revoked !== null) return 'APPROVER_REVOKED';
+    if (row.mandate_version === null || row.mandate_version !== operation.mandateVersion)
+      return 'APPROVAL_STALE_MANDATE';
+    if (row.mandate_id === null) return 'APPROVAL_UNBOUND_MANDATE';
+    if (Date.parse(row.expires_at) <= this.clock.now().getTime()) return 'APPROVAL_EXPIRED';
+    return undefined;
+  }
+
   private authorityGateDecision(
-    operation: { orgId: string; missionId: string; amountMinor: number; mandateVersion: number },
+    operation: { orgId: string; missionId: string; currency: string; amountMinor: number; mandateVersion: number },
     mandateId: string,
   ): string | undefined {
     const now = this.clock.now();
@@ -450,7 +491,11 @@ export class DispatchWorker {
       return 'MANDATE_SUPERSEDED (authority re-issued)';
     if (new Date(latest.expiresAt) <= now) return 'MANDATE_EXPIRED';
     const envelope = this.mandates.effectiveTotalBudget(latest);
-    const consumed = this.mandates.consumedBudget(operation.orgId, mandateId);
+    const consumed = this.mandates.consumedMissionBudget(
+      operation.orgId,
+      operation.missionId,
+      operation.currency,
+    );
     if (consumed > envelope) {
       return `MANDATE_BUDGET_EXCEEDED (consumed ${consumed} > envelope ${envelope})`;
     }
