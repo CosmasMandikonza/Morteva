@@ -2,6 +2,36 @@ import { describe, expect, it } from 'vitest';
 import { type LedgerError } from '../src/index.js';
 import { approvedPlan, makeLedger, reserveCall } from './helpers.js';
 
+describe('tenant scoping and immutable authority issuance', () => {
+  it('prevents cross-organization missions, forged plans and invalid authorization expiry', () => {
+    const { ledger, clock } = makeLedger();
+    const a = ledger.organizations.createOrganization('Tenant A');
+    const b = ledger.organizations.createOrganization('Tenant B');
+    const missionA = ledger.organizations.createMission(a.id, 'A');
+    const future = new Date(clock.now().getTime() + 60_000).toISOString();
+    expect(() => ledger.mandates.issue({
+      orgId: b.id, missionId: missionA.id, currency: 'USD',
+      maxAmountMinor: 10_000, permittedOperationKinds: ['airwallex_transfer'], expiresAt: future,
+    })).toThrowError(/does not belong to organization/);
+    const terms = { amountMinor: 10_000, currency: 'USD', beneficiary: 'supplier', purpose: 'inspection' };
+    expect(() => ledger.plans.recordVersion({
+      orgId: b.id, missionId: missionA.id, terms,
+    })).toThrowError(/does not belong to organization/);
+    const planA = ledger.plans.recordVersion({ orgId: a.id, missionId: missionA.id, terms });
+    expect(() => ledger.approvals.record({
+      orgId: b.id, plan: planA, decidedBy: 'test', expiresAt: future,
+    })).toThrowError(/belongs to another organization/);
+    expect(() => ledger.approvals.record({
+      orgId: a.id, plan: { ...planA, terms: { ...terms, amountMinor: 25_000 } },
+      decidedBy: 'test', expiresAt: future,
+    })).toThrowError(/exact persisted, untampered plan/);
+    expect(() => ledger.approvals.record({
+      orgId: a.id, plan: planA, decidedBy: 'test', expiresAt: 'not-a-date',
+    })).toThrowError(/valid future date/);
+    ledger.close();
+  });
+});
+
 describe('mandates', () => {
   it('issues versioned mandates and supersedes previous versions', () => {
     const { ledger, clock } = makeLedger();
