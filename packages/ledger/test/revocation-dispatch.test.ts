@@ -78,6 +78,35 @@ function raceWorld(ledger: Ledger, clock: ReturnType<typeof makeLedger>['clock']
 }
 
 describe('revocation during queued dispatch', () => {
+  it('a consumed approval can be revoked while queued; the gate cancels before provider call', async () => {
+    const { ledger, clock } = makeLedger();
+    const ctx = raceWorld(ledger, clock);
+    const ref = approvedPlan(ledger, ctx.org.id, ctx.mission.id, {
+      amountMinor: 50_000,
+      currency: 'USD',
+    });
+    const { operation } = reserveCall(
+      ledger,
+      { org: ctx.org },
+      ctx.mission.id,
+      ref,
+      'approval-revoked-before-dispatch',
+    );
+    const approver = ledger.authority.getActorByUsername(ctx.org.id, 'test-approver')!;
+    const revoked = ledger.approvals.revoke(
+      ctx.org.id, ref.approvalId, approver.id, 'operator cancelled',
+    );
+    expect(revoked.status).toBe('revoked');
+    const dispatcher = stubDispatcher('airwallex');
+    ledger.worker.register(dispatcher);
+    const report = await ledger.worker.runOnce();
+    expect(report.blocked).toBe(1);
+    expect(dispatcher.dispatchCalls).toEqual([]);
+    expect(ledger.reservations.getOperation(ctx.org.id, operation.id).state).toBe('CANCELLED');
+    expect(ledger.spendable.compute(ctx.org.id, 'USD').outstandingCommittedMinor).toBe(0);
+    ledger.close();
+  });
+
   it('the 5-step race: reserve → eligible → REVOKE → worker → provider never called, op cancelled, funds released', async () => {
     const { ledger, clock } = makeLedger();
     const ctx = raceWorld(ledger, clock);
