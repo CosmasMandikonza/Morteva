@@ -31,11 +31,35 @@ export interface ProviderCapabilities {
  * is a first-class outcome: it must never be treated as failure or retried with
  * a new economic identity (docs/01, docs/05 #5).
  */
-export type ProviderCallStatus = 'pending' | 'succeeded' | 'failed' | 'status-unknown';
+/**
+ * Request acceptance is NOT financial settlement. Only a separately confirmed,
+ * provider-specific terminal status may be represented as 'confirmed'.
+ * A response timeout is status-unknown, never proof that the charge failed.
+ */
+export type ProviderCallStatus =
+  | 'submitted'
+  | 'processing'
+  | 'confirmed'
+  | 'failed'
+  | 'status-unknown';
 
-export interface ProviderCallResult<TResult> {
-  readonly status: ProviderCallStatus;
+/** A provider write response cannot self-attest independent settlement. */
+export type ProviderSubmissionStatus = Exclude<ProviderCallStatus, 'confirmed'>;
+
+export function isConfirmedProviderResult(status: ProviderCallStatus): boolean {
+  return status === 'confirmed';
+}
+
+export interface ProviderCallResult<
+  TResult,
+  TStatus extends ProviderCallStatus = ProviderCallStatus,
+> {
+  readonly status: TStatus;
   readonly environment: ProviderCapabilities['environment'];
+  /** Original provider status, not an inferred transaction outcome. */
+  readonly providerState?: string;
+  /** Timestamp of independent readback for an operation marked confirmed. */
+  readonly verifiedAt?: string;
   readonly value?: TResult;
   /** Reference to durable raw provider evidence; secrets never inline. */
   readonly receiptRef?: string;
@@ -71,7 +95,14 @@ export interface ProviderCommandBase {
 /** Execution port — NOT implemented in MTV-01; #5/#6 provide server-side adapters. */
 export interface ProviderExecutionPort<TCommand extends ProviderCommandBase, TResult> {
   readonly capabilities: ProviderCapabilities;
-  execute(command: TCommand): Promise<ProviderCallResult<TResult>>;
+  /** Dispatch only; write response MUST NOT be equated with settlement. */
+  execute(command: TCommand): Promise<ProviderCallResult<TResult, ProviderSubmissionStatus>>;
   /** Independently verify a receipt's state from provider truth, not local cache. */
   verifyReceipt(receiptRef: string): Promise<ProviderCallResult<TResult>>;
+  /**
+   * Recover a timed-out/ambiguous dispatch using the durable original requestId.
+   * If the provider cannot search by requestId, return status-unknown and
+   * preserve the commitment; do not silently submit a new economic operation.
+   */
+  reconcileByRequestId(requestId: string): Promise<ProviderCallResult<TResult>>;
 }
