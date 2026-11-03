@@ -33,11 +33,7 @@ export interface ProviderCapabilities {
  * with a new economic identity (docs/01, docs/05).
  */
 export type ProviderCallStatus =
-  | 'submitted'
-  | 'processing'
-  | 'confirmed'
-  | 'failed'
-  | 'status-unknown';
+  'submitted' | 'processing' | 'confirmed' | 'failed' | 'status-unknown';
 
 /** A provider write response cannot self-attest independent settlement. */
 export type ProviderSubmissionStatus = Exclude<ProviderCallStatus, 'confirmed'>;
