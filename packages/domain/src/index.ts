@@ -16,8 +16,48 @@ export {
 } from './money.js';
 
 export type {
+  LedgerStatusView,
   ProviderEnvironment,
   ProviderMode,
   ProviderStatusView,
   SystemStatusView,
 } from './system.js';
+
+export type { OperationState } from './operations.js';
+export {
+  allowedOperationTransitions,
+  canTransitionOperation,
+  isOperationState,
+  isTerminalOperationState,
+} from './operations.js';
+
+export type { CommitmentState } from './commitments.js';
+export { commitmentConsumesCapacity, commitmentStateFor } from './commitments.js';
+
+export { canonicalJson, termsDigest } from './digest.js';
+
+export type {
+  AccountId,
+  AccountView,
+  ApprovalId,
+  ApprovalView,
+  BalanceSnapshotView,
+  BalanceSource,
+  CandidatePlanView,
+  CommitmentView,
+  EvidenceEventView,
+  FinancialOperationView,
+  MandateId,
+  MandateView,
+  MissionId,
+  MissionStatus,
+  MissionView,
+  OperationId,
+  OperationKind,
+  OrganizationView,
+  OrgId,
+  OutboxDispatchView,
+  OutboxStatus,
+  PlanId,
+  SpendableView,
+} from './entities.js';

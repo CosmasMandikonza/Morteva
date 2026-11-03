@@ -36,6 +36,7 @@ const configSchema = z.object({
   HOST: z.string().min(1).default('127.0.0.1'),
   WEB_ORIGIN: z.url().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'silent']).default('info'),
+  MOTERVA_LEDGER_PATH: z.string().min(1).default('data/moterva.sqlite'),
   GIT_SHA: z.string().min(1).optional(),
 });
 
@@ -70,6 +71,8 @@ export interface AppConfig {
   readonly webOrigin: string;
   readonly logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
   readonly providerMode: 'offline' | 'simulated';
+  /** SQLite file for the financial ledger (MTV-02). Relative paths resolve against the API cwd. */
+  readonly ledgerPath: string;
   readonly gitSha?: string;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
@@ -98,6 +101,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     HOST: env.HOST,
     WEB_ORIGIN: env.WEB_ORIGIN,
     LOG_LEVEL: env.LOG_LEVEL,
+    MOTERVA_LEDGER_PATH: env.MOTERVA_LEDGER_PATH,
     GIT_SHA: env.GIT_SHA,
   });
   if (!parsed.success) {
@@ -124,6 +128,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     webOrigin: parsed.data.WEB_ORIGIN,
     logLevel: parsed.data.LOG_LEVEL,
     providerMode,
+    ledgerPath: parsed.data.MOTERVA_LEDGER_PATH,
     gitSha: parsed.data.GIT_SHA,
     warnings,
   };

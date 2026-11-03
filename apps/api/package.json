@@ -2,7 +2,7 @@
   "name": "@moterva/api",
   "version": "0.1.0",
   "private": true,
-  "description": "MOTERVA API server. MTV-01: genuine health route + honest read-only system status. Fail-closed: no financial routes exist yet.",
+  "description": "MOTERVA API server. Honest health/read-only status; boots the local SQLite ledger (MTV-02) with migrations and integrity verification. Financial mutations stay internal — no public financial routes.",
   "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,7 @@
   "dependencies": {
     "@fastify/cors": "^11.0.0",
     "@moterva/domain": "0.1.0",
+    "@moterva/ledger": "0.1.0",
     "@moterva/providers": "0.1.0",
     "fastify": "^5.2.0",
     "zod": "^4.6.7"

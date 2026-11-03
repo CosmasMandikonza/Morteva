@@ -2,11 +2,11 @@
 
 **Mission-scoped financial autonomy engine for physical operations (hackathon build).** Repo name is `Morteva` (as created); product name is `MOTERVA`. This is not a production banking service.
 
-> **Truth as of 2026-11-02:** The repository contains engineering documentation **plus a runnable local skeleton delivered by MTV-01 (issue #3)**: a typed monorepo with a Fastify API (genuine health + honest read-only status routes) and a Vite/React web shell, unit + Playwright tests, and CI. **No financial integration exists yet** — Airwallex and Metal are OFFLINE, no provider credentials are read, and no sandbox/testnet call has been made. Read [STATE](docs/STATE.md) before making claims.
+> **Truth as of 2026-11-03:** The repository contains engineering documentation, the runnable local skeleton from MTV-01 (issue #3) **and the durable financial ledger foundation from MTV-02 (issue #4)**: org/mission/mandate/plan/approval/operation/commitment records in SQLite with atomic concurrency-safe reservations, a transactional outbox and an append-only evidence journal — all covered by unit, real multi-worker race, and restart/recovery tests. **No financial integration exists yet** — Airwallex and Metal are OFFLINE, no provider credentials are read, and no sandbox/testnet call has been made. Read [STATE](docs/STATE.md) before making claims.
 
 ## Quickstart (verified commands)
 
-Prerequisites: **Node.js ≥ 22** (developed and CI-tested on Node 24) and **npm ≥ 10**. Nothing else — no database, no docker, no accounts.
+Prerequisites: **Node.js ≥ 24** (the ledger uses the built-in `node:sqlite`; see [ADR 0002](docs/adr/0002-ledger-persistence.md)) and **npm ≥ 10**. Nothing else — no database server, no docker, no accounts.
 
 ```bash
 npm ci            # cold install from the committed lockfile
@@ -17,18 +17,19 @@ The web app is the honest shell: primary navigation to the planned capabilities 
 
 ### All commands
 
-| Command                 | What it does                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------- |
-| `npm ci`                | Cold install exactly from `package-lock.json` (fails if lockfile is tampered) |
-| `npm run dev`           | Both servers in watch mode (API + web)                                        |
-| `npm run lint`          | ESLint across all workspaces                                                  |
-| `npm run format:check`  | Prettier check                                                                |
-| `npm run typecheck`     | `tsc` strict across packages, apps, e2e and tests                             |
-| `npm run test:unit`     | Vitest per workspace (domain money invariants, API routes/config, providers)  |
-| `npm run build`         | Compile packages + API (`tsc`), build web (`vite build`)                      |
-| `npm run test:e2e`      | Build, then Playwright chromium against the real servers                      |
-| `npm run check:docs`    | Markdown link integrity + secret patterns in docs                             |
-| `npm run check:secrets` | Secret-pattern scan over source files                                         |
+| Command                                | What it does                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------ |
+| `npm ci`                               | Cold install exactly from `package-lock.json` (fails if lockfile is tampered)  |
+| `npm run dev`                          | Both servers in watch mode (API + web)                                         |
+| `npm run lint`                         | ESLint across all workspaces                                                   |
+| `npm run format:check`                 | Prettier check                                                                 |
+| `npm run typecheck`                    | `tsc` strict across packages, apps, e2e and tests                              |
+| `npm run test:unit`                    | Vitest per workspace (domain, API, providers, ledger incl. race/restart tests) |
+| `npm run build`                        | Compile packages + API (`tsc`), build web (`vite build`)                       |
+| `npm run test:e2e`                     | Build, then Playwright chromium against the real servers                       |
+| `npm run check:docs`                   | Markdown link integrity + secret patterns in docs                              |
+| `npm run check:secrets`                | Secret-pattern scan over source files                                          |
+| `npm run seed:demo -w @moterva/ledger` | Temp-database demo: two missions contend for one pool, honest outcomes         |
 
 `npm ci` and every script above run on a cold checkout in CI (`.github/workflows/ci.yml`, Linux/Node 24). A red CI check blocks a green claim — see docs/09.
 
@@ -40,23 +41,24 @@ All configuration is optional and safe by default (see [.env.example](.env.examp
 
 - **Start:** `npm run dev` (or `npm run build && npm run start -w @moterva/api` for the compiled server).
 - **Liveness:** `curl http://127.0.0.1:8787/healthz` → `{"status":"ok",...}`. This is process liveness only; it never claims provider state.
-- **Honest status:** `curl http://127.0.0.1:8787/api/system/status` — providers list with `OFFLINE` labels and a simulation notice. The UI renders this verbatim and shows a `DEMO_SIMULATED` notice in simulated mode.
-- **Failure states:** backend offline → the web shell shows an explicit "API offline" alert with a Retry button (covered by E2E). Config missing/invalid → API exits 1 before binding a port.
-- **Financial endpoints:** none exist; every unknown `/api/*` route fails closed with a 404 (negative-tested). Provider financial writes arrive only with issues #5/#6 behind authentication.
-- **Rollback:** `git revert` — no migrations or deployments exist yet.
+- **Honest status:** `curl http://127.0.0.1:8787/api/system/status` — providers list with `OFFLINE` labels, a simulation notice, and local ledger facts (schema version, integrity, pending dispatches). The UI renders this verbatim and shows a `DEMO_SIMULATED` notice in simulated mode.
+- **Failure states:** backend offline → the web shell shows an explicit "API offline" alert with a Retry button (covered by E2E). Config missing/invalid → API exits 1 before binding a port. Corrupted/failed-migration ledger → API refuses to boot; migrations run transactionally at startup ([schema doc](docs/10_LEDGER_SCHEMA.md)).
+- **Financial endpoints:** none are public; every unknown `/api/*` route fails closed with a 404 (negative-tested). Financial mutations live behind the internal ledger service boundary until authentication lands; provider dispatch arrives only with issues #5/#6.
+- **Rollback:** `git revert`; ledger schema changes are forward-only migrations — do not edit applied migration files, append new ones.
 
 ## Repository layout
 
 ```
 apps/web            Vite + React 19 web shell (honest status UI, primary navigation)
-apps/api            Fastify 5 API: /healthz, /api/system/status, fail-closed routing, env validation
-packages/domain     Pure typed money + status contracts (integer minor units; no float money)
+apps/api            Fastify 5 API: /healthz, /api/system/status, fail-closed routing, ledger boot (migrate+verify)
+packages/domain     Pure typed money, lifecycles, digests and view contracts (integer minor units)
 packages/providers  Provider port contracts + OFFLINE descriptors (no provider calls exist)
+packages/ledger     Durable financial ledger: SQLite (node:sqlite), atomic reservations, outbox, evidence journal
 e2e/                Playwright specs (smoke, API-offline error state, screenshot capture)
 docs/               Engineering documentation, ADRs and evidence assets
 ```
 
-Stack rationale and the persistence/auth/jobs/deployment plan: [ADR 0001](docs/adr/0001-stack-and-runtime.md).
+Stack rationale: [ADR 0001](docs/adr/0001-stack-and-runtime.md). Ledger persistence & transaction design: [ADR 0002](docs/adr/0002-ledger-persistence.md), schema reference: [docs/10_LEDGER_SCHEMA.md](docs/10_LEDGER_SCHEMA.md).
 
 | App shell (desktop 1440×900)                                 | App shell (mobile 390×844)                                 |
 | ------------------------------------------------------------ | ---------------------------------------------------------- |

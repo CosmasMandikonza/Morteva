@@ -26,6 +26,7 @@ Framework/monorepo, persistence+transactions, session/tenant auth, runtime hosti
 
 Recorded:
 - 2026-11-02 — [ADR 0001: stack and runtime](adr/0001-stack-and-runtime.md) (npm-workspaces monorepo, Vite+React/Fastify, SQLite-first behind a storage port; auth/jobs/deployment plan of record). Reviewer/date pending PR review.
+- 2026-11-03 — [ADR 0002: ledger persistence](adr/0002-ledger-persistence.md) (node:sqlite, WAL+BEGIN IMMEDIATE serialization, spendable formula, outbox/claim protocol, restart verification) and the [ledger schema reference](10_LEDGER_SCHEMA.md). Reviewer/date pending PR review.
 
 ## Founder input gate (not an endless question loop)
 Agent should make best-effort default choices backed by evidence; only request founder action for external credentials, paid services, legally binding approvals, or aesthetic reference selection. Maintain a single concise unblock list in STATE.md.

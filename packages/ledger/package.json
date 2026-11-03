@@ -1,0 +1,30 @@
+{
+  "name": "@moterva/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable financial ledger: SQLite persistence, atomic org-scoped reservations, outbox, append-only evidence. No provider integrations (issues #5/#6).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "seed:demo": "node dist/seed/demo.js"
+  },
+  "dependencies": {
+    "@moterva/domain": "0.1.0",
+    "@moterva/providers": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^5.1.0"
+  }
+}

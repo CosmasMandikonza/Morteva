@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
-    "node": ">=22",
+    "node": ">=24",
     "npm": ">=10"
   },
   "workspaces": [
@@ -17,10 +17,10 @@
     "minimatch": "^11.0.1"
   },
   "scripts": {
-    "build:packages": "tsc -b packages/domain packages/providers",
+    "build:packages": "tsc -b packages/domain packages/providers packages/ledger",
     "dev": "npm run build:packages && concurrently -n api,web -c blue,green \"npm run dev -w @moterva/api\" \"npm run dev -w @moterva/web\"",
     "build": "tsc -b && npm run build -w @moterva/web",
-    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.e2e.json && npm run typecheck -w @moterva/web && npm run typecheck -w @moterva/api && npm run typecheck -w @moterva/domain && npm run typecheck -w @moterva/providers",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.e2e.json && npm run typecheck -w @moterva/web && npm run typecheck -w @moterva/api && npm run typecheck -w @moterva/ledger && npm run typecheck -w @moterva/domain && npm run typecheck -w @moterva/providers",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

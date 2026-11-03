@@ -65,6 +65,31 @@ describe('GET /api/system/status — honest integration status', () => {
       expect(provider.label).toBe('OFFLINE');
     }
   });
+
+  it('reports local ledger facts when wired, without provider claims (MTV-02)', async () => {
+    const app = buildApp(loadConfig({ LOG_LEVEL: 'silent' }), () => ({
+      ok: true,
+      schemaVersion: 1,
+      integrity: 'ok',
+      pendingDispatches: 0,
+    }));
+    const response = await app.inject({ method: 'GET', url: '/api/system/status' });
+    const body = response.json();
+    expect(body.ledger).toEqual({
+      ok: true,
+      schemaVersion: 1,
+      integrity: 'ok',
+      pendingDispatches: 0,
+    });
+    // Ledger facts are local persistence only — still no provider claim.
+    expect(JSON.stringify(body.ledger).toLowerCase()).not.toContain('settled');
+    await app.close();
+  });
+
+  it('omits the ledger section when no ledger is wired (backwards-compatible shape)', async () => {
+    const response = await offlineApp.inject({ method: 'GET', url: '/api/system/status' });
+    expect(response.json().ledger).toBeUndefined();
+  });
 });
 
 describe('fail-closed routing (negative/adversarial requests)', () => {
