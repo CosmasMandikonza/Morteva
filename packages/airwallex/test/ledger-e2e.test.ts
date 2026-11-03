@@ -150,7 +150,16 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
           }),
         ],
         listTransfers: [
-          ok({ items: [{ id: 'tr_h1', request_id: ns('e2e-happy-1'), status: 'PROCESSING' }] }),
+          ok({
+            items: [
+              {
+                id: 'tr_h1',
+                request_id: ns('e2e-happy-1'),
+                status: 'PROCESSING',
+                beneficiary_id: 'ben-e2e',
+              },
+            ],
+          }),
         ],
         getTransfer: [
           ok({
@@ -159,6 +168,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
             status: 'PAID',
             transfer_amount: 250,
             transfer_currency: 'USD',
+            beneficiary_id: 'ben-e2e',
           }),
         ],
       }),
@@ -225,6 +235,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
               status: 'PAID',
               transfer_amount: 250,
               transfer_currency: 'USD',
+              beneficiary_id: 'ben-e2e',
             },
           ],
         }),
@@ -236,6 +247,7 @@ describe('E2E: ledger worker × airwallex adapter (offline fixture)', () => {
           status: 'PAID',
           transfer_amount: 250,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-e2e',
         }),
       ],
     });

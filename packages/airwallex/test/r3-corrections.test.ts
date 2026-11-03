@@ -274,6 +274,7 @@ describe('P0-2 tenant-safe request identities', () => {
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
         ok({
           id: 'tr_org_b',
@@ -300,6 +301,7 @@ describe('P0-2 tenant-safe request identities', () => {
       operationId: opA,
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(resultA.status).toBe('confirmed');
 
@@ -308,6 +310,7 @@ describe('P0-2 tenant-safe request identities', () => {
       operationId: opB,
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(resultB.status).toBe('processing'); // org B's own transfer is still PROCESSING
 
@@ -347,6 +350,7 @@ describe('P0-2 tenant-safe request identities', () => {
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
       ],
       balances: [],
@@ -363,6 +367,7 @@ describe('P0-2 tenant-safe request identities', () => {
       operationId: opA,
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(restarted.status).toBe('confirmed');
     reopened.close();
@@ -431,6 +436,7 @@ describe('P0-3 verified economic identity before settlement', () => {
           status: 'PAID',
           transfer_amount: 99.99,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
       ],
     }));
@@ -439,6 +445,7 @@ describe('P0-3 verified economic identity before settlement', () => {
       operationId: 'op_10',
       amountMinor: 1234, // authorized 12.34; provider record says 99.99
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(result.status).toBe('status-unknown');
     expect(result.providerState).toBe('EVIDENCE_MISMATCH');
@@ -467,6 +474,7 @@ describe('P0-3 verified economic identity before settlement', () => {
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'EUR',
+          beneficiary_id: 'ben-1',
         }),
       ],
     }));
@@ -475,6 +483,7 @@ describe('P0-3 verified economic identity before settlement', () => {
       operationId: 'op_11',
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(result.status).toBe('status-unknown');
     expect(result.providerState).toBe('EVIDENCE_MISMATCH');
@@ -513,6 +522,7 @@ describe('P0-3 verified economic identity before settlement', () => {
       operationId: 'op_12',
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(result.status).toBe('status-unknown');
     expect(result.providerState).toBe('EVIDENCE_MISMATCH');
@@ -604,6 +614,7 @@ describe('P0-3 verified economic identity before settlement', () => {
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
       ],
     }));
@@ -612,6 +623,7 @@ describe('P0-3 verified economic identity before settlement', () => {
       operationId: 'op_15',
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(result.status).toBe('confirmed');
     expect(result.verifiedAt).toBeDefined();
@@ -714,7 +726,18 @@ describe('P0-4 PAID is not irreversible — late failure after settlement', () =
         }),
       ],
       listTransfers: [
-        ok({ items: [{ id: 'tr_p04', request_id: providerId, status: 'PROCESSING' }] }),
+        ok({
+          items: [
+            {
+              id: 'tr_p04',
+              request_id: providerId,
+              status: 'PROCESSING',
+              transfer_amount: 12.34,
+              transfer_currency: 'USD',
+              beneficiary_id: 'ben-1',
+            },
+          ],
+        }),
       ],
       getTransfer: [
         ok({
@@ -723,6 +746,7 @@ describe('P0-4 PAID is not irreversible — late failure after settlement', () =
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
       ],
       balances: [],

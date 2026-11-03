@@ -254,44 +254,90 @@ export class AirwallexClient {
 
   /**
    * The documented recovery path for a lost create response: list transfers
-   * filtered by OUR original request_id.
-   */
-  /**
-   * The documented recovery path for a lost create response: list transfers
-   * filtered by OUR original request_id (R3 P1-6: malformed responses fail
-   * closed as AMBIGUOUS — a missing/invalid `items` array is never treated
-   * as an authoritative empty result, because the caller reads "empty" as
-   * definitive non-execution).
+   * filtered by OUR original request_id (R3 P1-6 + final-round P1: malformed
+   * responses fail closed as AMBIGUOUS — a missing/invalid `items` array is
+   * never treated as an authoritative empty result, because the caller reads
+   * "empty" as definitive non-execution).
+   *
+   * PAGINATION is fail-closed: when the provider says `has_more`, the cursor
+   * (`page_after`) is followed up to a hard bound; a missing/repeated cursor
+   * or an over-long traversal throws TransportUnavailableError so the readback
+   * stays INCOMPLETE. An empty result is only returned after a complete,
+   * well-formed traversal — never from a truncated page.
    */
   async listTransfersByRequestId(requestId: string): Promise<AirwallexTransferRecord[]> {
-    const response = await this.authorizedRequest({
-      method: 'GET',
-      path: '/api/v1/transfers',
-      query: { request_id: requestId },
-      idempotentRead: true,
-    });
-    if (response.httpStatus !== 200) {
-      AirwallexClient.raiseIfDefinitiveHttpError(response, 'transfers?request_id');
-      throw new TransportUnavailableError(
-        `airwallex transfers?request_id non-success ${response.httpStatus}; treating as ambiguous`,
-      );
+    const MAX_LIST_PAGES = 10;
+    const records: AirwallexTransferRecord[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | null = null;
+    for (let page = 0; ; page += 1) {
+      const response = await this.authorizedRequest({
+        method: 'GET',
+        path: '/api/v1/transfers',
+        query:
+          cursor === null
+            ? { request_id: requestId }
+            : { request_id: requestId, page_after: cursor },
+        idempotentRead: true,
+      });
+      if (response.httpStatus !== 200) {
+        AirwallexClient.raiseIfDefinitiveHttpError(response, 'transfers?request_id');
+        throw new TransportUnavailableError(
+          `airwallex transfers?request_id non-success ${response.httpStatus}; treating as ambiguous`,
+        );
+      }
+      if (
+        response.body === null ||
+        typeof response.body !== 'object' ||
+        Array.isArray(response.body)
+      ) {
+        throw new TransportUnavailableError(
+          'airwallex transfers?request_id returned a malformed body (expected object with items); treating readback as incomplete, not empty',
+        );
+      }
+      const body = response.body as { items?: unknown; has_more?: unknown; page_after?: unknown };
+      const items = body.items;
+      if (!Array.isArray(items)) {
+        throw new TransportUnavailableError(
+          'airwallex transfers?request_id response missing items array; treating readback as incomplete, not empty',
+        );
+      }
+      if (body.has_more !== undefined && typeof body.has_more !== 'boolean') {
+        throw new TransportUnavailableError(
+          'airwallex transfers?request_id response has a non-boolean has_more; treating readback as incomplete, not empty',
+        );
+      }
+      records.push(...items.map((item) => parseTransferRecord(item)));
+      const hasMore = body.has_more === true;
+      const next =
+        typeof body.page_after === 'string' && body.page_after !== '' ? body.page_after : null;
+      if (!hasMore) {
+        if (next !== null) {
+          // Contradictory pagination metadata: incomplete, never authoritative.
+          throw new TransportUnavailableError(
+            'airwallex transfers?request_id returned page_after while has_more is false; treating readback as incomplete, not empty',
+          );
+        }
+        return records; // complete traversal — only now may "empty" mean empty
+      }
+      if (next === null) {
+        throw new TransportUnavailableError(
+          'airwallex transfers?request_id has_more=true without a page_after cursor; treating readback as incomplete, not empty',
+        );
+      }
+      if (seenCursors.has(next)) {
+        throw new TransportUnavailableError(
+          `airwallex transfers?request_id repeated pagination cursor "${next.slice(0, 12)}…"; treating readback as incomplete, not empty`,
+        );
+      }
+      seenCursors.add(next);
+      if (page + 1 >= MAX_LIST_PAGES) {
+        throw new TransportUnavailableError(
+          `airwallex transfers?request_id pagination exceeded the ${String(MAX_LIST_PAGES)}-page bound; treating readback as incomplete, not empty`,
+        );
+      }
+      cursor = next;
     }
-    if (
-      response.body === null ||
-      typeof response.body !== 'object' ||
-      Array.isArray(response.body)
-    ) {
-      throw new TransportUnavailableError(
-        'airwallex transfers?request_id returned a malformed body (expected object with items); treating readback as incomplete, not empty',
-      );
-    }
-    const items = (response.body as { items?: unknown }).items;
-    if (!Array.isArray(items)) {
-      throw new TransportUnavailableError(
-        'airwallex transfers?request_id response missing items array; treating readback as incomplete, not empty',
-      );
-    }
-    return items.map((item) => parseTransferRecord(item));
   }
 }
 

@@ -253,6 +253,7 @@ describe('reconcileByRequestId()', () => {
           status: 'PAID',
           transfer_amount: 12.34,
           transfer_currency: 'USD',
+          beneficiary_id: 'ben-1',
         }),
       ],
     }));
@@ -262,6 +263,7 @@ describe('reconcileByRequestId()', () => {
       operationId,
       amountMinor: 1234,
       currency: 'USD',
+      beneficiary: 'ben-1',
     });
     expect(result.status).toBe('confirmed');
     expect(result.providerState).toBe('PAID');

@@ -8,10 +8,21 @@
  *    'submitted'; the ledger moves the operation to IN_FLIGHT and
  *    reconciliation owns finality.
  *  - reconcileByRequestId() is the ONLY path returning 'confirmed', and only
- *    when an INDEPENDENT provider readback shows terminal-success (PAID)
- *    AND the record matches the authorized economic identity exactly
- *    (namespaced request id, amount, currency, beneficiary). A failed
- *    get-by-id NEVER degrades to the listed record for confirmation.
+ *    when ALL of the following hold (final-round P0-2/P0-3):
+ *      (a) the list-by-request-id record carries the exact namespaced
+ *          provider request id (missing/foreign ids are ambiguous);
+ *      (b) an INDEPENDENT get-by-id succeeds and shows terminal success,
+ *          with the SAME transfer id and the same namespaced request id;
+ *      (c) a COMPLETE settlement scope (org + operation + amount + currency
+ *          + beneficiary, worker-bound from the durable authorization) is
+ *          present and consistent with the server-side beneficiary mapping;
+ *      (d) the record matches every authorized term EXACTLY (minor-unit
+ *          amount, currency, beneficiary id) — missing provider identity
+ *          fields are EVIDENCE_INCOMPLETE, wrong values EVIDENCE_MISMATCH,
+ *          and neither can ever confirm. A failed get-by-id NEVER degrades
+ *          to the listed record for confirmation.
+ *    Webhook/diagnostic/unscoped callers may observe provider state but can
+ *    never produce a settlement-authorizing 'confirmed'.
  *  - Provider request identities are NAMESPACED per organization
  *    (provider-request-id.ts), so identical local request ids in two orgs
  *    can never collide at Airwallex or in reconciliation.
@@ -47,7 +58,7 @@ export function redactProviderPayload(value: unknown): string {
   return json.replace(/("(?:api[_-]?key|token|authorization)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
 }
 
-/** Scope the ledger worker binds to every reconciliation (tenant-safe, P0-2/P0-3). Economic terms are present for worker-driven reconciliations; webhook-triggered reconciliations bind only the tenant. */
+/** Scope the ledger worker binds to every reconciliation (tenant-safe, P0-2/P0-3). A COMPLETE scope (all economic terms present) is REQUIRED before a readback may return 'confirmed'; webhook/diagnostic callers bind only the tenant and can never authorize settlement. */
 export interface ReconcileScope {
   readonly orgId: string;
   readonly operationId: string | null;
@@ -55,6 +66,43 @@ export interface ReconcileScope {
   readonly amountMinor?: number;
   readonly currency?: string;
   readonly beneficiary?: string;
+}
+
+/**
+ * A settlement-capable scope (final-round P0-3): every economic term the
+ * authorization carries must be present. Anything less may observe provider
+ * state ('failed'/'processing'/'status-unknown') but can NEVER confirm.
+ */
+export interface SettlementScope {
+  readonly orgId: string;
+  readonly operationId: string;
+  readonly amountMinor: number;
+  readonly currency: string;
+  readonly beneficiary: string;
+}
+
+export function asSettlementScope(scope: ReconcileScope | undefined): SettlementScope | null {
+  if (scope === undefined) return null;
+  if (
+    scope.orgId === '' ||
+    scope.operationId === null ||
+    scope.operationId === '' ||
+    typeof scope.amountMinor !== 'number' ||
+    !Number.isFinite(scope.amountMinor) ||
+    typeof scope.currency !== 'string' ||
+    scope.currency === '' ||
+    typeof scope.beneficiary !== 'string' ||
+    scope.beneficiary === ''
+  ) {
+    return null;
+  }
+  return {
+    orgId: scope.orgId,
+    operationId: scope.operationId,
+    amountMinor: scope.amountMinor,
+    currency: scope.currency,
+    beneficiary: scope.beneficiary,
+  };
 }
 
 export interface AirwallexDispatcherDeps {
@@ -267,7 +315,27 @@ export class AirwallexDispatcher implements RailDispatcher {
     }
 
     const listed = found[0] as AirwallexTransferRecord;
-    if (listed.requestId !== null && listed.requestId !== providerRequestId) {
+    if (listed.requestId === null) {
+      // Final-round P0-2: a listed record WITHOUT a request id is not
+      // attributable to our intent — missing identity fields are ambiguous,
+      // never a basis for confirmation or definitive failure attribution.
+      this.append({
+        orgId,
+        operationId,
+        requestId,
+        transferId: listed.id,
+        kind: 'ambiguous-failure',
+        httpStatus: 200,
+        providerStatus: 'EVIDENCE_INCOMPLETE',
+        payload: { provider_request_id: providerRequestId, listed: minimizeTransfer(listed.raw) },
+      });
+      return {
+        status: 'status-unknown',
+        environment: this.env(),
+        providerState: 'EVIDENCE_INCOMPLETE',
+      };
+    }
+    if (listed.requestId !== providerRequestId) {
       // Foreign record under our namespaced id — provider state is not ours
       // to interpret. Fail closed.
       this.append({
@@ -317,6 +385,50 @@ export class AirwallexDispatcher implements RailDispatcher {
     }
 
     const normalized = normalizeTransferStatus(record.status);
+
+    // Final-round P0-2: the independent get-by-ID record must itself carry a
+    // complete, consistent identity — same transfer id as the listing, same
+    // namespaced request id. Missing or contradictory identity fields make
+    // the readback ambiguous, no matter how plausible the amount looks.
+    if (record.id !== listed.id) {
+      this.append({
+        orgId,
+        operationId,
+        requestId,
+        transferId: record.id,
+        kind: 'ambiguous-failure',
+        httpStatus: 200,
+        providerStatus: 'EVIDENCE_INCOMPLETE',
+        payload: {
+          provider_request_id: providerRequestId,
+          listed_transfer_id: listed.id,
+          transfer: minimizeTransfer(record.raw),
+        },
+      });
+      return {
+        status: 'status-unknown',
+        environment: this.env(),
+        providerState: 'EVIDENCE_INCOMPLETE',
+      };
+    }
+    if (record.requestId === null || record.requestId !== providerRequestId) {
+      this.append({
+        orgId,
+        operationId,
+        requestId,
+        transferId: record.id,
+        kind: 'ambiguous-failure',
+        httpStatus: 200,
+        providerStatus: record.requestId === null ? 'EVIDENCE_INCOMPLETE' : 'REQUEST_ID_MISMATCH',
+        payload: { provider_request_id: providerRequestId, transfer: minimizeTransfer(record.raw) },
+      });
+      return {
+        status: 'status-unknown',
+        environment: this.env(),
+        providerState: record.requestId === null ? 'EVIDENCE_INCOMPLETE' : 'REQUEST_ID_MISMATCH',
+      };
+    }
+
     this.append({
       orgId,
       operationId,
@@ -329,31 +441,70 @@ export class AirwallexDispatcher implements RailDispatcher {
     });
 
     if (normalized === 'terminal-success') {
-      // Verified PAID at readback time. Before confirming, validate the
-      // record against the AUTHORIZED economic identity (P0-3).
-      if (scope !== undefined) {
-        const mismatches = validateAgainstScope(
-          record,
-          scope,
-          this.deps.beneficiaryIdForOrg(scope.orgId),
-        );
-        if (mismatches.length > 0) {
-          this.append({
-            orgId,
-            operationId,
-            requestId,
-            transferId: record.id,
-            kind: 'ambiguous-failure',
-            httpStatus: 200,
-            providerStatus: 'EVIDENCE_MISMATCH',
-            payload: { mismatches, transfer: minimizeTransfer(record.raw) },
-          });
-          return {
-            status: 'status-unknown',
-            environment: this.env(),
-            providerState: 'EVIDENCE_MISMATCH',
-          };
-        }
+      // Verified PAID at readback time. Final-round P0-3: confirmation is
+      // settlement authorization — it requires a COMPLETE trusted scope
+      // (worker-bound operation + every authorized economic term). Webhook
+      // triggers, diagnostic calls and partially-scoped callers may observe
+      // provider state but can NEVER produce 'confirmed'.
+      const settlement = asSettlementScope(scope);
+      if (settlement === null) {
+        this.append({
+          orgId,
+          operationId,
+          requestId,
+          transferId: record.id,
+          kind: 'ambiguous-failure',
+          httpStatus: 200,
+          providerStatus: 'SCOPE_INCOMPLETE',
+          payload: {
+            note: 'terminal-success readback without a complete settlement scope; observing only',
+          },
+        });
+        return {
+          status: 'status-unknown',
+          environment: this.env(),
+          providerState: 'SCOPE_INCOMPLETE',
+        };
+      }
+      const configuredBeneficiary = this.deps.beneficiaryIdForOrg(settlement.orgId);
+      if (configuredBeneficiary !== undefined && configuredBeneficiary !== settlement.beneficiary) {
+        // The trusted server-side org mapping disagrees with the operation's
+        // authorized beneficiary — inconsistent trusted inputs, never confirm.
+        this.append({
+          orgId,
+          operationId,
+          requestId,
+          transferId: record.id,
+          kind: 'ambiguous-failure',
+          httpStatus: 200,
+          providerStatus: 'SCOPE_INCONSISTENT',
+          payload: {
+            note: 'configured org beneficiary differs from the authorized operation beneficiary',
+          },
+        });
+        return {
+          status: 'status-unknown',
+          environment: this.env(),
+          providerState: 'SCOPE_INCONSISTENT',
+        };
+      }
+      const verdict = validateAgainstSettlementScope(record, settlement);
+      if (verdict !== null) {
+        this.append({
+          orgId,
+          operationId,
+          requestId,
+          transferId: record.id,
+          kind: 'ambiguous-failure',
+          httpStatus: 200,
+          providerStatus: verdict.state,
+          payload: { mismatches: verdict.mismatches, transfer: minimizeTransfer(record.raw) },
+        });
+        return {
+          status: 'status-unknown',
+          environment: this.env(),
+          providerState: verdict.state,
+        };
       }
       // THE ONLY 'confirmed' in this adapter: independent readback of terminal
       // success on a record matching the authorized terms, timestamped.
@@ -454,6 +605,9 @@ export class AirwallexDispatcher implements RailDispatcher {
       payload: input.payload !== undefined ? minimizeTransfer(input.payload) : { name: input.name },
     });
     if (input.requestId !== undefined) {
+      // Tenant-only scope: this reconciliation can never return 'confirmed'
+      // (final-round P0-3) — it observes state and records evidence; the
+      // worker's next fully-scoped pass owns any settlement decision.
       await this.reconcileByRequestId(input.requestId, { orgId: input.orgId, operationId: null });
       return { deduped: false, reconciled: true };
     }
@@ -543,34 +697,47 @@ function describe(error: unknown): string {
 
 /**
  * Exact-term validation of a provider readback against the authorized
- * operation (P0-3). Any mismatch blocks confirmation.
+ * operation (final-round P0-2/P0-3). Missing provider identity fields are
+ * EVIDENCE_INCOMPLETE (ambiguous); wrong values are EVIDENCE_MISMATCH. Any
+ * non-null verdict blocks confirmation.
  */
-function validateAgainstScope(
+function validateAgainstSettlementScope(
   record: AirwallexTransferRecord,
-  scope: ReconcileScope,
-  expectedBeneficiaryId: string | undefined,
-): string[] {
+  scope: SettlementScope,
+): { state: 'EVIDENCE_INCOMPLETE' | 'EVIDENCE_MISMATCH'; mismatches: string[] } | null {
   const mismatches: string[] = [];
-  if (record.transferAmount === null || record.transferAmount.minorUnits !== scope.amountMinor) {
+  let sawValueMismatch = false;
+  if (record.transferAmount === null) {
     mismatches.push(
-      `amount: authorized ${String(scope.amountMinor)} minor, provider record shows ${String(record.transferAmount?.minorUnits ?? 'unknown')} minor`,
+      'amount/currency: provider record is missing transfer_amount or transfer_currency',
+    );
+  } else {
+    if (record.transferAmount.minorUnits !== scope.amountMinor) {
+      sawValueMismatch = true;
+      mismatches.push(
+        `amount: authorized ${String(scope.amountMinor)} minor, provider record shows ${String(record.transferAmount.minorUnits)} minor`,
+      );
+    }
+    if (record.transferAmount.currency !== scope.currency) {
+      sawValueMismatch = true;
+      mismatches.push(
+        `currency: authorized ${scope.currency}, provider record shows ${record.transferAmount.currency}`,
+      );
+    }
+  }
+  if (record.beneficiaryId === null) {
+    mismatches.push('beneficiary: provider record is missing beneficiary_id');
+  } else if (record.beneficiaryId !== scope.beneficiary) {
+    sawValueMismatch = true;
+    mismatches.push(
+      'beneficiary: provider record names a different beneficiary than the authorized operation',
     );
   }
-  if (record.transferAmount !== null && record.transferAmount.currency !== scope.currency) {
-    mismatches.push(
-      `currency: authorized ${scope.currency}, provider record shows ${record.transferAmount.currency}`,
-    );
-  }
-  if (
-    expectedBeneficiaryId !== undefined &&
-    record.beneficiaryId !== null &&
-    record.beneficiaryId !== expectedBeneficiaryId
-  ) {
-    mismatches.push(
-      'beneficiary: provider record names a different beneficiary than configured for this organization',
-    );
-  }
-  return mismatches;
+  if (mismatches.length === 0) return null;
+  return {
+    state: sawValueMismatch ? 'EVIDENCE_MISMATCH' : 'EVIDENCE_INCOMPLETE',
+    mismatches,
+  };
 }
 
 /** Builds the LIVE (sandbox) dispatcher; refuses fixture transports. */

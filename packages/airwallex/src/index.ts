@@ -28,11 +28,12 @@ export type { AirwallexBalance, AirwallexTransferRecord } from './client.js';
 
 export {
   AirwallexDispatcher,
+  asSettlementScope,
   buildOfflineFixtureDispatcher,
   buildSandboxDispatcher,
   redactProviderPayload,
 } from './dispatcher.js';
-export type { AirwallexDispatcherDeps } from './dispatcher.js';
+export type { AirwallexDispatcherDeps, ReconcileScope, SettlementScope } from './dispatcher.js';
 
 export type { AirwallexTransport, TransportRequest, TransportResponse } from './transport.js';
 export { TransportUnavailableError } from './transport.js';
