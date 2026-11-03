@@ -29,7 +29,7 @@ const OUTSTANDING_SQL = `
   WHERE org_id = ? AND currency = ?
     AND (
       state IN ('reserved','unknown')
-      OR (state = 'settled' AND finalized_at IS NOT NULL AND finalized_at > ?)
+      OR (state = 'settled' AND finalized_at IS NOT NULL AND finalized_at >= ?)
     )`;
 
 export class SpendableService {
