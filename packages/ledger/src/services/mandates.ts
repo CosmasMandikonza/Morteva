@@ -263,17 +263,24 @@ export class MandateService {
          ORDER BY version DESC, created_at DESC, id DESC`,
       )
       .all(...(currency !== undefined ? [orgId, missionId, currency] : [orgId, missionId]));
-    // Never resurrect an older mandate after the latest authority was
-    // revoked, superseded or expired.
-    const newest = rows.length > 0 ? this.mapRow(rows[0] as unknown) : undefined;
-    if (
-      newest !== undefined &&
-      newest.status === 'active' &&
-      newest.revokedAt === null &&
-      new Date(newest.expiresAt) > now
-    ) {
-      return newest;
+    // One authoritative active mandate per mission/currency. Do not rely on
+    // timestamp or lexicographic ID ordering: test clocks may share a timestamp
+    // and a newly issued ID can sort before/after a superseded older ID.
+    const activeRows = rows
+      .map((row) => this.mapRow(row))
+      .filter((m) => m.status === 'active' && m.revokedAt === null);
+    if (activeRows.length > 1) {
+      throw new LedgerError(
+        'INVALID_INPUT',
+        'ambiguous active mandates for one mission/currency; refusing financial authority',
+      );
     }
+    const active = activeRows[0];
+    if (active !== undefined) {
+      if (new Date(active.expiresAt) > now) return active;
+      throw new LedgerError('MANDATE_EXPIRED', `mandate ${active.id} v${active.version} expired at ${active.expiresAt}`);
+    }
+    const newest = rows.length > 0 ? this.mapRow(rows[0] as unknown) : undefined;
     if (newest !== undefined) {
       if (newest.status === 'revoked') {
         throw new LedgerError(
