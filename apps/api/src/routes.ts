@@ -29,48 +29,49 @@ export function registerAuthAndFinancialRoutes(
   // Production auth requires a separately verified IdP integration.
   if (config.devAuth) {
     app.post('/api/auth/login', async (request, reply) => {
-    const body = (request.body ?? {}) as {
-      username?: unknown;
-      password?: unknown;
-      orgId?: unknown;
-    };
-    const username = typeof body.username === 'string' ? body.username : '';
-    const password = typeof body.password === 'string' ? body.password : '';
-    const orgId = typeof body.orgId === 'string' ? body.orgId : undefined;
-    if (username === '' || password === '') {
-      return void reply
-        .code(400)
-        .send({ error: { code: 'INVALID_INPUT', message: 'username and password are required' } });
-    }
-    const limiterKey = `${request.ip}:${username}`;
-    if (loginLimiter.isBlocked(limiterKey)) {
-      return void reply.code(429).send({
-        error: { code: 'RATE_LIMITED', message: 'too many failed logins; wait before retrying' },
-      });
-    }
-    const actor = ledger.authority.verifyCredential({ username, password, orgId });
-    if (actor === null) {
-      loginLimiter.recordFailure(limiterKey);
-      return void reply
-        .code(401)
-        .send({ error: { code: 'UNAUTHENTICATED', message: 'invalid credentials' } });
-    }
-    loginLimiter.recordSuccess(limiterKey);
-    const session = ledger.authority.createSession(actor.id, { ttlMs: config.sessionTtlMs });
-    setSessionCookie(reply, session.token, config.sessionTtlMs, secureCookies);
-    return {
-      actor: {
-        id: actor.id,
-        username: actor.username,
-        displayName: actor.displayName,
-        role: actor.role,
-        kind: actor.kind,
-      },
-      csrfToken: session.csrfToken,
-      demoAuth: config.devAuth,
-    };
-  });
-
+      const body = (request.body ?? {}) as {
+        username?: unknown;
+        password?: unknown;
+        orgId?: unknown;
+      };
+      const username = typeof body.username === 'string' ? body.username : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+      const orgId = typeof body.orgId === 'string' ? body.orgId : undefined;
+      if (username === '' || password === '') {
+        return void reply
+          .code(400)
+          .send({
+            error: { code: 'INVALID_INPUT', message: 'username and password are required' },
+          });
+      }
+      const limiterKey = `${request.ip}:${username}`;
+      if (loginLimiter.isBlocked(limiterKey)) {
+        return void reply.code(429).send({
+          error: { code: 'RATE_LIMITED', message: 'too many failed logins; wait before retrying' },
+        });
+      }
+      const actor = ledger.authority.verifyCredential({ username, password, orgId });
+      if (actor === null) {
+        loginLimiter.recordFailure(limiterKey);
+        return void reply
+          .code(401)
+          .send({ error: { code: 'UNAUTHENTICATED', message: 'invalid credentials' } });
+      }
+      loginLimiter.recordSuccess(limiterKey);
+      const session = ledger.authority.createSession(actor.id, { ttlMs: config.sessionTtlMs });
+      setSessionCookie(reply, session.token, config.sessionTtlMs, secureCookies);
+      return {
+        actor: {
+          id: actor.id,
+          username: actor.username,
+          displayName: actor.displayName,
+          role: actor.role,
+          kind: actor.kind,
+        },
+        csrfToken: session.csrfToken,
+        demoAuth: config.devAuth,
+      };
+    });
   }
 
   app.post('/api/auth/logout', async (request, reply) => {
