@@ -363,8 +363,6 @@ describe('HTTP auth boundary', () => {
     });
     expect(operatorMandate.statusCode).toBe(403);
 
-
-
     // Operator reserves using the approval.
     const reserveResponse = await app.inject({
       method: 'POST',
