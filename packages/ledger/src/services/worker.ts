@@ -118,9 +118,14 @@ export class DispatchWorker {
       });
 
       try {
-        if (item.operation.state === 'STATUS_UNKNOWN') {
-          // Replay of an ambiguous dispatch: reconcile by the ORIGINAL request id;
-          // never submit a new economic instruction for it.
+        if (
+          item.operation.state === 'STATUS_UNKNOWN' ||
+          item.operation.state === 'SUBMITTING' ||
+          item.operation.state === 'IN_FLIGHT'
+        ) {
+          // A claimed operation already entered the dispatch attempt before a
+          // possible crash. Reconcile by its ORIGINAL request id; NEVER submit
+          // it again just because the worker restarted or its lease expired.
           const reconciledResult = await dispatcher.reconcileByRequestId(item.dispatch.requestId);
           this.evidence.append({
             orgId: item.operation.orgId,
@@ -168,7 +173,20 @@ export class DispatchWorker {
             );
             escalated += 1;
           } else {
-            // Still ambiguous: retain the commitment; the stale claim replays after TTL.
+            // No verified finality: keep the same outbox lease eligible for
+            // future readback. In particular, SUBMITTING after a crash must
+            // not be replayed through dispatch(), even if readback finds nothing.
+            if (
+              reconciledResult.status === 'status-unknown' &&
+              item.operation.state !== 'STATUS_UNKNOWN'
+            ) {
+              this.reservations.transition({
+                orgId: item.operation.orgId,
+                operationId: item.operation.id,
+                to: 'STATUS_UNKNOWN',
+                reason: 'provider reconciliation could not establish finality',
+              });
+            }
             markedUnknown += 1;
           }
           continue;
@@ -237,12 +255,16 @@ export class DispatchWorker {
           continue; // claim goes stale and replays via reconcile path above
         }
 
-        // submitted | processing: dispatch happened; settlement is NOT implied.
-        this.outbox.completeDispatch(
-          item.operation.orgId,
-          item.dispatch.id,
-          item.dispatch.claimToken ?? '',
-        );
+        // Submitted/processing is NOT terminal. Keep the original claimed
+        // dispatch eligible for future reconciliation after claim TTL.
+        // Completing the outbox here would orphan the financial operation in
+        // SUBMITTING without ever checking provider finality.
+        this.reservations.transition({
+          orgId: item.operation.orgId,
+          operationId: item.operation.id,
+          to: 'IN_FLIGHT',
+          reason: 'provider accepted submission; finality remains unverified',
+        });
         dispatched += 1;
       } catch (error) {
         // Thrown (timeout/network): ambiguous by definition — retain the
