@@ -336,17 +336,14 @@ describe('plans and approvals — exact-term binding', () => {
       expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
     });
 
-    const jpyRef = approvedPlan(ledger, org.id, mission.id, {
-      amountMinor: 1_000,
-      currency: 'JPY',
-    });
-    try {
-      reserveCall(ledger, { org }, mission.id, jpyRef, 'jpy-against-usd-mandate');
-      expect.unreachable('JPY plan must not clear a USD mandate');
-    } catch (error) {
-      expect((error as LedgerError).code).toBe('MANDATE_CURRENCY_MISMATCH');
-      expect((error as LedgerError).message).toMatch(/No implicit currency conversion/);
-    }
+    // Approvals themselves cannot be issued without an active mandate
+    // in the plan's currency; reject the mismatch before reservation.
+    expect(() =>
+      approvedPlan(ledger, org.id, mission.id, {
+        amountMinor: 1_000,
+        currency: 'JPY',
+      }),
+    ).toThrowError(/no active mandate/);
 
     const tooBig = approvedPlan(ledger, org.id, mission.id, {
       amountMinor: 60_000,
