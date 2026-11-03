@@ -52,14 +52,16 @@ describe('evidence journal', () => {
     const orgA = ledger.organizations.createOrganization('EvTenantA');
     const orgB = ledger.organizations.createOrganization('EvTenantB');
     const missionA = ledger.organizations.createMission(orgA.id, 'mission A');
-    expect(() => ledger.evidence.append({
-      orgId: orgB.id,
-      missionId: missionA.id,
-      topic: 'operational',
-      type: 'mission.fake',
-      eventKey: 'cross-tenant-injection',
-      payload: { fake: true },
-    })).toThrowError(/does not belong to the stated organization/);
+    expect(() =>
+      ledger.evidence.append({
+        orgId: orgB.id,
+        missionId: missionA.id,
+        topic: 'operational',
+        type: 'mission.fake',
+        eventKey: 'cross-tenant-injection',
+        payload: { fake: true },
+      }),
+    ).toThrowError(/does not belong to the stated organization/);
     expect(ledger.evidence.count(orgB.id)).toBe(0);
     ledger.close();
   });
