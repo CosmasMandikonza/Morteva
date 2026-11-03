@@ -302,7 +302,9 @@ describe('outbox replay with the original request id', () => {
     const claim = ctx.ledger.outbox.claimPending({ rails: ['airwallex'] })[0]!;
     expect(claim.dispatch.attempts).toBe(1);
     ctx.ledger.reservations.transition({
-      orgId: ctx.org.id, operationId: ctx.operationId, to: 'SUBMITTING',
+      orgId: ctx.org.id,
+      operationId: ctx.operationId,
+      to: 'SUBMITTING',
     });
     // Simulate worker disappearing after writing SUBMITTING, before any known response.
     ctx.clock.advance(120_000);
@@ -314,10 +316,10 @@ describe('outbox replay with the original request id', () => {
     expect(readback.dispatchCalls).toEqual([]);
     expect(readback.reconcileCalls).toEqual(['outbox-1']);
     expect(report.markedUnknown).toBe(1);
-    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state)
-      .toBe('STATUS_UNKNOWN');
-    expect(ctx.ledger.spendable.compute(ctx.org.id, 'USD').outstandingCommittedMinor)
-      .toBe(100_000);
+    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state).toBe(
+      'STATUS_UNKNOWN',
+    );
+    expect(ctx.ledger.spendable.compute(ctx.org.id, 'USD').outstandingCommittedMinor).toBe(100_000);
     ctx.ledger.close();
   });
 
@@ -333,8 +335,9 @@ describe('outbox replay with the original request id', () => {
     await ctx.ledger.worker.runOnce();
     expect(readback.dispatchCalls).toEqual([]);
     expect(readback.reconcileCalls).toEqual(['outbox-1']);
-    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state)
-      .toBe('IN_FLIGHT');
+    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state).toBe(
+      'IN_FLIGHT',
+    );
     expect(ctx.ledger.outbox.pendingCount()).toBe(1);
     ctx.ledger.close();
   });
