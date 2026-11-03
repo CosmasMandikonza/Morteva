@@ -96,14 +96,18 @@ describe('config: DEMO_AUTH gate', () => {
   it('refuses public-facing development bootstraps and origins', () => {
     expect(() =>
       loadConfig({
-        NODE_ENV: 'development', MOTERVA_DEV_AUTH: '1',
-        HOST: '0.0.0.0', WEB_ORIGIN: 'http://localhost:5173',
+        NODE_ENV: 'development',
+        MOTERVA_DEV_AUTH: '1',
+        HOST: '0.0.0.0',
+        WEB_ORIGIN: 'http://localhost:5173',
       }),
     ).toThrowError(/loopback HOST/);
     expect(() =>
       loadConfig({
-        NODE_ENV: 'development', MOTERVA_DEV_AUTH: '1',
-        HOST: '127.0.0.1', WEB_ORIGIN: 'https://public-preview.example',
+        NODE_ENV: 'development',
+        MOTERVA_DEV_AUTH: '1',
+        HOST: '127.0.0.1',
+        WEB_ORIGIN: 'https://public-preview.example',
       }),
     ).toThrowError(/loopback WEB_ORIGIN/);
   });
@@ -112,7 +116,8 @@ describe('config: DEMO_AUTH gate', () => {
     const { app, ledger } = makeApp({ devAuth: false });
     fundWorld(ledger);
     const response = await app.inject({
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { username: 'http-owner', password: TEST_PASSWORD },
     });
     expect(response.statusCode).toBe(404);
