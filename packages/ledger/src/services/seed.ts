@@ -1,10 +1,12 @@
 /**
  * Seed: two independent missions that compete over ONE funding pool —
- * the contention scenario from issue #4. Deterministic ids make the seeded
- * world addressable from tests and the demo script.
+ * the contention scenario from issue #4, now with a real persisted approver
+ * actor (issue #7): approvals are granted by a verifiable identity, never a
+ * freeform string.
  */
 import type { Ledger } from '../ledger.js';
 import type {
+  ActorView,
   ApprovalView,
   CandidatePlanView,
   MandateView,
@@ -12,11 +14,16 @@ import type {
   OrganizationView,
 } from '@moterva/domain';
 
+/** Development-only fixture credential. Never a secret; demo/test worlds only. */
+export const SEED_APPROVER_PASSWORD = 'seed-approver-dev-only-password';
+
 export interface SeededCompetingWorld {
   readonly org: OrganizationView;
   readonly currency: string;
   readonly missions: readonly [MissionView, MissionView];
   readonly mandates: readonly [MandateView, MandateView];
+  /** Persisted human approver actor that granted the seeded approvals. */
+  readonly approver: ActorView;
   /** A ready-to-reserve approved plan per mission with identical economics — the race inputs. */
   readonly approvedPlans: readonly [
     { plan: CandidatePlanView; approval: ApprovalView },
@@ -52,6 +59,14 @@ export function seedCompetingMissions(
   const missionA = ledger.organizations.createMission(org.id, 'Turbine inspection — North ridge');
   const missionB = ledger.organizations.createMission(org.id, 'Conveyor repair — South plant');
 
+  const approver = ledger.authority.createHumanActor({
+    orgId: org.id,
+    username: 'seed-approver',
+    displayName: 'Seeded Approver (dev)',
+    role: 'approver',
+    password: SEED_APPROVER_PASSWORD,
+  });
+
   ledger.accounts.ensureTreasuryAccount({
     orgId: org.id,
     currency,
@@ -84,7 +99,9 @@ export function seedCompetingMissions(
     ...mandateTerms,
   });
 
-  const approvedPlans = ([missionA, missionB] as const).map((mission) => {
+  const mandates = [mandateA, mandateB] as const;
+  const approvedPlans = ([missionA, missionB] as const).map((mission, index) => {
+    const mandate = mandates[index] as MandateView;
     const plan = ledger.plans.recordVersion({
       orgId: org.id,
       missionId: mission.id,
@@ -95,11 +112,15 @@ export function seedCompetingMissions(
         purpose: 'Diagnostic and repair services',
         quote: { kind: 'seeded', validUntil: ttl(30 * 60_000) },
       },
+      proposedBy: null,
     });
     const approval = ledger.approvals.record({
       orgId: org.id,
       plan,
-      decidedBy: 'seed:operator',
+      decidedByActorId: approver.id,
+      kind: 'airwallex_transfer',
+      mandateId: mandate.id,
+      mandateVersion: mandate.version,
       expiresAt: ttl(options.approvalTtlMs ?? 30 * 60_000),
     });
     return { plan, approval };
@@ -110,6 +131,7 @@ export function seedCompetingMissions(
     currency,
     missions: [missionA, missionB],
     mandates: [mandateA, mandateB],
+    approver,
     approvedPlans: [
       approvedPlans[0] as { plan: CandidatePlanView; approval: ApprovalView },
       approvedPlans[1] as { plan: CandidatePlanView; approval: ApprovalView },

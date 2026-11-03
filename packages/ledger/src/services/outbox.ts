@@ -40,6 +40,32 @@ export class OutboxService {
   ) {}
 
   /**
+   * NON-claiming candidate listing for the worker's authority gate: rows on
+   * the given rails that are pending or whose claim went stale. The worker
+   * then claims+gates each row atomically (see DispatchWorker).
+   */
+  listClaimable(options: {
+    rails: readonly ('airwallex' | 'metal')[];
+    limit?: number;
+    claimTtlMs?: number;
+  }): Array<{ id: string }> {
+    const limit = Math.min(options.limit ?? 10, 100);
+    const ttl = options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS;
+    if (options.rails.length === 0) return [];
+    const staleBeforeIso = new Date(this.clock.now().getTime() - ttl).toISOString();
+    const railPlaceholders = options.rails.map(() => '?').join(', ');
+    return this.db
+      .prepare(
+        `SELECT id FROM outbox_dispatches
+         WHERE rail IN (${railPlaceholders})
+           AND (status = 'pending' OR (status = 'claimed' AND updated_at < ?))
+         ORDER BY created_at
+         LIMIT ?`,
+      )
+      .all(...options.rails, staleBeforeIso, limit) as Array<{ id: string }>;
+  }
+
+  /**
    * Atomically claims up to `limit` dispatchable rows for the given rails.
    * Stale claims (dead worker) become claimable again after `claimTtlMs`.
    */

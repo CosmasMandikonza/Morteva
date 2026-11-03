@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.0",
     "@fastify/cors": "^11.0.0",
     "@moterva/domain": "0.1.0",
     "@moterva/ledger": "0.1.0",

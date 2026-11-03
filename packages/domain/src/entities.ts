@@ -63,11 +63,26 @@ export interface MandateView {
   readonly orgId: OrgId;
   readonly missionId: MissionId;
   readonly version: number;
-  readonly status: 'active' | 'superseded' | 'expired';
+  readonly status: 'active' | 'superseded' | 'expired' | 'revoked';
   readonly currency: string;
   readonly maxAmountMinor: number;
+  /**
+   * Cumulative lifetime envelope for ALL operations under this mandate id.
+   * -1 means "unset" and is enforced as the per-operation maximum (legacy
+   * v1 semantics), so old rows never gain authority they never had.
+   */
+  readonly totalBudgetMinor: number;
   readonly permittedOperationKinds: readonly string[];
+  /** Provider rails this mandate may spend on. 'metal' is blocked globally until issue #6. */
+  readonly rails: readonly string[];
+  /** Empty list = any beneficiary (v1 semantics); non-empty = exact-match allowlist. */
+  readonly allowedBeneficiaries: readonly string[];
+  /** Empty list = any purpose; non-empty = allowlist for info-purchase categories. */
+  readonly allowedPurposes: readonly string[];
+  /** Human separation of duties: approver must differ from the plan proposer. */
+  readonly requireSeparateApprover: boolean;
   readonly expiresAt: string;
+  readonly revokedAt: string | null;
   readonly createdAt: string;
 }
 
@@ -78,10 +93,17 @@ export interface CandidatePlanView {
   readonly version: number;
   readonly terms: Readonly<Record<string, unknown>>;
   readonly digest: string;
+  /** Persisted actor id of the proposer (agent/operator), or null. Used for separation of duties. */
+  readonly proposedBy: string | null;
   readonly createdAt: string;
 }
 
-/** An approval binds the exact plan digest and economic terms it approved (docs/05 #4). */
+/**
+ * An approval binds the exact plan digest and every economic term it
+ * approved (docs/05 #4, issue #7): mandate version, operation kind, quote
+ * and evidence digests. Anything changed → the approval is structurally
+ * stale. Single-use: consumed atomically by the reservation it authorizes.
+ */
 export interface ApprovalView {
   readonly id: ApprovalId;
   readonly orgId: OrgId;
@@ -92,10 +114,20 @@ export interface ApprovalView {
   readonly currency: string;
   readonly beneficiary: string;
   readonly purpose: string;
+  readonly kind: OperationKind;
+  readonly mandateId: MandateId | null;
+  readonly mandateVersion: number | null;
+  /** Canonical digest of the plan's quote object (or the null-quote constant). */
+  readonly quoteDigest: string;
+  /** Digest of the evidence bundle the approver saw; empty string if none bound. */
+  readonly evidenceDigest: string;
+  /** Single-use economic authorization identity (idempotency for double-clicks). */
+  readonly authKey: string;
   readonly decidedBy: string;
   readonly decidedAt: string;
   readonly expiresAt: string;
-  readonly status: 'valid' | 'consumed' | 'invalidated';
+  readonly status: 'valid' | 'consumed' | 'invalidated' | 'revoked';
+  readonly revokedAt: string | null;
 }
 
 export type OperationKind = 'airwallex_transfer' | 'metal_order' | 'internal_hold';
@@ -161,6 +193,36 @@ export interface EvidenceEventView {
   readonly eventKey: string;
   readonly payloadDigest: string;
   readonly recordedAt: string;
+}
+
+/** A persisted, server-verified identity. Credentials are never part of the view. */
+export interface ActorView {
+  readonly id: string;
+  readonly orgId: OrgId;
+  readonly username: string;
+  readonly displayName: string;
+  readonly role: string;
+  readonly kind: 'human' | 'service';
+  readonly revokedAt: string | null;
+  readonly createdAt: string;
+}
+
+/** Mission-scoped machine authority: service actors need an explicit grant per mission. */
+export interface MissionGrantView {
+  readonly id: string;
+  readonly orgId: OrgId;
+  readonly missionId: MissionId;
+  readonly actorId: string;
+  readonly grantedBy: string;
+  readonly grantedAt: string;
+  readonly revokedAt: string | null;
+}
+
+/** Resolved session context — the ONLY trusted source of "who is acting". */
+export interface SessionContextView {
+  readonly sessionId: string;
+  readonly actor: ActorView;
+  readonly expiresAt: string;
 }
 
 /** Spendable computation breakdown — returned so callers/UI can show the math, not just a number. */

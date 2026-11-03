@@ -37,6 +37,12 @@ const configSchema = z.object({
   WEB_ORIGIN: z.url().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'silent']).default('info'),
   MOTERVA_LEDGER_PATH: z.string().min(1).default('data/moterva.sqlite'),
+  MOTERVA_SESSION_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(7 * 24 * 3_600_000)
+    .default(8 * 3_600_000),
   GIT_SHA: z.string().min(1).optional(),
 });
 
@@ -73,6 +79,14 @@ export interface AppConfig {
   readonly providerMode: 'offline' | 'simulated';
   /** SQLite file for the financial ledger (MTV-02). Relative paths resolve against the API cwd. */
   readonly ledgerPath: string;
+  readonly sessionTtlMs: number;
+  /**
+   * DEMO_AUTH gate (issue #7): enables the dev bootstrap + username/password
+   * login endpoints. Requires NODE_ENV ≠ production AND MOTERVA_DEV_AUTH=1;
+   * setting it together with production is a startup error, so demo auth can
+   * never be active accidentally in a deployed configuration.
+   */
+  readonly devAuth: boolean;
   readonly gitSha?: string;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
@@ -102,15 +116,44 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     WEB_ORIGIN: env.WEB_ORIGIN,
     LOG_LEVEL: env.LOG_LEVEL,
     MOTERVA_LEDGER_PATH: env.MOTERVA_LEDGER_PATH,
+    MOTERVA_SESSION_TTL_MS: env.MOTERVA_SESSION_TTL_MS,
     GIT_SHA: env.GIT_SHA,
   });
   if (!parsed.success) {
     issues.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`));
   }
-  if (providerMode === undefined || !parsed.success) {
+  // DEMO_AUTH is deliberately local-only, not merely "non-production".
+  // NODE_ENV is often left at development in preview/cloud deployments.
+  const devAuthRequested = (env.MOTERVA_DEV_AUTH ?? '') === '1';
+  if (devAuthRequested && parsed.success) {
+    if (parsed.data.NODE_ENV === 'production') {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo authentication cannot be enabled in production; refusing to start (remove MOTERVA_DEV_AUTH or set NODE_ENV=development/test)',
+      );
+    }
+    const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+    if (!loopbackHosts.has(parsed.data.HOST)) {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo bootstrap requires loopback HOST only; refusing network-exposed demo actor creation',
+      );
+    }
+    const origin = new URL(parsed.data.WEB_ORIGIN);
+    if (!loopbackHosts.has(origin.hostname)) {
+      issues.push(
+        'MOTERVA_DEV_AUTH: demo bootstrap requires a loopback WEB_ORIGIN, not a public website',
+      );
+    }
+  }
+  if (providerMode === undefined || !parsed.success || issues.length > 0) {
     throw new StartupConfigError(issues);
   }
+  const devAuth = devAuthRequested && parsed.data.NODE_ENV !== 'production';
   const warnings: string[] = [];
+  if (devAuth) {
+    warnings.push(
+      'DEMO_AUTH is ACTIVE (MOTERVA_DEV_AUTH=1 in non-production): username/password login and one-time dev bootstrap are enabled for local development only. Never use this mode in a deployed configuration.',
+    );
+  }
   const providerCredentialVars = [
     'AIRWALLEX_API_KEY',
     'AIRWALLEX_CLIENT_ID',
@@ -129,6 +172,8 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     logLevel: parsed.data.LOG_LEVEL,
     providerMode,
     ledgerPath: parsed.data.MOTERVA_LEDGER_PATH,
+    sessionTtlMs: parsed.data.MOTERVA_SESSION_TTL_MS,
+    devAuth,
     gitSha: parsed.data.GIT_SHA,
     warnings,
   };

@@ -9,19 +9,19 @@ import {
   openLedger,
   openSqliteDatabase,
 } from '../src/index.js';
-import { makeLedger, tempDbPath } from './helpers.js';
+import { makeLedger, ensureApprover, tempDbPath } from './helpers.js';
 
 describe('migrations', () => {
-  it('applies the financial foundation from a clean database and is idempotent', () => {
+  it('applies all known migrations from a clean database and is idempotent', () => {
     const path = tempDbPath();
     const db = openSqliteDatabase(path);
     const first = migrate(db);
-    expect(first.applied.map((m) => m.version)).toEqual([1]);
-    expect(currentSchemaVersion(db)).toBe(1);
+    expect(first.applied.map((m) => m.version)).toEqual(MIGRATIONS.map((m) => m.version));
+    expect(currentSchemaVersion(db)).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.version);
 
     const second = migrate(db);
     expect(second.applied).toEqual([]);
-    expect(second.currentVersion).toBe(1);
+    expect(second.currentVersion).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.version);
     db.close();
   });
 
@@ -34,7 +34,7 @@ describe('migrations', () => {
     const broken = [
       ...MIGRATIONS,
       {
-        version: 2,
+        version: beforeVersion + 1,
         name: 'deliberately_broken',
         sql: "CREATE TABLE half_table (id TEXT PRIMARY KEY); INSERT INTO half_table VALUES ('dup'); INSERT INTO half_table VALUES ('dup');",
       },
@@ -50,13 +50,35 @@ describe('migrations', () => {
     db.close();
   });
 
+  it('foreign-key failure rolls back the schema mutation AND migration version atomically', () => {
+    const db = openSqliteDatabase(tempDbPath('mtv05-fk-rollback-'));
+    migrate(db, MIGRATIONS);
+    const before = currentSchemaVersion(db);
+    const corrupting = {
+      version: before + 1,
+      name: 'invalid_reference',
+      sql: `CREATE TABLE temp_invalid_ref (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id)
+      );
+      INSERT INTO temp_invalid_ref VALUES ('bad', 'org_missing');`,
+    };
+    expect(() => migrate(db, [...MIGRATIONS, corrupting])).toThrowError(/foreign-key violation/);
+    expect(currentSchemaVersion(db)).toBe(before);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name = 'temp_invalid_ref'").all(),
+    ).toEqual([]);
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    db.close();
+  });
+
   it('refuses to run against a database from a newer schema (downgrade protection)', () => {
     const path = tempDbPath();
     const db = openSqliteDatabase(path);
+    const latest = MIGRATIONS[MIGRATIONS.length - 1]!.version;
     migrate(db, [
       ...MIGRATIONS,
       {
-        version: 2,
+        version: latest + 1,
         name: 'future_addition',
         sql: 'CREATE TABLE future_thing (id TEXT PRIMARY KEY);',
       },
@@ -74,7 +96,7 @@ describe('migrations', () => {
     first.close();
 
     const second = openLedger(path);
-    expect(second.schemaVersion()).toBe(1);
+    expect(second.schemaVersion()).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.version);
     const row = second.db
       .prepare('SELECT id, name FROM organizations WHERE id = ?')
       .get(org.id) as {
@@ -96,15 +118,26 @@ describe('migrations', () => {
     const { ledger } = makeLedger();
     const org = ledger.organizations.createOrganization('ConstraintOrg');
     const mission = ledger.organizations.createMission(org.id, 'm');
+    const approver = ensureApprover(ledger, org.id);
     const plan = ledger.plans.recordVersion({
       orgId: org.id,
       missionId: mission.id,
       terms: { amountMinor: 100, currency: 'USD', beneficiary: 'b', purpose: 'p' },
     });
+    ledger.mandates.issue({
+      orgId: org.id,
+      missionId: mission.id,
+      currency: 'USD',
+      maxAmountMinor: 1_000,
+      totalBudgetMinor: 1_000,
+      permittedOperationKinds: ['airwallex_transfer'],
+      expiresAt: '2026-11-04T13:00:00.000Z',
+    });
     const approval = ledger.approvals.record({
       orgId: org.id,
       plan,
-      decidedBy: 't',
+      decidedByActorId: approver.id,
+      kind: 'airwallex_transfer',
       expiresAt: '2026-11-03T13:00:00.000Z',
     });
     // Direct SQL bypassing the service must still be stopped by the schema.
@@ -145,7 +178,7 @@ describe('migrations', () => {
     ledger.close();
     expect(existsSync(backupPath)).toBe(true);
     const restored = openLedger(backupPath);
-    expect(restored.schemaVersion()).toBe(1);
+    expect(restored.schemaVersion()).toBe(MIGRATIONS[MIGRATIONS.length - 1]!.version);
     restored.close();
   });
 });
