@@ -38,6 +38,44 @@ for (const c of CANDIDATES) {
     await expect(body).toContainText('USD 99,250.00');
   });
 
+  test(`candidate ${c}: every displayed monetary amount stays finite and internally consistent`, async ({
+    page,
+  }) => {
+    await page.goto(`/design-lab.html?c=${c}`);
+    const body = page.locator(`[data-lab="${c}"]`);
+    await expect(body).not.toContainText(/\\bNaN\\b|\\bInfinity\\b|undefined/);
+    await expect(body).toContainText('USD 99,250.00');
+    if (c === 'b') {
+      // This targeted assertion catches a stale screenshot committed in the
+      // original PR, where the decomposition legend displayed "NaN" even
+      // though the hero amount was correct.
+      const fundLegend = page.locator('.b-fundmap__legend');
+      await expect(fundLegend).toContainText('99,250.00');
+      await expect(fundLegend).not.toContainText('NaN');
+      await expect(fundLegend).toContainText('28,600.00');
+      await expect(fundLegend).toContainText('6,400.00');
+      await expect(fundLegend).toContainText('50,000.00');
+    }
+  });
+
+  test(`candidate ${c}: synthetic snapshot recovery is functional without pretending a provider call`, async ({
+    page,
+  }) => {
+    await page.goto(`/design-lab.html?c=${c}`);
+    await expect(page.getByRole('button', { name: 'Refresh snapshot' })).toHaveCount(0);
+    await page.getByRole('button', { name: /State laboratory|state lab/ }).click();
+    await page.getByRole('radio', { name: /Provider offline/ }).click();
+    const body = page.locator(`[data-lab="${c}"]`);
+    await expect(body).toContainText('synthetic fixtures');
+    await page.getByRole('button', { name: 'Restore synthetic snapshot' }).click();
+    await expect(body).not.toContainText('provider-offline state');
+    await expect(body).toContainText('USD 99,250.00');
+    // Empty state never offers a dead onboarding control.
+    await page.getByRole('radio', { name: /^Empty/ }).click();
+    await expect(page.getByRole('button', { name: 'Configure first mission' })).toHaveCount(0);
+    await expect(body).toContainText('unavailable in this');
+  });
+
   test(`candidate ${c}: navigates all four screens`, async ({ page }) => {
     await page.goto(`/design-lab.html?c=${c}`);
     const nav = page.getByRole('navigation', { name: 'Screens' });
