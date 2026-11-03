@@ -268,14 +268,14 @@ export class ReservationService {
       }
       throw error;
     }
-    if (approval.mandateId !== null && approval.mandateId !== mandate.id) {
+    if (approval.mandateId === null || approval.mandateId !== mandate.id) {
       throw new LedgerError(
         'APPROVAL_TERMS_MISMATCH',
         `approval ${approval.id} authorizes mandate ${approval.mandateId} but the active mandate for this mission is ${mandate.id} v${mandate.version}; the approval is stale`,
         { mismatches: ['mandate'] },
       );
     }
-    if (approval.mandateVersion !== null && approval.mandateVersion !== mandate.version) {
+    if (approval.mandateVersion === null || approval.mandateVersion !== mandate.version) {
       throw new LedgerError(
         'APPROVAL_TERMS_MISMATCH',
         `approval ${approval.id} authorizes mandate ${mandate.id} v${approval.mandateVersion} but v${mandate.version} is active; the approval is stale`,
@@ -341,7 +341,11 @@ export class ReservationService {
     //     the total envelope). Settled payments consume for the lifetime of
     //     the mandate; unknown/escalated consume until resolved.
     const envelope = this.mandates.effectiveTotalBudget(mandate);
-    const consumedSoFar = this.mandates.consumedBudget(input.orgId, mandate.id);
+    const consumedSoFar = this.mandates.consumedMissionBudget(
+      input.orgId,
+      input.missionId,
+      money.currency,
+    );
     if (consumedSoFar + money.minorUnits > envelope) {
       throw new LedgerError(
         'MANDATE_BUDGET_EXCEEDED',
