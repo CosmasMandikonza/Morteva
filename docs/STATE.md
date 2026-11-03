@@ -12,9 +12,9 @@
 - A docs-only merge is not evidence of working software, independent security review, or transaction verification.
 - Treat the 'no implementation' statements below as current until a verified code/financial PR changes them.
 
-## MTV-01 bootstrap — evidence from branch `feat/mtv-01-bootstrap` (Nov 2, 2026; PR under review)
+## MTV-01 bootstrap — merged PR #20, main `f0348019947b0e9abc3721450656b5e63452fb98` (Nov 2, 2026)
 - Stack selected and recorded in `docs/adr/0001-stack-and-runtime.md`: npm-workspaces monorepo, Vite+React 19 web shell, Fastify 5 API, shared typed `packages/domain` + `packages/providers`; SQLite-first persistence planned behind a storage port for #4; no microservices.
-- Local verification (Windows, Node v24.20.0, npm 11.19.0): `npm ci` clean install; `npm run lint`, `format:check`, `typecheck`, `build` all pass; Vitest 44/44 unit tests pass (domain money invariants 22, API 19, providers 3); Playwright chromium E2E 5/5 pass against the real built servers (smoke incl. honest OFFLINE badges + nav, API-offline error state + recovery).
+- Local verification (Windows, Node v24.20.0, npm 11.19.0): `npm ci` clean install; `npm run lint`, `format:check`, `typecheck`, `build` all pass; Original agent run: Vitest 44/44 unit tests pass (domain money invariants 22, API 19, providers 3); CTO review added two provider-finality regression tests (46 total expected; exact reviewed-head CI passed); Playwright chromium E2E 5/5 pass against the real built servers (smoke incl. honest OFFLINE badges + nav, API-offline error state + recovery).
 - Negative paths verified with real runs: `MOTERVA_PROVIDER_MODE=sandbox`/`testnet`/unknown, bad `PORT`, malformed `WEB_ORIGIN` each refuse startup (exit 1, actionable message, before binding a port); unknown `/api/*` and admin-style paths fail closed 404; `POST /healthz` 404; disallowed CORS origin receives no `access-control-allow-origin` header; 500 responses never leak stack traces; tampered `package-lock.json` fails `npm ci`; Node 18 rejected by `engines` + `engine-strict`.
 - Browser captures at 1440×900 and 390×844 plus the API-offline error state committed under `docs/assets/` and embedded in README; visually inspected — no overlap/clipping, honest labels.
 - CI `ci.yml` added: one cold-checkout job (Linux, Node 24) running install → secret scan → docs integrity → lint → format → typecheck → unit → build → Playwright e2e. `docs-integrity` workflow unchanged and passing (its link check was made path-separator-safe for Windows local runs; behavior on Linux unchanged).
@@ -23,7 +23,7 @@
 ## CTO review addendum on provider contracts
 - Provider call status is intentionally split into submitted/processing/confirmed/failed/status-unknown; a write submission cannot return confirmed by type. The provider adapter must independently verify finality.
 - Both Airwallex sandbox and Metal testnet must coexist; MTV-01's provider-mode variable is only a local scenario flag, not the future financial rail selection.
-- These are new code-contract protections, not real provider integrations. Check PR #20's latest CI and head before merge.
+- These are new code-contract protections, not real provider integrations. PR #20 was reviewed and squash-merged with the exact-head guard. GitHub Actions CI and docs-integrity checks passed on reviewed head `aea1b992b29a25befcca5f3d29fb8f891247d580`.
 
 ## NOT yet verified
 No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, production deployment, approved palette/typeface, 3D asset, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
@@ -34,7 +34,7 @@ No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, product
 - The repository name is spelled `Morteva`; the brand used in discussion is `MOTERVA`.
 
 ## Pending gates
-[~] Choose exact stack and create ADR — ADR 0001 delivered on `feat/mtv-01-bootstrap` (Nov 2, 2026) with working skeleton evidence; flip to [x] at review merge
+[x] Choose exact stack and create ADR — accepted after review/merge of PR #20 (main `f0348019947b0e9abc3721450656b5e63452fb98`). No production deployment is implied.
 [ ] Obtain user-approved reference board, typography/tokens and 3D asset license
 [ ] Establish functioning financial engine and durable reservations
 [ ] Independently verify Airwallex sandbox operation
