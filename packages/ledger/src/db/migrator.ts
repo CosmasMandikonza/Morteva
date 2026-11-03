@@ -64,6 +64,14 @@ export function migrate(
     try {
       db.transaction(() => {
         db.exec(migration.sql);
+        // FK validation MUST run before COMMIT: a post-commit failure can
+        // leave the schema applied and recorded despite invalid references.
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length > 0) {
+          throw new Error(
+            `migration v${migration.version} left ${violations.length} foreign-key violation(s)`,
+          );
+        }
         db.prepare(
           'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
         ).run(migration.version, migration.name, new Date().toISOString());
