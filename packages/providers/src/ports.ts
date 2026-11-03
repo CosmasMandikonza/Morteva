@@ -27,14 +27,10 @@ export interface ProviderCapabilities {
 }
 
 /**
- * Observable result of a provider call. 'status-unknown' (timeout/network loss)
- * is a first-class outcome: it must never be treated as failure or retried with
- * a new economic identity (docs/01, docs/05 #5).
- */
-/**
- * Request acceptance is NOT financial settlement. Only a separately confirmed,
- * provider-specific terminal status may be represented as 'confirmed'.
- * A response timeout is status-unknown, never proof that the charge failed.
+ * Observable provider operation outcome. Submission is NOT settlement.
+ * Only a separately verified provider-specific terminal state is 'confirmed'.
+ * A timeout is status-unknown, never proof the operation failed or safe to retry
+ * with a new economic identity (docs/01, docs/05).
  */
 export type ProviderCallStatus =
   | 'submitted'
