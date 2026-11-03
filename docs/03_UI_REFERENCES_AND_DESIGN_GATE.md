@@ -29,3 +29,6 @@ No arbitrary invented typeface, color palette or hero layout; no overanimated pa
 
 ## Artifacts after approval
 `design/reference-ledger.md`, `design/component-ledger.md`, `design/tokens.json`, `design/typography.md`, responsive screenshots. Create when real references and approved decisions exist—not empty files pretending a system is approved.
+
+## Research status (MTV-08, Nov 3 2026 — awaiting founder decisions)
+The verified reference/component ledger, screen/flow specifications, two UNAPPROVED visual-direction proposals, 3D asset reconnaissance, quality rubric and founder decision brief live in [`research/mtv-08/`](../research/mtv-08/README.md). No token in that package is approved and no theme code exists in `apps/web` until the founder records the choices in `research/mtv-08/founder-decision-brief.md`.
