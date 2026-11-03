@@ -197,7 +197,6 @@ export function registerAuthAndFinancialRoutes(
     }
 
     function enrichBudget(row: Record<string, unknown>): Record<string, unknown> {
-      const mandateId = String(row.id);
       const orgId = (request.session as { actor: { orgId: string } } | null)?.actor.orgId ?? '';
       const consumed = ledger.mandates.consumedMissionBudget(
         orgId,
