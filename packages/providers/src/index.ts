@@ -12,3 +12,9 @@ export type {
 } from './ports.js';
 export { offlineCapabilities, offlineProviderStatus } from './offline.js';
 export { isConfirmedProviderResult } from './ports.js';
+export type {
+  ProviderReceipt,
+  ProviderReceiptEnvironment,
+  ProviderReceiptKind,
+  ProviderReceiptStore,
+} from './receipts.js';

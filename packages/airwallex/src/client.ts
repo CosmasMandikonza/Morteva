@@ -1,0 +1,319 @@
+/**
+ * Airwallex API client (server-only).
+ *
+ * Verified endpoints (official reference, API version 2026-08-21; checked
+ * 2026-11-03 against airwallex.com/docs/api + airwallexdev.com/guide):
+ *   POST /api/v1/authentication/login   headers x-client-id / x-api-key
+ *                                      → 201 { token, expires_at } (30 min)
+ *   GET  /api/v1/balances/current       → { available_amount, currency, ... }
+ *   POST /api/v1/transfers/create       { request_id, beneficiary_id,
+ *                                         transfer_currency, transfer_amount }
+ *   GET  /api/v1/transfers/{id}         → transfer (status, failure, ...)
+ *   GET  /api/v1/transfers?request_id=  → { items: [...] } (recovery path)
+ *   POST /api/v1/fx/quotes/create       (buy/sell currency + amount)
+ *
+ * Token handling: cached with expiry; on 401 (credentials_invalid/expired per
+ * docs) refresh ONCE and retry the original request. Login failures classify
+ * as definitive only when the provider says the credentials are invalid.
+ */
+import type { AirwallexAdapterConfig } from './config.js';
+import type { AirwallexTransport, TransportRequest, TransportResponse } from './transport.js';
+import { TransportUnavailableError } from './transport.js';
+import { majorUnitsToMoney, minorToMajorUnits } from './money.js';
+import type { Money } from '@moterva/domain';
+
+export interface AirwallexBalance {
+  readonly currency: string;
+  readonly availableAmount: Money;
+  readonly pendingAmount: Money;
+  readonly reservedAmount: Money;
+  readonly totalAmount: Money;
+  readonly accountType: string;
+}
+
+export interface AirwallexTransferRecord {
+  readonly id: string;
+  readonly requestId: string | null;
+  readonly status: string;
+  readonly transferAmount: Money | null;
+  readonly beneficiaryId: string | null;
+  readonly failureCode: string | null;
+  readonly failureMessage: string | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly raw: unknown;
+}
+
+export class AirwallexDefinitiveRejectionError extends Error {
+  constructor(
+    readonly httpStatus: number,
+    readonly providerCode: string,
+    message: string,
+    readonly responseBody: unknown,
+  ) {
+    super(message);
+    this.name = 'AirwallexDefinitiveRejectionError';
+  }
+}
+
+interface LoginResponse {
+  token?: unknown;
+  expires_at?: unknown;
+}
+
+function providerErrorCode(body: unknown): string {
+  if (
+    body !== null &&
+    typeof body === 'object' &&
+    typeof (body as { code?: unknown }).code === 'string'
+  ) {
+    return (body as { code: string }).code;
+  }
+  return 'unknown';
+}
+
+function providerErrorMessage(body: unknown): string {
+  if (
+    body !== null &&
+    typeof body === 'object' &&
+    typeof (body as { message?: unknown }).message === 'string'
+  ) {
+    return (body as { message: string }).message;
+  }
+  return 'no provider message';
+}
+
+export class AirwallexClient {
+  private token: string | null = null;
+  private tokenExpiresAtMs = 0;
+
+  constructor(
+    private readonly config: AirwallexAdapterConfig,
+    private readonly transport: AirwallexTransport,
+    private readonly clock: { now(): Date },
+  ) {}
+
+  private async login(): Promise<void> {
+    const response = await this.transport.request(
+      {},
+      { method: 'POST', path: '/api/v1/authentication/login' },
+    );
+    if (response.httpStatus !== 200 && response.httpStatus !== 201) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        providerErrorCode(response.body),
+        `airwallex login failed (${response.httpStatus} ${providerErrorCode(response.body)}): ${providerErrorMessage(response.body)}`,
+        response.body,
+      );
+    }
+    const parsed = response.body as LoginResponse;
+    if (typeof parsed?.token !== 'string' || parsed.token === '') {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_login_response',
+        'airwallex login response missing token',
+        response.body,
+      );
+    }
+    this.token = parsed.token;
+    // expires_at is ISO8601 per docs; refresh 60s early, fall back to 25 min.
+    const expiresRaw =
+      typeof parsed.expires_at === 'string' ? Date.parse(parsed.expires_at) : Number.NaN;
+    this.tokenExpiresAtMs = Number.isFinite(expiresRaw)
+      ? expiresRaw - 60_000
+      : this.clock.now().getTime() + 25 * 60_000;
+  }
+
+  private async authorizedRequest(request: TransportRequest): Promise<TransportResponse> {
+    if (this.token === null || this.clock.now().getTime() >= this.tokenExpiresAtMs) {
+      await this.login();
+    }
+    let response: TransportResponse;
+    response = await this.transport.request({ authorization: `Bearer ${this.token}` }, request);
+    if (response.httpStatus === 401) {
+      // credentials_invalid / credentials_expired: refresh once, retry once.
+      this.token = null;
+      await this.login();
+      const token = this.token;
+      if (token === null) throw new TransportUnavailableError('airwallex token refresh failed');
+      response = await this.transport.request({ authorization: `Bearer ${token}` }, request);
+    }
+    return response;
+  }
+
+  private static raiseIfDefinitiveHttpError(response: TransportResponse, context: string): void {
+    // 400 with a provider code is a definitive request-level rejection.
+    // 401 after a refresh retry, 403 forbidden: definitive configuration error.
+    if (response.httpStatus === 400 || response.httpStatus === 401 || response.httpStatus === 403) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        providerErrorCode(response.body),
+        `airwallex ${context} rejected (${response.httpStatus} ${providerErrorCode(response.body)}): ${providerErrorMessage(response.body)}`,
+        response.body,
+      );
+    }
+    // 404 on transfer lookup is a definitive "no such transfer" (used by readback).
+    if (response.httpStatus === 404) {
+      throw new AirwallexDefinitiveRejectionError(
+        404,
+        providerErrorCode(response.body),
+        `airwallex ${context}: not found (404 ${providerErrorCode(response.body)})`,
+        response.body,
+      );
+    }
+    // 429 / 5xx and anything else unexpected: NOT definitive — caller maps to
+    // status-unknown and reconciliation resolves by request id.
+  }
+
+  async balancesCurrent(): Promise<AirwallexBalance[]> {
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: '/api/v1/balances/current',
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, 'balances/current');
+      throw new TransportUnavailableError(
+        `airwallex balances/current non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    const body = response.body as { items?: unknown } | Array<unknown> | null;
+    const items: unknown[] = Array.isArray(body)
+      ? (body as unknown[])
+      : Array.isArray((body as { items?: unknown } | null)?.items)
+        ? (body as { items: unknown[] }).items
+        : [body];
+    return items
+      .map((item) =>
+        item !== null && typeof item === 'object' ? (item as Record<string, unknown>) : null,
+      )
+      .filter(
+        (item): item is Record<string, unknown> =>
+          item !== null && typeof item.currency === 'string',
+      )
+      .map((item) => ({
+        currency: String(item.currency).toUpperCase(),
+        availableAmount: majorUnitsToMoney(String(item.currency), item.available_amount ?? 0),
+        pendingAmount: majorUnitsToMoney(String(item.currency), item.pending_amount ?? 0),
+        reservedAmount: majorUnitsToMoney(String(item.currency), item.reserved_amount ?? 0),
+        totalAmount: majorUnitsToMoney(String(item.currency), item.total_amount ?? 0),
+        accountType: typeof item.account_type === 'string' ? item.account_type : 'unknown',
+      }));
+  }
+
+  /**
+   * Creates a transfer. NEVER auto-retried: any non-2xx/definitive outcome is
+   * returned/thrown as-is; ambiguous outcomes (429/5xx/timeout) surface as
+   * TransportUnavailableError so the caller marks status-unknown and later
+   * reconciles by the SAME request id (Airwallex dedupes request_id for 7
+   * days; duplicates return code request_id_duplicate and are not processed).
+   */
+  async createTransfer(input: {
+    requestId: string;
+    beneficiaryId: string;
+    currency: string;
+    amountMinor: number;
+    reason: string;
+  }): Promise<AirwallexTransferRecord> {
+    const body = {
+      request_id: input.requestId,
+      beneficiary_id: input.beneficiaryId,
+      transfer_currency: input.currency,
+      transfer_amount: minorToMajorUnits(input.currency, input.amountMinor),
+      reason: input.reason,
+      reference: input.requestId,
+    };
+    const response = await this.authorizedRequest({
+      method: 'POST',
+      path: '/api/v1/transfers/create',
+      body,
+    });
+    if (response.httpStatus !== 200 && response.httpStatus !== 201) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, 'transfers/create');
+      throw new TransportUnavailableError(
+        `airwallex transfers/create non-success ${response.httpStatus}; the request may or may not have been accepted — treating as ambiguous`,
+      );
+    }
+    return parseTransferRecord(response.body);
+  }
+
+  async getTransfer(transferId: string): Promise<AirwallexTransferRecord> {
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: `/api/v1/transfers/${encodeURIComponent(transferId)}`,
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, `transfers/${transferId}`);
+      throw new TransportUnavailableError(
+        `airwallex transfers/${transferId} non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    return parseTransferRecord(response.body);
+  }
+
+  /**
+   * The documented recovery path for a lost create response: list transfers
+   * filtered by OUR original request_id.
+   */
+  async listTransfersByRequestId(requestId: string): Promise<AirwallexTransferRecord[]> {
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: '/api/v1/transfers',
+      query: { request_id: requestId },
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, 'transfers?request_id');
+      throw new TransportUnavailableError(
+        `airwallex transfers?request_id non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    const items = (response.body as { items?: unknown } | null)?.items;
+    if (!Array.isArray(items)) return [];
+    return items
+      .filter((item) => item !== null && typeof item === 'object')
+      .map((item) => parseTransferRecord(item));
+  }
+}
+
+export function parseTransferRecord(raw: unknown): AirwallexTransferRecord {
+  if (raw === null || typeof raw !== 'object') {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_transfer',
+      'provider transfer record is not an object',
+      raw,
+    );
+  }
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id : '';
+  if (id === '') {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_transfer',
+      'provider transfer record missing id',
+      raw,
+    );
+  }
+  const currency =
+    typeof record.transfer_currency === 'string' ? record.transfer_currency.toUpperCase() : '';
+  const amount =
+    currency !== '' && typeof record.transfer_amount === 'number'
+      ? majorUnitsToMoney(currency, record.transfer_amount)
+      : null;
+  const failure = (record.failure ?? null) as { code?: unknown; message?: unknown } | null;
+  return {
+    id,
+    requestId: typeof record.request_id === 'string' ? record.request_id : null,
+    status: typeof record.status === 'string' ? record.status : 'UNKNOWN',
+    transferAmount: amount,
+    beneficiaryId: typeof record.beneficiary_id === 'string' ? record.beneficiary_id : null,
+    failureCode: failure !== null && typeof failure.code === 'string' ? failure.code : null,
+    failureMessage:
+      failure !== null && typeof failure.message === 'string' ? failure.message : null,
+    createdAt: typeof record.created_at === 'string' ? record.created_at : null,
+    updatedAt: typeof record.updated_at === 'string' ? record.updated_at : null,
+    raw,
+  };
+}

@@ -20,7 +20,8 @@
     "@moterva/ledger": "0.1.0",
     "@moterva/providers": "0.1.0",
     "fastify": "^5.2.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@moterva/airwallex": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
