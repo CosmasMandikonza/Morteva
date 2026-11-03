@@ -66,3 +66,12 @@ Method, sources, dates, and verification level for everything in this package. R
 3. Sketchfab CC-BY attribution must appear in the app's credits surface; CC-BY-NC items are excluded from the shortlist entirely (hackathon has cash prizes → treat as commercial).
 4. Fontside (Fontshare) fonts are free for commercial use under the Fontshare license, but it is a custom license (not OFL); flagged per-candidate in the proposals file.
 5. Skiper attribution mechanics (where the credit must appear) are not documented precisely on the site — one more reason the ledger recommends against relying on Skiper.
+
+## CTO recheck and evidence limitations (review of PR #22)
+
+This package is substantial research by the coding agent, **not an independently reproduced component-by-component lab evaluation**. The reviewer separately checked: Cult UI's official MIT repository, React Bits' official license text, Skiper's attribution rules, MBARI's official Doc Ricketts listing, Poly Haven's Simon's Town HDRI, and DJI/Sketchfab trademark caveats. The reviewer **could not directly inspect every third-party DJI model page or all claimed font binaries**; those details remain agent-reported and are pending a downloaded-asset audit/recorded hash. The absence of original font scan artifacts also prevents a third party reproducing the binary feature claims as documented.
+
+- A CC-BY listing is not a guarantee of manufacturer trademark or trade-dress permission. See https://www.dji.com/terms and https://sketchfab.com/licenses.
+- React Bits has a public-copying ambiguity: permission to use source as part of an application is distinct from restrictions on redistributing components themselves in a public repository. Verify before importing its copied code. See https://github.com/DavidHDev/react-bits/blob/main/LICENSE.md.
+- The selected Sketchfab file must be downloaded under the applicable right, inspected for actual glTF/GLB format, animations, dimensions, quality and performance, then recorded with file hashes before it becomes an approved asset. No such inspection was performed in this research issue.
+- Candidate direction choice requires real reference-grounded visual comparison, not a document-only style preference; Issue #10 remains open after merging the research PR.
