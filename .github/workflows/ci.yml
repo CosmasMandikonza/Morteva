@@ -38,6 +38,9 @@ jobs:
       - name: Documentation integrity
         run: node scripts/check-docs.mjs
 
+      - name: Design token contract (structure, lab traceability, WCAG contrast)
+        run: node scripts/check-design-tokens.mjs
+
       - name: Lint (eslint)
         run: npm run lint
 
