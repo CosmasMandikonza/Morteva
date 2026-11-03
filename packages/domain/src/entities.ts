@@ -195,6 +195,110 @@ export interface EvidenceEventView {
   readonly recordedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Read-only operator projections (issues #34/#36). These are the CONTRACT the
+// API serves and the web renders — both compile against these types so the
+// wire format cannot drift from the documentation. Everything here is derived
+// truth: no field may imply a provider observation that does not exist.
+// ---------------------------------------------------------------------------
+
+/** Exact money: an integer in minor units plus the domain's exact major string. Never a float. */
+export interface MoneyView {
+  readonly minorUnits: number;
+  readonly major: string;
+}
+
+/** Where a balance number came from, and whether it can still be trusted. */
+export interface BalanceProvenanceView {
+  readonly source: string;
+  readonly observedAt: string;
+  readonly expiresAt: string;
+  readonly stale: boolean;
+}
+
+/**
+ * Commitment pressure on one currency, split exactly like the engine's
+ * spendable math. `unknownMinor` deliberately includes BOTH ambiguous
+ * (STATUS_UNKNOWN) and escalated (REQUIRES_HUMAN) exposure — both retain
+ * capacity. `settledPendingObservationMinor` counts settlements finalized at
+ * or after the balance observation (still consumed until newer money is
+ * observed); it is null when no snapshot exists (honestly unknown).
+ */
+export interface CommitmentBreakdownView {
+  readonly reservedMinor: number;
+  readonly unknownMinor: number;
+  readonly settledPendingObservationMinor: number | null;
+  readonly settledTotalMinor: number;
+  readonly releasedMinor: number;
+  readonly totalOutstandingMinor: number | null;
+}
+
+export type FinancialCurrencyStatus = 'ok' | 'stale' | 'no_snapshot';
+
+export interface FinancialCurrencyView {
+  readonly currency: string;
+  readonly status: FinancialCurrencyStatus;
+  readonly balance: MoneyView | null;
+  readonly provenance: BalanceProvenanceView | null;
+  readonly protectedFloor: MoneyView;
+  readonly spendable: (MoneyView & { overcommitted: boolean }) | null;
+  readonly commitments: CommitmentBreakdownView;
+  /** Human sentence when status is not ok; null otherwise. */
+  readonly statusDetail: string | null;
+}
+
+export interface FinancialOverviewView {
+  readonly orgId: string;
+  readonly generatedAt: string;
+  readonly currencies: readonly FinancialCurrencyView[];
+}
+
+/** Human-attention classification: escalated, ambiguous, or quiet. */
+export type AttentionLevel = 'none' | 'ambiguous' | 'human';
+
+/** The money view of one operation, shared by the list and the detail route. */
+export interface OperationReadView {
+  readonly id: string;
+  readonly missionId: string;
+  readonly kind: string;
+  readonly requestId: string;
+  readonly state: string;
+  readonly attention: AttentionLevel;
+  readonly amount: MoneyView & { currency: string };
+  readonly beneficiary: string;
+  readonly purpose: string;
+  readonly planId: string;
+  readonly planVersion: number;
+  readonly commitment: { state: string; finalizedAt: string | null };
+  /** Outbox truth once a dispatch row exists; null before — never a guess. */
+  readonly dispatch: { rail: string | null; attempts: number; status: string } | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface OperationListView {
+  readonly operations: readonly OperationReadView[];
+  /** Org-wide counts that never shrink with list filters. */
+  readonly counts: { returned: number; needsHuman: number; ambiguous: number };
+}
+
+/** One append-only journal event, with the stored (already minimized) payload. */
+export interface MissionEvidenceEventView {
+  readonly seq: number;
+  readonly id: string;
+  readonly topic: 'financial' | 'operational';
+  readonly type: string;
+  readonly eventKey: string;
+  readonly payloadDigest: string;
+  readonly payload: unknown;
+  readonly recordedAt: string;
+}
+
+export interface MissionEvidenceListView {
+  readonly missionId: string;
+  readonly events: readonly MissionEvidenceEventView[];
+}
+
 /** A persisted, server-verified identity. Credentials are never part of the view. */
 export interface ActorView {
   readonly id: string;

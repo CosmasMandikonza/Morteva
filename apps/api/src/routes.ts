@@ -13,6 +13,17 @@ import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { isLedgerError, LedgerError } from '@moterva/ledger';
 import { createMoney, isOperationState, toMajorString } from '@moterva/domain';
+import type {
+  AttentionLevel,
+  CommitmentBreakdownView,
+  FinancialCurrencyView,
+  FinancialOverviewView,
+  MissionEvidenceEventView,
+  MissionEvidenceListView,
+  MoneyView,
+  OperationListView,
+  OperationReadView,
+} from '@moterva/domain';
 import type { AppConfig } from './config.js';
 import { clearSessionCookie, csrfOk, guard, LoginRateLimiter, setSessionCookie } from './auth.js';
 
@@ -409,7 +420,7 @@ export function registerAuthAndFinancialRoutes(
       )
       .all(orgId) as { currency: string; protected_floor_minor: number }[];
 
-    const currencies = accounts.map((account) => {
+    const currencies: FinancialCurrencyView[] = accounts.map((account) => {
       const currency = account.currency;
       const floorMinor = account.protected_floor_minor;
       const latest = ledger.accounts.latestSnapshot(orgId, currency, ledger.clock.now());
@@ -462,7 +473,12 @@ export function registerAuthAndFinancialRoutes(
       };
     });
 
-    return { orgId, generatedAt: ledger.clock.iso(), currencies };
+    const overview: FinancialOverviewView = {
+      orgId,
+      generatedAt: ledger.clock.iso(),
+      currencies,
+    };
+    return overview;
   });
 
   app.get('/api/operations', async (request, reply) => {
@@ -550,7 +566,7 @@ export function registerAuthAndFinancialRoutes(
       )
       .get(orgId) as { total: number; needsHuman: number | null; ambiguous: number | null };
 
-    return {
+    const list: OperationListView = {
       operations: rows.map((row) => enrichOperationRow(ledger, row)),
       counts: {
         returned: rows.length,
@@ -558,7 +574,85 @@ export function registerAuthAndFinancialRoutes(
         ambiguous: countsRow.ambiguous ?? 0,
       },
     };
+    return list;
   });
+
+  // ---------------------------------------- mission financial history (#36)
+  //
+  // The append-only evidence journal is the mission's financial replay:
+  // why the money looks the way it does (reservation, settlement, reversal,
+  // denial, dispatch decisions), with each event's integrity digest. The
+  // payload is the journal's own stored JSON — provider payloads were already
+  // minimized at write time, so nothing raw can appear here.
+
+  app.get('/api/missions/:missionId/evidence', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const orgId = g.actor.orgId;
+    const missionId = (request.params as { missionId: string }).missionId;
+    try {
+      ledger.organizations.getMission(orgId, missionId); // cross-tenant is 404
+    } catch (error) {
+      return notFoundOrRethrow(error, reply, 'mission not found');
+    }
+    const query = request.query as { topic?: unknown; limit?: unknown };
+    let topic: 'financial' | 'operational' | undefined;
+    if (typeof query.topic === 'string' && query.topic !== '') {
+      if (query.topic !== 'financial' && query.topic !== 'operational') {
+        return void reply.code(400).send({
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'topic must be "financial" or "operational" when present',
+          },
+        });
+      }
+      topic = query.topic;
+    }
+    const limitRaw = query.limit === undefined ? 50 : Number(query.limit);
+    if (!Number.isSafeInteger(limitRaw) || limitRaw < 1 || limitRaw > 200) {
+      return void reply.code(400).send({
+        error: { code: 'INVALID_INPUT', message: 'limit must be an integer between 1 and 200' },
+      });
+    }
+
+    const rows = ledger.db
+      .prepare(
+        `SELECT seq, id, topic, type, event_key, payload_digest, payload_json, recorded_at
+           FROM evidence_events
+          WHERE org_id = ? AND mission_id = ?
+          ${topic === undefined ? '' : 'AND topic = ?'}
+          ORDER BY seq DESC
+          LIMIT ?`,
+      )
+      .all(
+        ...(topic === undefined
+          ? [orgId, missionId, limitRaw]
+          : [orgId, missionId, topic, limitRaw]),
+      ) as Record<string, unknown>[];
+
+    const events: MissionEvidenceEventView[] = rows.map((row) => ({
+      seq: row.seq as number,
+      id: String(row.id),
+      topic: String(row.topic) as 'financial' | 'operational',
+      type: String(row.type),
+      eventKey: String(row.event_key),
+      payloadDigest: String(row.payload_digest),
+      payload: safeJsonParse(row.payload_json),
+      recordedAt: String(row.recorded_at),
+    }));
+    const view: MissionEvidenceListView = { missionId, events };
+    return view;
+  });
+}
+
+/** Parse stored journal JSON without ever throwing on malformed legacy rows. */
+function safeJsonParse(raw: unknown): unknown {
+  if (typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 /** Operation columns shared by the list and the single-get enrichment (#34). */
@@ -594,7 +688,7 @@ function orgOperationRow(
 }
 
 /** Exact money formatting: minor-unit integer plus the domain major string (never floats). */
-function moneyView(currency: string, minorUnits: number): { minorUnits: number; major: string } {
+function moneyView(currency: string, minorUnits: number): MoneyView {
   return { minorUnits, major: toMajorString(createMoney(currency, minorUnits)) };
 }
 
@@ -610,14 +704,7 @@ function commitmentBreakdown(
   orgId: string,
   currency: string,
   observedAt: string | null,
-): {
-  reservedMinor: number;
-  unknownMinor: number;
-  settledPendingObservationMinor: number | null;
-  settledTotalMinor: number;
-  releasedMinor: number;
-  totalOutstandingMinor: number | null;
-} {
+): CommitmentBreakdownView {
   const rows = ledger.db
     .prepare(
       `SELECT state, COALESCE(SUM(amount_minor), 0) AS total
@@ -659,14 +746,14 @@ function commitmentBreakdown(
 }
 
 /** Human-attention classification shared by list and detail (#34). */
-function attentionFor(state: string): 'none' | 'ambiguous' | 'human' {
+function attentionFor(state: string): AttentionLevel {
   if (state === 'REQUIRES_HUMAN') return 'human';
   if (state === 'STATUS_UNKNOWN') return 'ambiguous';
   return 'none';
 }
 
 /** Shape one operation row for the API (list + detail agree). */
-function enrichOperationRow(ledger: Ledger, row: Record<string, unknown>): Record<string, unknown> {
+function enrichOperationRow(ledger: Ledger, row: Record<string, unknown>): OperationReadView {
   void ledger;
   const currency = String(row.currency);
   const amountMinor = row.amount_minor as number;
