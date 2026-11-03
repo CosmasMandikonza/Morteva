@@ -40,8 +40,9 @@ describe('reservation — spendable math and atomicity', () => {
     const { ledger, clock } = makeLedger();
     const { org, mission } = fundedOrg(ledger, clock);
     const ref = approvedPlan(ledger, org.id, mission.id, { amountMinor: 10_000, currency: 'USD' });
-    expect(() => reserveCall(ledger, { org }, mission.id, ref, 'no-fiat-bridge', 'metal_order'))
-      .toThrowError(/Metal token orders require a separate/);
+    expect(() =>
+      reserveCall(ledger, { org }, mission.id, ref, 'no-fiat-bridge', 'metal_order'),
+    ).toThrowError(/Metal token orders require a separate/);
     const rows = ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number };
     expect(rows.c).toBe(0);
     expect(ledger.spendable.compute(org.id, 'USD').spendableMinor).toBe(900_000);
