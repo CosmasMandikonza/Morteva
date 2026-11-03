@@ -166,10 +166,11 @@ export class ApprovalService {
       throw new LedgerError('CROSS_ORG_ACCESS', 'approval plan belongs to another organization');
     }
     const record = this.db
-      .prepare('SELECT mission_id, terms_json, digest FROM candidate_plans WHERE id = ? AND version = ? AND org_id = ?')
+      .prepare(
+        'SELECT mission_id, terms_json, digest FROM candidate_plans WHERE id = ? AND version = ? AND org_id = ?',
+      )
       .get(input.plan.id, input.plan.version, input.orgId) as
-      | { mission_id: string; terms_json: string; digest: string }
-      | undefined;
+      { mission_id: string; terms_json: string; digest: string } | undefined;
     if (
       record === undefined ||
       record.mission_id !== input.plan.missionId ||
