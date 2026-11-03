@@ -4,9 +4,12 @@
  * Adds the actor/session/mission-grant trust boundary and rebuilds mandates
  * and approvals (SQLite cannot ALTER CHECK constraints) with cumulative
  * budgets, rail/beneficiary/purpose allowlists, revocation and exact-term
- * approval binding. Legacy v1 rows are preserved with their ORIGINAL
- * authority semantics: total_budget_minor = -1 means "envelope = per-op max"
- * so no old mandate silently gains spending capacity.
+ * approval binding. Legacy v1 financial operations, commitments and evidence survive. However,
+ * legacy approvals were self-asserted strings, NOT authenticated actor grants:
+ * active legacy mandates are superseded and unconsumed approvals invalidated.
+ * Existing potentially dispatched operations still reconcile by request ID.
+ * Reissue a new mandate/approval using verified actors before new spending.
+ * total_budget_minor = -1 is preserved on legacy rows for audit, never a live cap.
  *
  * The mandates/approvals rebuilds require foreign keys OFF during the
  * swap (standard SQLite procedure); the migrator re-enables FK and runs
@@ -78,7 +81,9 @@ CREATE TABLE mandates_v2 (
 INSERT INTO mandates_v2 (id, org_id, mission_id, version, status, currency, max_amount_minor,
     total_budget_minor, permitted_kinds_json, rails_json, allowed_beneficiaries_json,
     allowed_purposes_json, require_separate_approver, expires_at, revoked_at, created_at)
-  SELECT id, org_id, mission_id, version, status, currency, max_amount_minor,
+  SELECT id, org_id, mission_id, version,
+    CASE WHEN status = 'active' THEN 'superseded' ELSE status END,
+    currency, max_amount_minor,
     -1, permitted_kinds_json, '["airwallex"]', '[]', '[]', 1, expires_at, NULL, created_at
   FROM mandates;
 
@@ -117,7 +122,8 @@ INSERT INTO approvals_v2 (id, org_id, plan_id, plan_version, plan_digest, mandat
     evidence_digest, auth_key, decided_by, decided_at, expires_at, status, revoked_at)
   SELECT id, org_id, plan_id, plan_version, plan_digest, NULL, NULL, 'airwallex_transfer',
     amount_minor, currency, beneficiary, purpose, '', '', 'legacy-' || id,
-    decided_by, decided_at, expires_at, status, NULL
+    decided_by, decided_at, expires_at,
+    CASE WHEN status = 'valid' THEN 'invalidated' ELSE status END, NULL
   FROM approvals;
 
 DROP TABLE approvals;
