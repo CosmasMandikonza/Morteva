@@ -11,7 +11,8 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
-import { isLedgerError } from '@moterva/ledger';
+import { isLedgerError, LedgerError } from '@moterva/ledger';
+import { createMoney, isOperationState, toMajorString } from '@moterva/domain';
 import type { AppConfig } from './config.js';
 import { clearSessionCookie, csrfOk, guard, LoginRateLimiter, setSessionCookie } from './auth.js';
 
@@ -380,11 +381,330 @@ export function registerAuthAndFinancialRoutes(
         g.actor.orgId,
         (request.params as { id: string }).id,
       );
-      return { operation };
+      return {
+        operation: enrichOperationRow(ledger, orgOperationRow(ledger, g.actor.orgId, operation.id)),
+      };
     } catch (error) {
       return notFoundOrRethrow(error, reply, 'operation not found');
     }
   });
+
+  // ------------------------------------------------ financial reads (#34)
+  //
+  // Read-only operator visibility into what the ledger ALREADY computes —
+  // balances with provenance, spendable capacity, commitment breakdown,
+  // operation status and human-attention exceptions. No mutations, no
+  // provider calls, no new authority: org scope always comes from the
+  // actor's session; stale or missing balances are reported as such and
+  // spendable is NEVER computed from them.
+
+  app.get('/api/financial/overview', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const orgId = g.actor.orgId;
+    const accounts = ledger.db
+      .prepare(
+        `SELECT currency, protected_floor_minor FROM accounts
+          WHERE org_id = ? AND kind = 'treasury' ORDER BY currency`,
+      )
+      .all(orgId) as { currency: string; protected_floor_minor: number }[];
+
+    const currencies = accounts.map((account) => {
+      const currency = account.currency;
+      const floorMinor = account.protected_floor_minor;
+      const latest = ledger.accounts.latestSnapshot(orgId, currency, ledger.clock.now());
+
+      if (latest === undefined) {
+        return {
+          currency,
+          status: 'no_snapshot' as const,
+          balance: null,
+          provenance: null,
+          protectedFloor: moneyView(currency, floorMinor),
+          spendable: null,
+          commitments: commitmentBreakdown(ledger, orgId, currency, null),
+          statusDetail: `no balance observation exists for ${currency}; the ledger refuses to reason about unknown funds until a balance is recorded`,
+        };
+      }
+      const provenance = {
+        source: latest.snapshot.source,
+        observedAt: latest.snapshot.observedAt,
+        expiresAt: latest.snapshot.expiresAt,
+        stale: !latest.fresh,
+      };
+      const breakdown = commitmentBreakdown(ledger, orgId, currency, latest.snapshot.observedAt);
+      if (!latest.fresh) {
+        return {
+          currency,
+          status: 'stale' as const,
+          balance: moneyView(currency, latest.snapshot.minorUnits),
+          provenance,
+          protectedFloor: moneyView(currency, floorMinor),
+          spendable: null,
+          commitments: breakdown,
+          statusDetail: `balance expired at ${latest.snapshot.expiresAt} (observed ${latest.snapshot.observedAt}); spendable capacity is not computed from stale money — a fresh observation is required`,
+        };
+      }
+      // Fresh: the engine's own computation is the single source of truth.
+      const view = ledger.spendable.compute(orgId, currency);
+      return {
+        currency,
+        status: 'ok' as const,
+        balance: moneyView(currency, view.balanceMinor),
+        provenance,
+        protectedFloor: moneyView(currency, view.protectedFloorMinor),
+        spendable: {
+          ...moneyView(currency, view.spendableMinor),
+          overcommitted: view.overcommitted,
+        },
+        commitments: breakdown,
+        statusDetail: null,
+      };
+    });
+
+    return { orgId, generatedAt: ledger.clock.iso(), currencies };
+  });
+
+  app.get('/api/operations', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const orgId = g.actor.orgId;
+    const query = request.query as {
+      missionId?: unknown;
+      state?: unknown;
+      attention?: unknown;
+      limit?: unknown;
+    };
+
+    let missionId: string | undefined;
+    if (typeof query.missionId === 'string' && query.missionId !== '') {
+      missionId = query.missionId;
+      try {
+        ledger.organizations.getMission(orgId, missionId); // cross-tenant is 404, not a leak
+      } catch (error) {
+        return notFoundOrRethrow(error, reply, 'mission not found');
+      }
+    }
+    let stateFilter: string | undefined;
+    if (typeof query.state === 'string' && query.state !== '') {
+      if (!isOperationState(query.state)) {
+        return void reply.code(400).send({
+          error: {
+            code: 'INVALID_INPUT',
+            message: `state must be one of the operation ladder states (got "${query.state}")`,
+          },
+        });
+      }
+      stateFilter = query.state;
+    }
+    let attentionOnly = false;
+    if (typeof query.attention === 'string' && query.attention !== '') {
+      if (query.attention !== 'needs-human') {
+        return void reply.code(400).send({
+          error: { code: 'INVALID_INPUT', message: 'attention must be "needs-human" when present' },
+        });
+      }
+      attentionOnly = true;
+    }
+    const limitRaw = query.limit === undefined ? 50 : Number(query.limit);
+    if (!Number.isSafeInteger(limitRaw) || limitRaw < 1 || limitRaw > 200) {
+      return void reply.code(400).send({
+        error: { code: 'INVALID_INPUT', message: 'limit must be an integer between 1 and 200' },
+      });
+    }
+
+    const clauses = ['o.org_id = ?'];
+    const params: unknown[] = [orgId];
+    if (missionId !== undefined) {
+      clauses.push('o.mission_id = ?');
+      params.push(missionId);
+    }
+    if (stateFilter !== undefined) {
+      clauses.push('o.state = ?');
+      params.push(stateFilter);
+    }
+    if (attentionOnly) {
+      clauses.push(`o.state IN ('REQUIRES_HUMAN', 'STATUS_UNKNOWN')`);
+    }
+    const rows = ledger.db
+      .prepare(
+        `SELECT ${OPERATION_COLUMNS}
+           FROM operations o
+           LEFT JOIN commitments c ON c.operation_id = o.id
+           LEFT JOIN outbox_dispatches x ON x.operation_id = o.id
+          WHERE ${clauses.join(' AND ')}
+          ORDER BY o.created_at DESC, o.id
+          LIMIT ?`,
+      )
+      .all(...params, limitRaw) as Record<string, unknown>[];
+
+    // Org-wide exception counts (never scoped by the list filters) so the UI
+    // can badge "needs human" without a second contract.
+    const countsRow = ledger.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(CASE WHEN state = 'REQUIRES_HUMAN' THEN 1 ELSE 0 END) AS needsHuman,
+           SUM(CASE WHEN state = 'STATUS_UNKNOWN' THEN 1 ELSE 0 END) AS ambiguous
+         FROM operations WHERE org_id = ?`,
+      )
+      .get(orgId) as { total: number; needsHuman: number | null; ambiguous: number | null };
+
+    return {
+      operations: rows.map((row) => enrichOperationRow(ledger, row)),
+      counts: {
+        returned: rows.length,
+        needsHuman: countsRow.needsHuman ?? 0,
+        ambiguous: countsRow.ambiguous ?? 0,
+      },
+    };
+  });
+}
+
+/** Operation columns shared by the list and the single-get enrichment (#34). */
+const OPERATION_COLUMNS = `o.id, o.mission_id, o.kind, o.request_id, o.state, o.plan_id, o.plan_version,
+  o.amount_minor, o.currency, o.beneficiary, o.purpose, o.created_at, o.updated_at,
+  c.state AS commitment_state, c.finalized_at AS commitment_finalized_at,
+  x.id AS dispatch_id, x.rail AS dispatch_rail, x.attempts AS dispatch_attempts, x.status AS dispatch_status`;
+
+/** Fetch one operation row (org-scoped) in the shared enrichment shape. */
+function orgOperationRow(
+  ledger: Ledger,
+  orgId: string,
+  operationId: string,
+): Record<string, unknown> {
+  const row = ledger.db
+    .prepare(
+      `SELECT ${OPERATION_COLUMNS}
+         FROM operations o
+         LEFT JOIN commitments c ON c.operation_id = o.id
+         LEFT JOIN outbox_dispatches x ON x.operation_id = o.id
+        WHERE o.org_id = ? AND o.id = ?`,
+    )
+    .get(orgId, operationId) as Record<string, unknown> | undefined;
+  if (row === undefined) {
+    // getOperation above already proved existence within this org; a miss
+    // here means the join shape drifted — fail closed rather than guess.
+    throw new LedgerError(
+      'OPERATION_NOT_FOUND',
+      `operation ${operationId} not found for organization`,
+    );
+  }
+  return row;
+}
+
+/** Exact money formatting: minor-unit integer plus the domain major string (never floats). */
+function moneyView(currency: string, minorUnits: number): { minorUnits: number; major: string } {
+  return { minorUnits, major: toMajorString(createMoney(currency, minorUnits)) };
+}
+
+/**
+ * Commitment-state sums for one org/currency (#34). `observedAt` splits the
+ * settled bucket exactly like the engine's spendable math: a settlement keeps
+ * consuming capacity until a balance snapshot NEWER than the settlement is
+ * observed. When no snapshot exists the split is reported as null (unknown),
+ * never guessed.
+ */
+function commitmentBreakdown(
+  ledger: Ledger,
+  orgId: string,
+  currency: string,
+  observedAt: string | null,
+): {
+  reservedMinor: number;
+  unknownMinor: number;
+  settledPendingObservationMinor: number | null;
+  settledTotalMinor: number;
+  releasedMinor: number;
+  totalOutstandingMinor: number | null;
+} {
+  const rows = ledger.db
+    .prepare(
+      `SELECT state, COALESCE(SUM(amount_minor), 0) AS total
+         FROM commitments WHERE org_id = ? AND currency = ? GROUP BY state`,
+    )
+    .all(orgId, currency) as { state: string; total: number }[];
+  const byState = new Map(rows.map((r) => [r.state, r.total]));
+  const reservedMinor = byState.get('reserved') ?? 0;
+  const unknownMinor = byState.get('unknown') ?? 0;
+  const settledTotalMinor = byState.get('settled') ?? 0;
+  const releasedMinor = byState.get('released') ?? 0;
+  if (observedAt === null) {
+    return {
+      reservedMinor,
+      unknownMinor,
+      settledPendingObservationMinor: null,
+      settledTotalMinor,
+      releasedMinor,
+      totalOutstandingMinor: null,
+    };
+  }
+  const settledPendingRow = ledger.db
+    .prepare(
+      `SELECT COALESCE(SUM(amount_minor), 0) AS total
+         FROM commitments
+        WHERE org_id = ? AND currency = ? AND state = 'settled'
+          AND finalized_at IS NOT NULL AND finalized_at >= ?`,
+    )
+    .get(orgId, currency, observedAt) as { total: number };
+  const settledPending = settledPendingRow.total;
+  return {
+    reservedMinor,
+    unknownMinor,
+    settledPendingObservationMinor: settledPending,
+    settledTotalMinor,
+    releasedMinor,
+    totalOutstandingMinor: reservedMinor + unknownMinor + settledPending,
+  };
+}
+
+/** Human-attention classification shared by list and detail (#34). */
+function attentionFor(state: string): 'none' | 'ambiguous' | 'human' {
+  if (state === 'REQUIRES_HUMAN') return 'human';
+  if (state === 'STATUS_UNKNOWN') return 'ambiguous';
+  return 'none';
+}
+
+/** Shape one operation row for the API (list + detail agree). */
+function enrichOperationRow(ledger: Ledger, row: Record<string, unknown>): Record<string, unknown> {
+  void ledger;
+  const currency = String(row.currency);
+  const amountMinor = row.amount_minor as number;
+  const hasDispatch = row.dispatch_id !== null && row.dispatch_id !== undefined;
+  return {
+    id: String(row.id),
+    missionId: String(row.mission_id),
+    kind: String(row.kind),
+    requestId: String(row.request_id),
+    state: String(row.state),
+    attention: attentionFor(String(row.state)),
+    amount: { currency, ...moneyView(currency, amountMinor) },
+    beneficiary: String(row.beneficiary),
+    purpose: String(row.purpose),
+    planId: String(row.plan_id),
+    planVersion: row.plan_version as number,
+    commitment: {
+      state: String(row.commitment_state),
+      finalizedAt:
+        row.commitment_finalized_at === null || row.commitment_finalized_at === undefined
+          ? null
+          : String(row.commitment_finalized_at),
+    },
+    // Null until an outbox dispatch exists; a queued dispatch with no rail
+    // claim yet reports rail: null rather than pretending a rail was chosen.
+    dispatch: hasDispatch
+      ? {
+          rail:
+            row.dispatch_rail === null || row.dispatch_rail === undefined
+              ? null
+              : String(row.dispatch_rail),
+          attempts: (row.dispatch_attempts as number) ?? 0,
+          status: String(row.dispatch_status),
+        }
+      : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
 }
 
 function requireString(body: Record<string, unknown>, field: string): string {
