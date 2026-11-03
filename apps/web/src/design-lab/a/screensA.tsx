@@ -266,7 +266,9 @@ export function TreasuryA({ lab }: { lab: LabState }): JSX.Element {
           <article className="a-card">
             <header className="a-card__head">
               <h2 className="a-h2">Exceptions</h2>
-              <span className="a-card__meta">2 require attention</span>
+              <span className="a-card__meta">
+                {loading ? '…' : empty ? 'none open' : `${exceptions.length} require attention`}
+              </span>
             </header>
             {empty || loading ? (
               <p className="a-muted">{loading ? 'Reading journal…' : 'No open exceptions.'}</p>

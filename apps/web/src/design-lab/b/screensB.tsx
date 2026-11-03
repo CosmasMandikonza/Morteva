@@ -275,10 +275,14 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
           <article className="b-panel b-exceptions">
             <header className="b-panel__head">
               <h2 className="b-h2">Exceptions</h2>
-              <span className="b-panel__meta">2 open</span>
+              <span className="b-panel__meta">
+                {loading ? '…' : empty ? 'none open' : `${exceptions.length} open`}
+              </span>
             </header>
             {loading ? (
               <div className="skel skel--row" />
+            ) : empty ? (
+              <p className="b-panel__note">No open exceptions.</p>
             ) : (
               <ul>
                 {exceptions.map((ex) => (

@@ -213,6 +213,61 @@ test('no horizontal scrolling of financial content at 320px', async ({ page }) =
   }
 });
 
+test('content reflows intact under genuine 200% browser zoom (not a DPR-only capture)', async ({
+  page,
+  context,
+}) => {
+  // Real Ctrl+Zoom semantics: the CSS layout viewport halves (1440 → 720)
+  // while devicePixelRatio doubles, applied to the LIVE full-size page so the
+  // reflow is observed after load. A deviceScaleFactor-only capture renders
+  // the same layout at 2× paint density without this post-load reflow.
+  const cdp = await context.newCDPSession(page);
+  for (const c of CANDIDATES) {
+    for (const screen of ['treasury', 'decision']) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(`/design-lab.html?c=${c}${screen === 'decision' ? '&screen=decision' : ''}`);
+      await expect(page.locator(`[data-lab="${c}"]`)).toBeVisible();
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 720,
+        height: 450,
+        deviceScaleFactor: 2,
+        mobile: false,
+      });
+      const zoom = await page.evaluate<{ cw: number; dpr: number; sw: number }>(
+        '({ cw: document.documentElement.clientWidth, dpr: window.devicePixelRatio, sw: document.documentElement.scrollWidth })',
+      );
+      // Zoom took effect as real browser zoom: CSS viewport halved AND DPR doubled.
+      expect(zoom.cw).toBe(720);
+      expect(zoom.dpr).toBe(2);
+      // 200% zoom must not introduce horizontal overflow of financial content.
+      expect(zoom.sw).toBeLessThanOrEqual(zoom.cw + 1);
+      await expect(page.locator(`[data-lab="${c}"]`)).toContainText('USD');
+      await cdp.send('Emulation.clearDeviceMetricsOverride');
+    }
+  }
+});
+
+test('exceptions header count matches the rendered rows in both candidates', async ({ page }) => {
+  for (const c of CANDIDATES) {
+    await page.goto(`/design-lab.html?c=${c}`);
+    const body = page.locator(`[data-lab="${c}"]`);
+    const meta =
+      c === 'a'
+        ? body.locator('.a-card:has(h2:text-is("Exceptions")) .a-card__meta')
+        : body.locator('.b-exceptions .b-panel__meta');
+    const rows =
+      c === 'a' ? body.locator('.a-exceptions > li') : body.locator('.b-exceptions ul > li');
+    const rendered = await rows.count();
+    expect(rendered).toBeGreaterThan(0);
+    await expect(meta).toHaveText(new RegExp(`^${rendered} (require attention|open)$`));
+    // The empty override must zero the counter and the list together.
+    await page.getByRole('button', { name: /State laboratory|state lab/ }).click();
+    await page.getByRole('radio', { name: /^Empty/ }).click();
+    await expect(meta).toHaveText('none open');
+    await expect(rows).toHaveCount(0);
+  }
+});
+
 test('founder console compare mode frames both candidates', async ({ page }) => {
   await page.goto('/design-lab.html');
   await expect(page.getByRole('heading', { name: /A · Harbour Watch/ })).toBeVisible();

@@ -127,3 +127,35 @@ test('capture 200% zoom equivalent (720 CSS px @2x dpr) + compare console', asyn
   await page2.screenshot({ path: `${DIR}/founder-compare-1440x900.png` });
   await page2.close();
 });
+
+test('capture genuine 200% browser zoom (CDP device-metrics reflow of the live 1440 page)', async ({
+  browser,
+}) => {
+  // Distinct from the DPR-equivalent capture above: the page is loaded at
+  // 1440×900 like a real founder session, then browser-zoom semantics are
+  // applied via CDP — CSS layout viewport halves to 720 while
+  // devicePixelRatio doubles to 2 — and the POST-LOAD reflow is captured.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  const cdp = await ctx.newCDPSession(page);
+  for (const c of ['a', 'b'] as const) {
+    await page.goto(`/design-lab.html?c=${c}&screen=treasury`);
+    await settle(page);
+    await expect(page.locator(`[data-lab="${c}"]`)).toBeVisible();
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 720,
+      height: 450,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    const zoom = await page.evaluate<{ cw: number; dpr: number; sw: number }>(
+      '({ cw: document.documentElement.clientWidth, dpr: window.devicePixelRatio, sw: document.documentElement.scrollWidth })',
+    );
+    expect(zoom.cw).toBe(720);
+    expect(zoom.dpr).toBe(2);
+    expect(zoom.sw).toBeLessThanOrEqual(zoom.cw + 1);
+    await page.screenshot({ path: `${DIR}/${c}-treasury-zoom200-real-720.png`, fullPage: true });
+    await cdp.send('Emulation.clearDeviceMetricsOverride');
+  }
+  await ctx.close();
+});
