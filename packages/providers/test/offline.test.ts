@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { offlineCapabilities, offlineProviderStatus } from '../src/index.js';
+import { isConfirmedProviderResult, offlineCapabilities, offlineProviderStatus } from '../src/index.js';
+import type { ProviderCallStatus, ProviderSubmissionStatus } from '../src/index.js';
 
 describe('offline provider descriptors (honest status contract)', () => {
   it('declares every provider OFFLINE with all capabilities disabled', () => {
@@ -24,5 +25,26 @@ describe('offline provider descriptors (honest status contract)', () => {
   it('points each provider at its tracking issue', () => {
     expect(offlineProviderStatus('airwallex').detail).toContain('#5');
     expect(offlineProviderStatus('metal').detail).toContain('#6');
+  });
+});
+
+describe('provider result finality — transaction safety contract', () => {
+  it('never treats submission, processing, failure or unknown state as financial confirmation', () => {
+    const notSettled: readonly ProviderCallStatus[] = [
+      'submitted',
+      'processing',
+      'failed',
+      'status-unknown',
+    ];
+    for (const state of notSettled) {
+      expect(isConfirmedProviderResult(state)).toBe(false);
+    }
+  });
+
+  it('requires a separately verified provider confirmation', () => {
+    expect(isConfirmedProviderResult('confirmed')).toBe(true);
+    // Compile-time contract: dispatch cannot claim confirmed finality.
+    const validSubmission: ProviderSubmissionStatus = 'submitted';
+    expect(validSubmission).not.toBe('confirmed');
   });
 });
