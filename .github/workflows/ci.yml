@@ -44,6 +44,17 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
+      - name: Temporary CTO formatting extraction (remove before merge)
+        if: failure()
+        run: |
+          npx prettier --write packages/ledger/src/services/accounts.ts packages/ledger/src/services/mandates.ts packages/ledger/src/services/plans.ts packages/ledger/test/accounts-balance.test.ts packages/ledger/test/evidence-isolation.test.ts packages/ledger/test/lifecycle.test.ts packages/ledger/test/mandates-plans-approvals.test.ts packages/ledger/test/reservations.test.ts packages/ledger/test/restart-replay.test.ts
+          node - <<'NODE'
+          const fs = require('node:fs');
+          for (const path of ['packages/ledger/src/services/accounts.ts', 'packages/ledger/src/services/mandates.ts', 'packages/ledger/src/services/plans.ts', 'packages/ledger/test/accounts-balance.test.ts', 'packages/ledger/test/evidence-isolation.test.ts', 'packages/ledger/test/lifecycle.test.ts', 'packages/ledger/test/mandates-plans-approvals.test.ts', 'packages/ledger/test/reservations.test.ts', 'packages/ledger/test/restart-replay.test.ts']) {
+            console.log('FMT_JSON=' + JSON.stringify({ path, content: fs.readFileSync(path, 'utf8') }));
+          }
+          NODE
+
       - name: Typecheck (tsc, strict)
         run: npm run typecheck
 
