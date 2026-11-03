@@ -37,7 +37,7 @@ export class MandateService {
     }
     const expiresMs = Date.parse(input.expiresAt);
     if (!Number.isFinite(expiresMs) || expiresMs <= this.clock.now().getTime()) {
-      throw new LedgerError('MANDATE_EXPIRED', 'mandate expiry must be a valid future date');
+      throw new LedgerError('MANDATE_EXPIRED', 'mandate expiry must be in the future and a valid date');
     }
     const owningMission = this.db
       .prepare('SELECT id FROM missions WHERE id = ? AND org_id = ?')
