@@ -47,6 +47,23 @@ describe('evidence journal', () => {
     ledger.close();
   });
 
+  it('rejects mission event injection across organizations', () => {
+    const { ledger } = makeLedger();
+    const orgA = ledger.organizations.createOrganization('EvTenantA');
+    const orgB = ledger.organizations.createOrganization('EvTenantB');
+    const missionA = ledger.organizations.createMission(orgA.id, 'mission A');
+    expect(() => ledger.evidence.append({
+      orgId: orgB.id,
+      missionId: missionA.id,
+      topic: 'operational',
+      type: 'mission.fake',
+      eventKey: 'cross-tenant-injection',
+      payload: { fake: true },
+    })).toThrowError(/does not belong to the stated organization/);
+    expect(ledger.evidence.count(orgB.id)).toBe(0);
+    ledger.close();
+  });
+
   it('is append-only: UPDATE and DELETE are blocked by database triggers', () => {
     const { ledger } = makeLedger();
     const org = ledger.organizations.createOrganization('EvAO');
