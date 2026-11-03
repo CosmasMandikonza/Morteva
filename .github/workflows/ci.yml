@@ -44,17 +44,6 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
-      - name: Temporary exact formatter capture for CTO corrections
-        if: failure()
-        run: |
-          npx prettier --write apps/api/src/routes.ts apps/api/test/auth-routes.test.ts packages/ledger/src/services/mandates.ts packages/ledger/src/services/worker.ts packages/ledger/test/cumulative-budget.test.ts packages/ledger/test/revocation-dispatch.test.ts
-          node - <<'NODE'
-          const fs = require('node:fs');
-          for (const path of ["apps/api/src/routes.ts","apps/api/test/auth-routes.test.ts","packages/ledger/src/services/mandates.ts","packages/ledger/src/services/worker.ts","packages/ledger/test/cumulative-budget.test.ts","packages/ledger/test/revocation-dispatch.test.ts"]) {
-            console.log('CTO_FORMAT_JSON=' + JSON.stringify({path,content:fs.readFileSync(path,'utf8')}));
-          }
-          NODE
-
       - name: Typecheck (tsc, strict)
         run: npm run typecheck
 
