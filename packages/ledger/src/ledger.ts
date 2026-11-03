@@ -43,7 +43,7 @@ export class Ledger {
     this.authority = new AuthorityService(db, clock, this.organizations, this.evidence);
     this.mandates = new MandateService(db, clock, this.evidence);
     this.plans = new PlanService(db, clock);
-    this.approvals = new ApprovalService(db, clock, this.authority, this.evidence);
+    this.approvals = new ApprovalService(db, clock, this.authority, this.evidence, this.mandates);
     this.spendable = new SpendableService(db, clock, this.accounts);
     this.reservations = new ReservationService(
       db,
