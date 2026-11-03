@@ -144,7 +144,7 @@ for (const c of CANDIDATES) {
     await expect(page.locator('[data-lab]').first()).toContainText('OFFLINE', {
       ignoreCase: false,
     });
-    await expect(page.locator('[data-lab]').first()).toContainText('last verified snapshot');
+    await expect(page.locator('[data-lab]').first()).toContainText('synthetic fixtures');
 
     await page.getByRole('radio', { name: /3D unavailable/ }).click();
     await page.getByRole('link', { name: /Decision Room/ }).click();
