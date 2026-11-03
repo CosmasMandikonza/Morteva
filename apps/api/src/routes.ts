@@ -194,7 +194,11 @@ export function registerAuthAndFinancialRoutes(
     function enrichBudget(row: Record<string, unknown>): Record<string, unknown> {
       const mandateId = String(row.id);
       const orgId = (request.session as { actor: { orgId: string } } | null)?.actor.orgId ?? '';
-      const consumed = ledger.mandates.consumedBudget(orgId, mandateId);
+      const consumed = ledger.mandates.consumedMissionBudget(
+        orgId,
+        String(row.mission_id),
+        String(row.currency),
+      );
       const total =
         typeof row.total_budget_minor === 'number' && (row.total_budget_minor as number) !== -1
           ? (row.total_budget_minor as number)
