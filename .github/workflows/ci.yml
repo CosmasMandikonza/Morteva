@@ -44,6 +44,17 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
+      - name: Temporary CTO formatting diagnostic (remove before merge)
+        if: failure()
+        run: |
+          npx prettier --write research/mtv-08/3d-asset-and-camera-research.md research/mtv-08/founder-decision-brief.md
+          node - <<'NODE'
+          const fs = require('node:fs');
+          for (const path of ['research/mtv-08/3d-asset-and-camera-research.md', 'research/mtv-08/founder-decision-brief.md']) {
+            console.log('FORMATTED_JSON=' + JSON.stringify({ path, content: fs.readFileSync(path, 'utf8') }));
+          }
+          NODE
+
       - name: Typecheck (tsc, strict)
         run: npm run typecheck
 
