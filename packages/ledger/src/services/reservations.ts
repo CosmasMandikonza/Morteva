@@ -113,6 +113,17 @@ export class ReservationService {
       };
     }
 
+    // A tokenized Metal testnet payment cannot be funded out of an ISO USD
+    // bank account merely because the token's price is USD-denominated.
+    // Separate provider/asset balances (USDC decimals, chain, token contract)
+    // must exist before MTV-04/#6 may enable this rail. No fake fiat bridge.
+    if (input.kind === 'metal_order') {
+      throw new LedgerError(
+        'RAIL_ASSET_UNSUPPORTED',
+        'Metal token orders require a separate, verified token-asset account and mandate. Fiat USD treasury snapshots cannot fund a tokenized payment; implement the rail/asset ledger in issue #6 before enabling this kind.',
+      );
+    }
+
     // 2. Mission must belong to this org and be active.
     this.orgs.requireActiveMission(input.orgId, input.missionId);
 
