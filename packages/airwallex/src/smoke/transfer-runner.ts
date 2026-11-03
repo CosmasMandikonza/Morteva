@@ -175,7 +175,10 @@ interface PriorOperation {
 
 function fingerprintOf(clientId: string | null): string {
   // One-way fingerprint of the sandbox-account identity; never the credential.
-  return createHash('sha256').update(clientId ?? '<disabled>').digest('hex').slice(0, 16);
+  return createHash('sha256')
+    .update(clientId ?? '<disabled>')
+    .digest('hex')
+    .slice(0, 16);
 }
 
 function lockPathOf(stateDir: string): string {
@@ -340,7 +343,8 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
     }
 
     // Open the durable ledger (the real backstop for every file-based check).
-    const ledger = input.ledgerClock === undefined ? openLedger(dbPath) : openLedger(dbPath, input.ledgerClock);
+    const ledger =
+      input.ledgerClock === undefined ? openLedger(dbPath) : openLedger(dbPath, input.ledgerClock);
     ledger.migrate();
     try {
       if (input.newIntent) {
@@ -358,10 +362,7 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
         if (persisted !== null) {
           // Checks passed: archive (never delete) so the original identities
           // stay recoverable, then start the explicitly authorized new intent.
-          const archive = join(
-            input.stateDir,
-            `state-${persisted.state.ledgerRequestId}.json`,
-          );
+          const archive = join(input.stateDir, `state-${persisted.state.ledgerRequestId}.json`);
           renameSync(stateFile, archive);
           persisted = null;
         }
@@ -633,7 +634,8 @@ async function continueExistingIntent(
   if (state.accountFingerprint !== fingerprint) {
     return {
       outcome: 'blocked',
-      reason: 'state file belongs to a different sandbox account (credential fingerprint mismatch); a different account must not resume or replace this intent.',
+      reason:
+        'state file belongs to a different sandbox account (credential fingerprint mismatch); a different account must not resume or replace this intent.',
     };
   }
   if (state.beneficiaryId !== input.beneficiaryId) {
@@ -659,13 +661,15 @@ async function continueExistingIntent(
   ) {
     return {
       outcome: 'blocked',
-      reason: 'persisted state and the durable operation disagree on the authorized terms; resolve manually — never re-create or substitute terms.',
+      reason:
+        'persisted state and the durable operation disagree on the authorized terms; resolve manually — never re-create or substitute terms.',
     };
   }
   if (providerRequestIdFor(state.orgId, state.ledgerRequestId) !== state.providerRequestId) {
     return {
       outcome: 'blocked',
-      reason: 'persisted provider request id does not match the namespacing of the persisted org/request ids; state integrity failure — resolve manually.',
+      reason:
+        'persisted provider request id does not match the namespacing of the persisted org/request ids; state integrity failure — resolve manually.',
     };
   }
 
@@ -873,7 +877,13 @@ async function dispatchAndReport(
   }
   if (providerAttemptedThisRun(workerTotals) && readback.status !== 'confirmed') {
     // Submitted this run (provider accepted); readback verifiably pending.
-    return dispatchedOrMonitoring(identity, operation.state, workerTotals, receipts.length, readback);
+    return dispatchedOrMonitoring(
+      identity,
+      operation.state,
+      workerTotals,
+      receipts.length,
+      readback,
+    );
   }
   // Nothing dispatched this run and no terminal readback: still monitored.
   return dispatchedOrMonitoring(identity, operation.state, workerTotals, receipts.length, readback);

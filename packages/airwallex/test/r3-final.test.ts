@@ -176,7 +176,7 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
     });
     expect(run1.outcome).toBe('unverified'); // accepted create, readback ambiguous
     if (run1.outcome === 'unverified') {
-      expect(run1.workerReport.dispatched).toBe(1);
+      expect(run1.workerReport?.dispatched).toBe(1);
       expect(run1.operationState).toBe('IN_FLIGHT'); // submitted is NOT settled
     }
     const state = readSmokeState(stateDir);
@@ -268,7 +268,7 @@ describe('FINAL-P0-1 smoke workflow: one durable economic intent per state dir',
     expect(run1.outcome).toBe('unverified'); // create response LOST: STATUS_UNKNOWN, funds retained
     if (run1.outcome === 'unverified') {
       expect(run1.operationState).toBe('STATUS_UNKNOWN');
-      expect(run1.workerReport.markedUnknown).toBe(1);
+      expect(run1.workerReport?.markedUnknown).toBe(1);
     }
     const state = readSmokeState(stateDir);
 
@@ -492,7 +492,12 @@ function failedReadbackScript(providerRequestId: string): Partial<FixtureScript>
 async function runToConfirmed(
   stateDir: string,
   clock: TunableClock,
-): Promise<{ orgId: string; operationId: string; ledgerRequestId: string; providerRequestId: string }> {
+): Promise<{
+  orgId: string;
+  operationId: string;
+  ledgerRequestId: string;
+  providerRequestId: string;
+}> {
   const run1 = await acceptSmoke({
     stateDir,
     clock,
@@ -501,7 +506,11 @@ async function runToConfirmed(
   expect(run1.outcome).toBe('unverified'); // accepted create, readback ambiguous
   const state = readSmokeState(stateDir);
   clock.advance(1_000);
-  const run2 = await acceptSmoke({ stateDir, clock, script: readbackPages(state.providerRequestId, 'PAID') });
+  const run2 = await acceptSmoke({
+    stateDir,
+    clock,
+    script: readbackPages(state.providerRequestId, 'PAID'),
+  });
   expect(run2.outcome).toBe('confirmed');
   return state;
 }
@@ -550,10 +559,16 @@ describe('FINAL ACCEPTANCE 1 — one-intent policy across ALL persisted states',
     expect(run1.outcome).toBe('unverified'); // accepted create, ambiguous readback
     const state = readSmokeState(stateDir);
     clock.advance(1_000);
-    const run2 = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    const run2 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: failedReadbackScript(state.providerRequestId),
+    });
     expect(run2.outcome).toBe('requires-human');
     const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
-    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('REQUIRES_HUMAN');
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe(
+      'REQUIRES_HUMAN',
+    );
     ledger.close();
 
     rmSync(join(stateDir, 'state.json'));
@@ -605,7 +620,11 @@ describe('FINAL ACCEPTANCE 1 — one-intent policy across ALL persisted states',
     expect(run1.outcome).toBe('unverified'); // accepted create, ambiguous readback
     const state = readSmokeState(stateDir);
     clock.advance(1_000);
-    const run2 = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    const run2 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: failedReadbackScript(state.providerRequestId),
+    });
     expect(run2.outcome).toBe('requires-human');
 
     const run3 = await acceptSmoke({ stateDir, clock, script: {}, newIntent: true });
@@ -646,8 +665,13 @@ describe('FINAL ACCEPTANCE 1 — one-intent policy across ALL persisted states',
     const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
     const ops = ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number };
     expect(ops.c).toBe(2); // two DISTINCT authorized intents, never a duplicate of one
-    expect(ledger.reservations.getOperation(original.orgId, original.operationId).state).toBe('RECONCILED');
-    const oldReceipts = ledger.providerReceipts.listByRequestId(original.ledgerRequestId, original.orgId);
+    expect(ledger.reservations.getOperation(original.orgId, original.operationId).state).toBe(
+      'RECONCILED',
+    );
+    const oldReceipts = ledger.providerReceipts.listByRequestId(
+      original.ledgerRequestId,
+      original.orgId,
+    );
     expect(oldReceipts.length).toBeGreaterThan(0);
     ledger.close();
   }, 45_000);
@@ -663,14 +687,20 @@ describe('FINAL ACCEPTANCE 2 — fresh provider readback is authoritative for re
     // authoritative worker path (immediate reconcile) must handle the late
     // failure, and the report must be requires-human, never confirmed.
     clock.advance(1_000);
-    const run = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    const run = await acceptSmoke({
+      stateDir,
+      clock,
+      script: failedReadbackScript(state.providerRequestId),
+    });
     expect(run.outcome).not.toBe('confirmed');
     expect(run.outcome).toBe('requires-human');
     if (run.outcome === 'requires-human') {
       expect(run.operationState).toBe('REQUIRES_HUMAN');
     }
     const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
-    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('REQUIRES_HUMAN');
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe(
+      'REQUIRES_HUMAN',
+    );
     // Auditable reversal WITHOUT rewriting history: settlement AND reversal both recorded.
     const types = ledger.evidence.list(state.orgId, {}).map((e) => e.type);
     expect(types).toContain('operation.settled');
@@ -688,14 +718,20 @@ describe('FINAL ACCEPTANCE 2 — fresh provider readback is authoritative for re
     reconcileOperation(stateDir, clock, state);
 
     clock.advance(1_000);
-    const run = await acceptSmoke({ stateDir, clock, script: failedReadbackScript(state.providerRequestId) });
+    const run = await acceptSmoke({
+      stateDir,
+      clock,
+      script: failedReadbackScript(state.providerRequestId),
+    });
     expect(run.outcome).not.toBe('confirmed');
     expect(run.outcome).toBe('requires-human');
     if (run.outcome === 'requires-human') {
       expect(run.reason).toMatch(/contradictory|reconciliation/);
     }
     const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
-    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('RECONCILED');
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe(
+      'RECONCILED',
+    );
     const types = ledger.evidence.list(state.orgId, {}).map((e) => e.type);
     expect(types).toContain('settlement.reversed.after_reconciled');
     ledger.close();
@@ -732,13 +768,19 @@ describe('FINAL ACCEPTANCE 3 — BLOCKED is strictly pre-attempt; post-attempt u
     }
     const state = readSmokeState(stateDir);
     const ledger = openLedger(join(stateDir, 'smoke.sqlite'), clock);
-    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe('IN_FLIGHT');
+    expect(ledger.reservations.getOperation(state.orgId, state.operationId).state).toBe(
+      'IN_FLIGHT',
+    );
     expect(ledger.spendable.compute(state.orgId, 'USD').outstandingCommittedMinor).toBe(500);
     ledger.close();
 
     // Recovery reconciles THIS intent by its original identity (create lane EMPTY).
     clock.advance(1_000);
-    const run2 = await acceptSmoke({ stateDir, clock, script: readbackPages(state.providerRequestId, 'PAID') });
+    const run2 = await acceptSmoke({
+      stateDir,
+      clock,
+      script: readbackPages(state.providerRequestId, 'PAID'),
+    });
     expect(run2.outcome).toBe('confirmed');
     if (run2.outcome === 'confirmed') {
       expect(run2.workerReport.dispatched).toBe(0);
