@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isConfirmedProviderResult, offlineCapabilities, offlineProviderStatus } from '../src/index.js';
+import {
+  isConfirmedProviderResult,
+  offlineCapabilities,
+  offlineProviderStatus,
+} from '../src/index.js';
 import type { ProviderCallStatus, ProviderSubmissionStatus } from '../src/index.js';
 
 describe('offline provider descriptors (honest status contract)', () => {
@@ -29,7 +33,7 @@ describe('offline provider descriptors (honest status contract)', () => {
 });
 
 describe('provider result finality — transaction safety contract', () => {
-  it('never treats submission, processing, failure or unknown state as financial confirmation', () => {
+  it('keeps every nonfinal provider state unconfirmed', () => {
     const notSettled: readonly ProviderCallStatus[] = [
       'submitted',
       'processing',
