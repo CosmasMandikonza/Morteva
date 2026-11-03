@@ -24,6 +24,7 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
   const empty = lab.override === 'empty';
   const offline = lab.override === 'provider_offline';
   const stale = lab.override === 'stale_balance';
+  const hideFinancialValues = loading || empty || offline;
 
   return (
     <section className="b-screen" aria-labelledby="b-treasury-h">
@@ -35,12 +36,14 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
           </h1>
           <p className="b-hero__figure">
             <span className="b-num b-num--hero" data-testid="balance-USD-hero">
-              {empty || offline ? 'USD —' : money(spendable(usdAcc))}
+              {hideFinancialValues ? 'USD —' : money(spendable(usdAcc))}
             </span>
             <span className="b-hero__figure-sub">
-              {offline
-                ? 'provider OFFLINE — last verified snapshot shown'
-                : stale
+              {loading
+                ? 'Loading synthetic funding scenario…'
+                : offline
+                  ? 'provider OFFLINE — synthetic fixture, never verified provider funds'
+                  : stale
                   ? 'snapshot 47 min old · autonomy suspended until fresh read'
                   : `of ${money(usdAcc.balance)} on hand · as of ${treasury.asOf}`}
             </span>
@@ -62,7 +65,7 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
           <div className="b-fundmap" aria-label="USD account decomposition — semantic instrument">
             <p className="b-fundmap__k">USD account decomposition</p>
             <p className="b-fundmap__total b-num">
-              {empty || offline ? 'USD —' : money(usdAcc.balance)}
+              {hideFinancialValues ? 'USD —' : money(usdAcc.balance)}
             </p>
             <div
               className="b-fundmap__bar"
@@ -94,23 +97,23 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
               <li>
                 <i className="b-dot b-dot--spend" />
                 spendable{' '}
-                <b className="b-num">{empty || offline ? '—' : moneyAmount(spendable(usdAcc))}</b>
+                <b className="b-num">{hideFinancialValues ? '—' : moneyAmount(spendable(usdAcc))}</b>
               </li>
               <li>
                 <i className="b-dot b-dot--reserved" />
                 reserved{' '}
-                <b className="b-num">{empty || offline ? '—' : moneyAmount(usdAcc.reserved)}</b>
+                <b className="b-num">{hideFinancialValues ? '—' : moneyAmount(usdAcc.reserved)}</b>
               </li>
               <li>
                 <i className="b-dot b-dot--pending" />
                 pending{' '}
-                <b className="b-num">{empty || offline ? '—' : moneyAmount(usdAcc.pending)}</b>
+                <b className="b-num">{hideFinancialValues ? '—' : moneyAmount(usdAcc.pending)}</b>
               </li>
               <li>
                 <i className="b-dot b-dot--protected" />
                 protected{' '}
                 <b className="b-num">
-                  {empty || offline ? '—' : moneyAmount(usdAcc.protectedReserve)}
+                  {hideFinancialValues ? '—' : moneyAmount(usdAcc.protectedReserve)}
                 </b>
               </li>
             </ul>
@@ -131,11 +134,16 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
           </strong>
           <p>
             {offline
-              ? 'No live provider read succeeded; values are the last verified snapshot. Nothing on this page is live.'
-              : 'Snapshot age exceeds the 30-minute policy. Autonomous spending is refused; a fresh read is required.'}
+              ? 'SIMULATED provider-offline state; all displayed balances are synthetic fixtures, not provider-verified.'
+              : 'Simulated snapshot age exceeds the 30-minute policy. Spending is disabled in the scenario until the synthetic snapshot is restored.'}
           </p>
-          <button type="button" className="b-btn b-btn--ghost">
-            {offline ? 'Retry provider' : 'Read fresh balance'}
+          <button
+            type="button"
+            className="b-btn b-btn--ghost"
+            onClick={() => lab.setOverride('none')}
+            title="Restore the synthetic scenario; no provider is contacted"
+          >
+            Restore synthetic snapshot
           </button>
         </div>
       )}
@@ -146,16 +154,18 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
             <h2 className="b-h2">Operating missions</h2>
             <span className="b-panel__meta">{missions.length} active</span>
           </header>
-          {empty ? (
+          {loading ? (
+            <div className="skel skel--row" role="status" aria-label="Loading synthetic missions" />
+          ) : empty ? (
             <div className="b-empty">
               <p className="b-empty__title">The deck is clear</p>
               <p>
                 No missions configured. Set the first mandate — envelope, reserve floor,
                 counterparties, expiry.
               </p>
-              <button type="button" className="b-btn b-btn--amber">
-                Configure first mission
-              </button>
+              <p className="b-panel__note" role="note">
+                Onboarding is planned for MTV-10; mission creation is unavailable in this preview.
+              </p>
             </div>
           ) : (
             <ul className="b-missionlist">
@@ -285,7 +295,10 @@ export function TreasuryB({ lab }: { lab: LabState }): JSX.Element {
                     <button
                       type="button"
                       className="b-btn b-btn--ghost b-btn--xs"
-                      onClick={() => lab.setScreen('authority')}
+                      onClick={() =>
+                        lab.setScreen(ex.kind === 'STALE_EVIDENCE' ? 'decision' : 'authority')
+                      }
+                      aria-label={`Inspect ${ex.title}`}
                     >
                       inspect
                     </button>
