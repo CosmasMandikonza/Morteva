@@ -39,6 +39,13 @@
 - `npm run seed:demo -w @moterva/ledger` output captured in the PR: two missions reserve 450k each from a 900k pool, consumed-approval retry rejected, over-pool attempt rejected INSUFFICIENT_SPENDABLE with the full math, integrity ok, providers contacted: NONE.
 - NOT in this issue by design: no Airwallex/Metal adapter (dispatch worker ships with zero registered dispatchers — the disabled seam), no authentication (financial mutations stay at the internal service boundary; no public financial routes), no LLM planner, no 3D. `MOTERVA_PROVIDER_MODE` remains a local scenario flag, not a rail selector.
 
+
+## CTO review of MTV-02 — correctness patches pending final CI
+- Review of PR #23 found a high-risk gap: a crashed `SUBMITTING` dispatch could resubmit and a merely `submitted` payment could lose its reconciliation job. Worker/outbox semantics corrected: post-submission stays `IN_FLIGHT`, claim remains eligible for later provider readback; already-attempted `SUBMITTING/IN_FLIGHT/STATUS_UNKNOWN` always reconcile original request ID first. Tested with crash and pending readback cases.
+- Metal's token balances cannot share ISO fiat USD minor units: `metal_order` is now explicitly `RAIL_ASSET_UNSUPPORTED` until issue #6 implements chain/token/asset-denominated accounts, exact precision, mandate and separate funding source. #6 is **not** unblocked solely by receiving credentials.
+- Post-dispatch fund release and settlement now require provider-readback attestation; invalid/future balance timestamps, cross-org evidence/plan/mandate/approval association and equal-time snapshot/settlement double counting hardened with regression tests.
+- These safeguards are still **internal code contracts**, not actual payment-provider verification. Real Airwallex and Metal transactions, tokens, auth, and customer-world evidence remain unverified. Recheck exact final-head CI and merge before marking MTV-02 complete.
+
 ## NOT yet verified
 No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, production deployment, approved palette/typeface, 3D asset, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
 
