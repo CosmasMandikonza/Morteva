@@ -50,6 +50,27 @@ describe('migrations', () => {
     db.close();
   });
 
+  it('foreign-key failure rolls back the schema mutation AND migration version atomically', () => {
+    const db = openSqliteDatabase(tempDbPath('mtv05-fk-rollback-'));
+    migrate(db, MIGRATIONS);
+    const before = currentSchemaVersion(db);
+    const corrupting = {
+      version: before + 1,
+      name: 'invalid_reference',
+      sql: `CREATE TABLE temp_invalid_ref (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id)
+      );
+      INSERT INTO temp_invalid_ref VALUES ('bad', 'org_missing');`,
+    };
+    expect(() => migrate(db, [...MIGRATIONS, corrupting])).toThrowError(/foreign-key violation/);
+    expect(currentSchemaVersion(db)).toBe(before);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name = 'temp_invalid_ref'").all(),
+    ).toEqual([]);
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    db.close();
+  });
+
   it('refuses to run against a database from a newer schema (downgrade protection)', () => {
     const path = tempDbPath();
     const db = openSqliteDatabase(path);
@@ -102,6 +123,15 @@ describe('migrations', () => {
       orgId: org.id,
       missionId: mission.id,
       terms: { amountMinor: 100, currency: 'USD', beneficiary: 'b', purpose: 'p' },
+    });
+    ledger.mandates.issue({
+      orgId: org.id,
+      missionId: mission.id,
+      currency: 'USD',
+      maxAmountMinor: 1_000,
+      totalBudgetMinor: 1_000,
+      permittedOperationKinds: ['airwallex_transfer'],
+      expiresAt: '2026-11-04T13:00:00.000Z',
     });
     const approval = ledger.approvals.record({
       orgId: org.id,
