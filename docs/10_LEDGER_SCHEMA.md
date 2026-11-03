@@ -17,14 +17,32 @@ Single source of truth for the persisted financial model. The executable schema 
 | `missions` | org-scoped operating unit | FK org; `status ∈ active/completed/archived` |
 | `accounts` | one treasury account per org+currency | `UNIQUE(org_id, currency, kind)`; `protected_floor_minor >= 0` |
 | `balance_snapshots` | append-only provider/manual balance observations | `minor_units >= 0`; `source ∈ airwallex-sandbox/metal-testnet/manual-seed`; `observed_at <= expires_at` (freshness) |
-| `mandates` | immutable versioned spending authority per mission | `PK(id, version)`; `max_amount_minor > 0`; status active/superseded/expired |
-| `candidate_plans` | immutable versioned plan terms + canonical digest | `PK(id, version)`; digest = sha256(canonicalJson(terms)) |
-| `approvals` | exact-term approval binding one plan version | FK to `candidate_plans(id, version)`; `amount_minor > 0`; status valid/consumed/invalidated |
+| `mandates` (v2) | immutable versioned spending authority per mission | `PK(id, version)`; `max_amount_minor > 0`; **`total_budget_minor` cumulative envelope (-1 = per-op max, v1 semantics)**; rails/beneficiary/purpose allowlists; `require_separate_approver`; status active/superseded/expired/**revoked** + `revoked_at` |
+| `candidate_plans` (v2) | immutable versioned plan terms + canonical digest | `PK(id, version)`; digest = sha256(canonicalJson(terms)); **`proposed_by` actor** (separation of duties) |
+| `approvals` (v2) | exact-term approval binding one plan version | FK to `candidate_plans(id, version)`; **`UNIQUE(plan_id, plan_version)`** (one approval per immutable version); binds kind + mandate id/version + **quote digest + evidence digest**; `auth_key` single-use identity; status valid/consumed/invalidated/**revoked** |
 | `operations` | the durable economic intent | `UNIQUE(org_id, request_id)` = idempotency identity; lifecycle state CHECK; FKs to plan version + mandate version |
 | `commitments` | the money view of an operation (1:1) | `UNIQUE(operation_id)`; `state ∈ reserved/unknown/settled/released`; `finalized_at` set on settlement |
 | `outbox_dispatches` | transactional dispatch record (1:1 per rail op) | `UNIQUE(operation_id)`; `rail ∈ airwallex/metal`; status pending/claimed/dispatched/abandoned |
 | `evidence_events` | append-only audit journal | `UNIQUE(org_id, event_key)` (replay suppression); UPDATE/DELETE blocked by triggers |
+| `actors` (v2) | persisted identity: role + scrypt credential | `UNIQUE(org_id, username)`; role ∈ owner/admin/approver/operator/viewer/service; service actors have no password |
+| `sessions` (v2) | hashed-token expiring sessions | `token_hash`/`csrf_hash` UNIQUE (sha256); `expires_at`; `revoked_at` |
+| `mission_grants` (v2) | explicit per-mission machine authority | `UNIQUE(mission_id, actor_id)`; `revoked_at` |
 | `schema_migrations` | applied versions | PK `version` |
+
+## The mandate budget invariant (v2)
+
+```
+mandate_consumed = SUM(operations WHERE mandate_id = M
+                       AND state IN (RESERVED, SUBMITTING, IN_FLIGHT,
+                                     STATUS_UNKNOWN, SETTLED, RECONCILED, REQUIRES_HUMAN))
+reserve allowed ⇔ mandate_consumed + requested ≤ total_budget_minor   (same transaction)
+```
+
+**Settled payments consume the envelope for the lifetime of the mandate** — a fresher provider balance snapshot frees treasury *spendable* (the bank already knows), never *authority*. Only provably-never-executed states (CANCELLED/REJECTED/EXPIRED) release budget. The budget check shares the reservation's `BEGIN IMMEDIATE` transaction, so concurrent workers cannot exceed the envelope (proved by real worker-thread races).
+
+## The authority gate (v2)
+
+The dispatch worker's authoritative decision is ONE transaction: claim outbox row → reload operation → if still RESERVED, re-verify (mandate not revoked/superseded/expired, active version unchanged, consumption within envelope) → `RESERVED→SUBMITTING` or **block** (`CANCELLED` + outbox `abandoned` + `dispatch.blocked` evidence; provider never called). Revocation after the gate retains the commitment and reconciles by the original request id. See [ADR 0003](adr/0003-financial-authority.md).
 
 ## The spendable invariant
 

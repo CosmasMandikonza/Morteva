@@ -76,31 +76,32 @@ try {
     orgId: world.org.id,
     missionId: world.missions[0].id,
     terms: {
-      amountMinor: 450_000, // within the mandate cap, but the pool is fully committed
+      amountMinor: 450_000, // within the mandate cap, but the mission envelope is fully consumed
       currency: world.currency,
       beneficiary: 'acme-diagnostics',
-      purpose: 'Try to spend the fully-committed pool',
+      purpose: 'Try to spend past the mission envelope',
     },
   });
   const approval = ledger.approvals.record({
     orgId: world.org.id,
     plan,
-    decidedBy: 'seed:operator',
+    decidedByActorId: world.approver.id,
+    kind: 'airwallex_transfer',
     expiresAt: new Date(ledger.clock.now().getTime() + 60_000).toISOString(),
   });
   ledger.reservations.reserve({
     orgId: world.org.id,
     missionId: world.missions[0].id,
     kind: 'airwallex_transfer',
-    requestId: 'demo-overpool-attempt',
+    requestId: 'demo-over-envelope-attempt',
     planId: plan.id,
     planVersion: plan.version,
     approvalId: approval.id,
   });
-  console.info('unexpected: over-pool reservation accepted');
+  console.info('unexpected: over-envelope reservation accepted');
 } catch (error) {
   if (isLedgerError(error)) {
-    console.info(`over-pool reservation rejected: [${error.code}] ${error.message}`);
+    console.info(`over-envelope reservation rejected: [${error.code}] ${error.message}`);
   } else {
     throw error;
   }

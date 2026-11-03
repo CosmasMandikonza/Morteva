@@ -21,8 +21,7 @@ import { type OrganizationService } from './organizations.js';
 import { type SpendableService } from './spendable.js';
 import { type EvidenceService } from './evidence.js';
 import type { MandateService } from './mandates.js';
-import type { PlanService } from './plans.js';
-import type { ApprovalService } from './plans.js';
+import { type ApprovalService, type PlanService, quoteDigestFor } from './plans.js';
 import {
   canTransitionOperation,
   commitmentStateFor,
@@ -36,6 +35,7 @@ import type {
   OperationKind,
   OperationState,
 } from '@moterva/domain';
+import type { PlanEconomicTerms } from './plans.js';
 
 const RAIL_FOR_KIND: Record<OperationKind, 'airwallex' | 'metal' | null> = {
   airwallex_transfer: 'airwallex',
@@ -51,6 +51,8 @@ export interface ReserveInput {
   readonly planId: string;
   readonly planVersion: number;
   readonly approvalId: string;
+  /** Required when the approval bound an evidence bundle digest. */
+  readonly evidenceDigest?: string;
 }
 
 export interface ReserveResult {
@@ -79,11 +81,63 @@ export class ReservationService {
     private readonly evidence: EvidenceService,
   ) {}
 
+  /**
+   * Material policy denials that must leave an audit trail even though the
+   * reservation transaction itself rolled back (issue #7 acceptance).
+   */
+  private static readonly DENIAL_AUDIT_CODES: ReadonlySet<string> = new Set([
+    'MANDATE_REVOKED',
+    'MANDATE_SUPERSEDED',
+    'MANDATE_EXPIRED',
+    'MANDATE_BUDGET_EXCEEDED',
+    'MANDATE_AMOUNT_EXCEEDS_MAX',
+    'MANDATE_CURRENCY_MISMATCH',
+    'MANDATE_KIND_FORBIDDEN',
+    'APPROVAL_REVOKED',
+    'APPROVAL_CONSUMED',
+    'APPROVAL_EXPIRED',
+    'APPROVAL_TERMS_MISMATCH',
+    'APPROVAL_ALREADY_EXISTS',
+    'BENEFICIARY_NOT_ALLOWED',
+    'PURPOSE_NOT_ALLOWED',
+    'RAIL_NOT_PERMITTED',
+    'RAIL_ASSET_UNSUPPORTED',
+    'INSUFFICIENT_SPENDABLE',
+    'OVERCOMMITTED',
+    'STALE_BALANCE',
+    'AUTH_ROLE_FORBIDDEN',
+    'AUTH_SELF_APPROVAL',
+  ]);
+
   reserve(input: ReserveInput): ReserveResult {
     if (input.requestId.trim() === '') {
       throw new LedgerError('INVALID_INPUT', 'requestId must not be empty');
     }
-    return this.db.transaction(() => this.reserveLocked(input));
+    try {
+      return this.db.transaction(() => this.reserveLocked(input));
+    } catch (error) {
+      if (error instanceof LedgerError && ReservationService.DENIAL_AUDIT_CODES.has(error.code)) {
+        // The reservation transaction rolled back; journal the denial in its
+        // own transaction so the audit trail survives the refusal.
+        try {
+          this.evidence.append({
+            orgId: input.orgId,
+            missionId: input.missionId,
+            topic: 'financial',
+            type: 'reservation.denied',
+            eventKey: `denial:${input.orgId}:${input.requestId}:${error.code}`,
+            payload: {
+              requestId: input.requestId,
+              code: error.code,
+              message: error.message,
+            },
+          });
+        } catch {
+          // Auditing must never mask the original denial.
+        }
+      }
+      throw error;
+    }
   }
 
   private reserveLocked(input: ReserveInput): ReserveResult {
@@ -141,7 +195,9 @@ export class ReservationService {
       throw new LedgerError('INVALID_AMOUNT', 'plan amountMinor must be positive minor units');
     }
 
-    // 4. Approval binds the exact digest AND identical economic terms.
+    // 4. Approval binds the exact digest AND identical economic terms, the
+    //    operation kind, the authorizing mandate version, the quote block and
+    //    the reviewed evidence bundle. Any difference = stale approval.
     const approval = this.approvals.get(input.orgId, input.approvalId);
     const mismatches: string[] = [];
     if (approval.planId !== plan.id || approval.planVersion !== plan.version)
@@ -151,11 +207,24 @@ export class ReservationService {
     if (approval.currency !== money.currency) mismatch(mismatches, 'currency');
     if (approval.beneficiary !== terms.beneficiary) mismatch(mismatches, 'beneficiary');
     if (approval.purpose !== terms.purpose) mismatch(mismatches, 'purpose');
+    if (approval.kind !== input.kind) mismatch(mismatches, 'operation kind');
+    if (approval.quoteDigest !== quoteDigestFor(plan.terms as PlanEconomicTerms))
+      mismatch(mismatches, 'quote');
     if (mismatches.length > 0) {
       throw new LedgerError(
         'APPROVAL_TERMS_MISMATCH',
         `approval ${approval.id} does not bind the exact terms of plan ${plan.id} v${plan.version}: ${mismatches.join(', ')} differ; changed terms require a new approval`,
         { mismatches },
+      );
+    }
+    if (
+      approval.evidenceDigest !== '' &&
+      approval.evidenceDigest !== (input.evidenceDigest ?? '')
+    ) {
+      throw new LedgerError(
+        'APPROVAL_TERMS_MISMATCH',
+        `approval ${approval.id} was granted against a different evidence bundle; the reviewed evidence digest does not match this request`,
+        { mismatches: ['evidence digest'] },
       );
     }
     const now = this.clock.now();
@@ -174,9 +243,45 @@ export class ReservationService {
     if (approval.status === 'invalidated') {
       throw new LedgerError('APPROVAL_INVALIDATED', `approval ${approval.id} was invalidated`);
     }
+    if (approval.status === 'revoked') {
+      throw new LedgerError(
+        'APPROVAL_REVOKED',
+        `approval ${approval.id} was revoked at ${String(approval.revokedAt)} and can no longer authorize anything`,
+      );
+    }
 
-    // 5. Mandate: the active version for this mission governs now.
-    const mandate = this.mandates.activeFor(input.orgId, input.missionId, now);
+    // 5. Mandate: the active version for this mission and CURRENCY governs
+    //    now (one mandate per currency — no cross-currency mandate ever
+    //    authorizes a plan in another currency). If no mandate exists for the
+    //    plan's currency but one exists in another currency, say so
+    //    explicitly: no implicit conversion ever happens.
+    let mandate;
+    try {
+      mandate = this.mandates.activeFor(input.orgId, input.missionId, now, money.currency);
+    } catch (error) {
+      if (error instanceof LedgerError && error.code === 'MANDATE_NOT_FOUND') {
+        const anyCurrency = this.mandates.activeFor(input.orgId, input.missionId, now);
+        throw new LedgerError(
+          'MANDATE_CURRENCY_MISMATCH',
+          `mandate ${anyCurrency.id} v${anyCurrency.version} authorizes ${anyCurrency.currency} only; plan terms are ${money.currency}. No implicit currency conversion exists.`,
+        );
+      }
+      throw error;
+    }
+    if (approval.mandateId !== null && approval.mandateId !== mandate.id) {
+      throw new LedgerError(
+        'APPROVAL_TERMS_MISMATCH',
+        `approval ${approval.id} authorizes mandate ${approval.mandateId} but the active mandate for this mission is ${mandate.id} v${mandate.version}; the approval is stale`,
+        { mismatches: ['mandate'] },
+      );
+    }
+    if (approval.mandateVersion !== null && approval.mandateVersion !== mandate.version) {
+      throw new LedgerError(
+        'APPROVAL_TERMS_MISMATCH',
+        `approval ${approval.id} authorizes mandate ${mandate.id} v${approval.mandateVersion} but v${mandate.version} is active; the approval is stale`,
+        { mismatches: ['mandate version'] },
+      );
+    }
     if (mandate.currency !== money.currency) {
       throw new LedgerError(
         'MANDATE_CURRENCY_MISMATCH',
@@ -195,15 +300,58 @@ export class ReservationService {
         `mandate ${mandate.id} v${mandate.version} does not permit operation kind "${input.kind}"`,
       );
     }
-
     // A tokenized Metal testnet payment cannot be funded out of an ISO USD
     // bank account merely because the token's price is USD-denominated.
     // Separate provider/asset balances (USDC decimals, chain, token contract)
     // must exist before MTV-04/#6 may enable this rail. No fake fiat bridge.
+    // Checked before the rail allowlist so the asset-accounting invariant is
+    // always the primary, unambiguous failure for Metal orders.
     if (input.kind === 'metal_order') {
       throw new LedgerError(
         'RAIL_ASSET_UNSUPPORTED',
         'Metal token orders require a separate, verified token-asset account and mandate. Fiat USD treasury snapshots cannot fund a tokenized payment; implement the rail/asset ledger in issue #6 before enabling this kind.',
+      );
+    }
+
+    const opRail = RAIL_FOR_KIND[input.kind];
+    if (opRail !== null && !mandate.rails.includes(opRail)) {
+      throw new LedgerError(
+        'RAIL_NOT_PERMITTED',
+        `mandate ${mandate.id} v${mandate.version} does not permit the ${opRail} rail`,
+      );
+    }
+    if (
+      mandate.allowedBeneficiaries.length > 0 &&
+      !mandate.allowedBeneficiaries.includes(terms.beneficiary)
+    ) {
+      throw new LedgerError(
+        'BENEFICIARY_NOT_ALLOWED',
+        `beneficiary "${terms.beneficiary}" is not on the allowlist of mandate ${mandate.id} v${mandate.version}`,
+      );
+    }
+    if (mandate.allowedPurposes.length > 0 && !mandate.allowedPurposes.includes(terms.purpose)) {
+      throw new LedgerError(
+        'PURPOSE_NOT_ALLOWED',
+        `purpose "${terms.purpose}" is not on the allowlist of mandate ${mandate.id} v${mandate.version}`,
+      );
+    }
+
+    // 5b. CUMULATIVE mandate budget — same transaction, same write lock as
+    //     the inserts below (issue #7: N under-cap payments must never bypass
+    //     the total envelope). Settled payments consume for the lifetime of
+    //     the mandate; unknown/escalated consume until resolved.
+    const envelope = this.mandates.effectiveTotalBudget(mandate);
+    const consumedSoFar = this.mandates.consumedBudget(input.orgId, mandate.id);
+    if (consumedSoFar + money.minorUnits > envelope) {
+      throw new LedgerError(
+        'MANDATE_BUDGET_EXCEEDED',
+        `cumulative mission budget exceeded for mandate ${mandate.id}: consumed ${consumedSoFar} + requested ${money.minorUnits} > envelope ${envelope} ${money.currency}`,
+        {
+          mandateId: mandate.id,
+          consumedMinor: consumedSoFar,
+          requestedMinor: money.minorUnits,
+          envelopeMinor: envelope,
+        },
       );
     }
 
@@ -301,7 +449,10 @@ export class ReservationService {
         beneficiary: terms.beneficiary,
         planDigest: plan.digest,
         approvalId: approval.id,
+        mandateId: mandate.id,
         mandateVersion: mandate.version,
+        mandateConsumedAfterMinor: consumedSoFar + money.minorUnits,
+        mandateEnvelopeMinor: envelope,
         balanceObservedAt: spendableBefore.balanceObservedAt,
         spendableBefore: spendableBefore.spendableMinor,
       },

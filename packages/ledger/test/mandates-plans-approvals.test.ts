@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type LedgerError } from '../src/index.js';
-import { approvedPlan, makeLedger, reserveCall } from './helpers.js';
+import { approvedPlan, ensureApprover, makeLedger, reserveCall } from './helpers.js';
 
 describe('tenant scoping and immutable authority issuance', () => {
   it('prevents cross-organization missions, forged plans and invalid authorization expiry', () => {
@@ -8,6 +8,7 @@ describe('tenant scoping and immutable authority issuance', () => {
     const a = ledger.organizations.createOrganization('Tenant A');
     const b = ledger.organizations.createOrganization('Tenant B');
     const missionA = ledger.organizations.createMission(a.id, 'A');
+    const approverA = ensureApprover(ledger, a.id);
     const future = new Date(clock.now().getTime() + 60_000).toISOString();
     expect(() =>
       ledger.mandates.issue({
@@ -37,7 +38,8 @@ describe('tenant scoping and immutable authority issuance', () => {
       ledger.approvals.record({
         orgId: b.id,
         plan: planA,
-        decidedBy: 'test',
+        decidedByActorId: approverA.id,
+        kind: 'airwallex_transfer',
         expiresAt: future,
       }),
     ).toThrowError(/belongs to another organization/);
@@ -45,7 +47,8 @@ describe('tenant scoping and immutable authority issuance', () => {
       ledger.approvals.record({
         orgId: a.id,
         plan: { ...planA, terms: { ...terms, amountMinor: 25_000 } },
-        decidedBy: 'test',
+        decidedByActorId: approverA.id,
+        kind: 'airwallex_transfer',
         expiresAt: future,
       }),
     ).toThrowError(/exact persisted, untampered plan/);
@@ -53,7 +56,8 @@ describe('tenant scoping and immutable authority issuance', () => {
       ledger.approvals.record({
         orgId: a.id,
         plan: planA,
-        decidedBy: 'test',
+        decidedByActorId: approverA.id,
+        kind: 'airwallex_transfer',
         expiresAt: 'not-a-date',
       }),
     ).toThrowError(/valid future date/);
@@ -175,6 +179,7 @@ describe('plans and approvals — exact-term binding', () => {
   it('a changed plan version gets a new digest and the old approval cannot authorize it', () => {
     const { ledger, clock } = makeLedger();
     const { org, mission } = orgWithFundedUsdMission(ledger, clock);
+    const approver = ensureApprover(ledger, org.id);
 
     const v1 = ledger.plans.recordVersion({
       orgId: org.id,
@@ -184,7 +189,8 @@ describe('plans and approvals — exact-term binding', () => {
     const approvalV1 = ledger.approvals.record({
       orgId: org.id,
       plan: v1,
-      decidedBy: 'operator',
+      decidedByActorId: approver.id,
+      kind: 'airwallex_transfer',
       expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
     });
 
@@ -353,10 +359,13 @@ describe('plans and approvals — exact-term binding', () => {
       expect((error as LedgerError).code).toBe('MANDATE_AMOUNT_EXCEEDS_MAX');
     }
 
-    const metalRef = approvedPlan(ledger, org.id, mission.id, {
-      amountMinor: 1_000,
-      currency: 'USD',
-    });
+    const metalRef = approvedPlan(
+      ledger,
+      org.id,
+      mission.id,
+      { amountMinor: 1_000, currency: 'USD' },
+      { kind: 'metal_order' },
+    );
     try {
       reserveCall(ledger, { org }, mission.id, metalRef, 'forbidden-kind', 'metal_order');
       expect.unreachable('forbidden kind must be rejected');

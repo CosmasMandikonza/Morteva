@@ -3,10 +3,16 @@
  * A failing migration rolls back completely and leaves the database at the
  * previous version; an applied version is never re-run. Downgrades (database
  * knows a version this build does not) are refused.
+ *
+ * Migrations that rebuild referenced tables (0002) must run with SQLite
+ * foreign keys disabled for the swap; the runner therefore disables FKs
+ * around each migration, re-enables them after commit, and verifies with
+ * `PRAGMA foreign_key_check` — any violation fails the migration loudly.
  */
 import type { LedgerDatabase } from './port.js';
 import { LedgerError } from '../errors.js';
 import { MIGRATION_0001_FINANCIAL_FOUNDATION } from './migrations-0001.js';
+import { MIGRATION_0002_FINANCIAL_AUTHORITY } from './migrations-0002.js';
 
 export interface Migration {
   readonly version: number;
@@ -16,6 +22,7 @@ export interface Migration {
 
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'financial_foundation', sql: MIGRATION_0001_FINANCIAL_FOUNDATION },
+  { version: 2, name: 'financial_authority', sql: MIGRATION_0002_FINANCIAL_AUTHORITY },
 ];
 
 export interface MigrationReport {
@@ -53,14 +60,29 @@ export function migrate(
       .prepare('SELECT version FROM schema_migrations WHERE version = ?')
       .get(migration.version);
     if (already !== undefined) continue;
-    db.transaction(() => {
-      db.exec(migration.sql);
-      db.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
-        migration.version,
-        migration.name,
-        new Date().toISOString(),
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      db.transaction(() => {
+        db.exec(migration.sql);
+        db.prepare(
+          'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
+        ).run(migration.version, migration.name, new Date().toISOString());
+      });
+    } catch (error) {
+      throw new LedgerError(
+        'MIGRATION_FAILED',
+        `migration v${migration.version} ("${migration.name}") failed and rolled back: ${error instanceof Error ? error.message : String(error)}`,
       );
-    });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new LedgerError(
+        'MIGRATION_FAILED',
+        `migration v${migration.version} left ${violations.length} foreign-key violation(s); refusing to continue (inspect PRAGMA foreign_key_check)`,
+      );
+    }
     applied.push({ version: migration.version, name: migration.name });
   }
 

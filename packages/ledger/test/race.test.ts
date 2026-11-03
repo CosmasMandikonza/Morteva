@@ -77,7 +77,8 @@ describe('two-worker reservation race over the final funds', () => {
       const approval = ledger.approvals.record({
         orgId: world.org.id,
         plan,
-        decidedBy: 'race:operator',
+        decidedByActorId: world.approver.id,
+        kind: 'airwallex_transfer',
         expiresAt: new Date(ledger.clock.now().getTime() + 3_600_000).toISOString(),
       });
       return {
@@ -141,7 +142,8 @@ describe('two-worker reservation race over the final funds', () => {
       const approval = ledger.approvals.record({
         orgId: world.org.id,
         plan,
-        decidedBy: 'race:operator',
+        decidedByActorId: world.approver.id,
+        kind: 'airwallex_transfer',
         expiresAt: new Date(ledger.clock.now().getTime() + 3_600_000).toISOString(),
       });
       return {
@@ -188,7 +190,8 @@ describe('two-worker reservation race over the final funds', () => {
     const approval = ledger.approvals.record({
       orgId: world.org.id,
       plan,
-      decidedBy: 'race:operator',
+      decidedByActorId: world.approver.id,
+      kind: 'airwallex_transfer',
       expiresAt: new Date(ledger.clock.now().getTime() + 3_600_000).toISOString(),
     });
     const makeInput = () => ({

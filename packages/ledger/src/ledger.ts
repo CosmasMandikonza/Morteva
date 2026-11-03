@@ -11,6 +11,7 @@ import { OrganizationService } from './services/organizations.js';
 import { AccountService } from './services/accounts.js';
 import { MandateService } from './services/mandates.js';
 import { ApprovalService, PlanService } from './services/plans.js';
+import { AuthorityService } from './services/authority.js';
 import { SpendableService } from './services/spendable.js';
 import { ReservationService } from './services/reservations.js';
 import { EvidenceService } from './services/evidence.js';
@@ -24,6 +25,7 @@ export class Ledger {
   readonly mandates: MandateService;
   readonly plans: PlanService;
   readonly approvals: ApprovalService;
+  readonly authority: AuthorityService;
   readonly spendable: SpendableService;
   readonly reservations: ReservationService;
   readonly evidence: EvidenceService;
@@ -37,10 +39,11 @@ export class Ledger {
   ) {
     this.organizations = new OrganizationService(db, clock);
     this.accounts = new AccountService(db, clock);
-    this.mandates = new MandateService(db, clock);
-    this.plans = new PlanService(db, clock);
-    this.approvals = new ApprovalService(db, clock);
     this.evidence = new EvidenceService(db, clock);
+    this.authority = new AuthorityService(db, clock, this.organizations, this.evidence);
+    this.mandates = new MandateService(db, clock, this.evidence);
+    this.plans = new PlanService(db, clock);
+    this.approvals = new ApprovalService(db, clock, this.authority, this.evidence);
     this.spendable = new SpendableService(db, clock, this.accounts);
     this.reservations = new ReservationService(
       db,
@@ -54,7 +57,14 @@ export class Ledger {
     );
     this.outbox = new OutboxService(db, clock);
     this.recovery = new RecoveryService(db, clock, this.outbox);
-    this.worker = new DispatchWorker(this.outbox, this.reservations, this.evidence);
+    this.worker = new DispatchWorker(
+      db,
+      clock,
+      this.outbox,
+      this.reservations,
+      this.mandates,
+      this.evidence,
+    );
   }
 
   migrate(): MigrationReport {
