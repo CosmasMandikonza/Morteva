@@ -47,4 +47,4 @@ Recording rules: real clock, visible environment chips, no cuts that hide loadin
 - Web shell first contentful paint without 3D bundle: 3D route is code-split; Mission Treasury usable before three.js loads.
 - Hero GLB: ≤150k tris post-compression (A1 base or decimated A2), Draco/Meshopt, progress UI; ≤8MB over the wire target.
 - Interactions: state transitions ≤100ms perceived (springs may settle longer but meaning is instant — text/status flips immediately, motion is decoration after the fact).
-- Charts: SVG (no chart lib); feed virtualization beyond 100 rows (Animated List handles long lists natively — verify in copied source).
+- Charts: SVG (no chart lib); feed virtualization beyond 100 rows must be implemented and verified separately; Animated List motion/selection is **not** proof of windowed virtualization. Do not use it alone for unbounded financial-event streams.
