@@ -74,6 +74,25 @@ describe('accounts and balance snapshots', () => {
     ledger.close();
   });
 
+  it('rejects future-dated or malformed balance observations before they can fund commitments', () => {
+    const { ledger, clock } = makeLedger();
+    const org = ledger.organizations.createOrganization('ClockSkewOrg');
+    ledger.accounts.ensureTreasuryAccount({
+      orgId: org.id, currency: 'USD', label: 'USD', protectedFloorMinor: 0,
+    });
+    const base = { orgId: org.id, currency: 'USD', minorUnits: 100_000, source: 'manual-seed' as const };
+    expect(() => ledger.accounts.recordBalanceSnapshot({
+      ...base,
+      observedAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
+      expiresAt: new Date(clock.now().getTime() + 7_200_000).toISOString(),
+    })).toThrowError(/future-dated balance/);
+    expect(() => ledger.accounts.recordBalanceSnapshot({
+      ...base, observedAt: 'not-a-date', expiresAt: 'also-not-a-date',
+    })).toThrowError(/timestamps must be valid/);
+    expect(ledger.accounts.latestSnapshot(org.id, 'USD', clock.now())).toBeUndefined();
+    ledger.close();
+  });
+
   it('spendable fails closed with no snapshot, then works when one exists', () => {
     const { ledger, clock } = makeLedger();
     const org = ledger.organizations.createOrganization('OrgD');
