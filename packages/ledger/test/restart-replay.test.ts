@@ -243,7 +243,7 @@ describe('outbox replay with the original request id', () => {
     ctx.ledger.close();
   });
 
-  it('a successful submission marks dispatched but never claims settlement', async () => {
+  it('successful submission remains IN_FLIGHT and scheduled for verified readback', async () => {
     const ctx = reservedLedger();
     const airwallex = stubDispatcher('airwallex');
     const metal = stubDispatcher('metal');
@@ -255,26 +255,87 @@ describe('outbox replay with the original request id', () => {
     expect(metal.dispatchCalls).toEqual([]);
 
     const op = ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId);
-    expect(op.state).toBe('SUBMITTING'); // submitted is NOT settled
+    expect(op.state).toBe('IN_FLIGHT'); // submitted is NOT settled
     expect(ctx.ledger.spendable.compute(ctx.org.id, 'USD').outstandingCommittedMinor).toBe(100_000);
     const dispatch = ctx.ledger.outbox.listByOperation(ctx.org.id, ctx.operationId)[0] as {
       status: string;
     };
-    expect(dispatch.status).toBe('dispatched');
-    expect(ctx.ledger.outbox.pendingCount()).toBe(0);
+    expect(dispatch.status).toBe('claimed'); // never silently stop settlement follow-up
+    expect(ctx.ledger.outbox.pendingCount()).toBe(1);
     ctx.ledger.close();
   });
 
-  it('replaying a completed dispatch creates no new economic intent', async () => {
+  it('does not re-dispatch IN_FLIGHT after claim TTL and completes only after readback', async () => {
     const ctx = reservedLedger();
-    ctx.ledger.worker.register(stubDispatcher('airwallex'));
+    const initial = stubDispatcher('airwallex');
+    ctx.ledger.worker.register(initial);
     await ctx.ledger.worker.runOnce();
-    await ctx.ledger.worker.runOnce(); // nothing pending now
+    await ctx.ledger.worker.runOnce(); // no second dispatch before claim TTL
+    expect(initial.dispatchCalls).toEqual(['outbox-1']);
+    expect(ctx.ledger.outbox.pendingCount()).toBe(1);
+
+    ctx.clock.advance(120_000);
+    const readback = stubDispatcher('airwallex', {
+      reconcileResult: {
+        status: 'confirmed',
+        environment: 'sandbox',
+        providerState: 'SETTLED',
+        verifiedAt: ctx.clock.iso(),
+      },
+    });
+    ctx.ledger.worker.register(readback);
+    const report = await ctx.ledger.worker.runOnce();
+    expect(report.reconciled).toBe(1);
+    expect(readback.dispatchCalls).toEqual([]); // NEVER a second payment submission
+    expect(readback.reconcileCalls).toEqual(['outbox-1']);
+    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state).toBe('SETTLED');
+    expect(ctx.ledger.outbox.pendingCount()).toBe(0);
     const operations = ctx.ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as {
       c: number;
     };
     expect(operations.c).toBe(1);
-    expect(ctx.ledger.outbox.pendingCount()).toBe(0);
+    ctx.ledger.close();
+  });
+
+  it('crash after SUBMITTING transition but before provider response reconciles, never submits', async () => {
+    const ctx = reservedLedger();
+    const claim = ctx.ledger.outbox.claimPending({ rails: ['airwallex'] })[0]!;
+    expect(claim.dispatch.attempts).toBe(1);
+    ctx.ledger.reservations.transition({
+      orgId: ctx.org.id, operationId: ctx.operationId, to: 'SUBMITTING',
+    });
+    // Simulate worker disappearing after writing SUBMITTING, before any known response.
+    ctx.clock.advance(120_000);
+    const readback = stubDispatcher('airwallex', {
+      reconcileResult: { status: 'status-unknown', environment: 'sandbox' },
+    });
+    ctx.ledger.worker.register(readback);
+    const report = await ctx.ledger.worker.runOnce();
+    expect(readback.dispatchCalls).toEqual([]);
+    expect(readback.reconcileCalls).toEqual(['outbox-1']);
+    expect(report.markedUnknown).toBe(1);
+    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state)
+      .toBe('STATUS_UNKNOWN');
+    expect(ctx.ledger.spendable.compute(ctx.org.id, 'USD').outstandingCommittedMinor)
+      .toBe(100_000);
+    ctx.ledger.close();
+  });
+
+  it('processing readback keeps funds committed and schedules another check', async () => {
+    const ctx = reservedLedger();
+    ctx.ledger.worker.register(stubDispatcher('airwallex'));
+    await ctx.ledger.worker.runOnce();
+    ctx.clock.advance(120_000);
+    const readback = stubDispatcher('airwallex', {
+      reconcileResult: { status: 'processing', environment: 'sandbox', providerState: 'PENDING' },
+    });
+    ctx.ledger.worker.register(readback);
+    await ctx.ledger.worker.runOnce();
+    expect(readback.dispatchCalls).toEqual([]);
+    expect(readback.reconcileCalls).toEqual(['outbox-1']);
+    expect(ctx.ledger.reservations.getOperation(ctx.org.id, ctx.operationId).state)
+      .toBe('IN_FLIGHT');
+    expect(ctx.ledger.outbox.pendingCount()).toBe(1);
     ctx.ledger.close();
   });
 
