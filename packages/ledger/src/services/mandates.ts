@@ -35,8 +35,9 @@ export class MandateService {
     if (input.permittedOperationKinds.length === 0) {
       throw new LedgerError('INVALID_INPUT', 'mandate must permit at least one operation kind');
     }
-    if (new Date(input.expiresAt) <= this.clock.now()) {
-      throw new LedgerError('MANDATE_EXPIRED', 'mandate expiry must be in the future');
+    const expiresMs = Date.parse(input.expiresAt);
+    if (!Number.isFinite(expiresMs) || expiresMs <= this.clock.now().getTime()) {
+      throw new LedgerError('MANDATE_EXPIRED', 'mandate expiry must be a valid future date');
     }
     const owningMission = this.db
       .prepare('SELECT id FROM missions WHERE id = ? AND org_id = ?')
