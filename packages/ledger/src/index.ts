@@ -25,6 +25,7 @@ export type { AppendEvidenceInput } from './services/evidence.js';
 export { OutboxService, DEFAULT_CLAIM_TTL_MS } from './services/outbox.js';
 export type { ClaimedDispatch } from './services/outbox.js';
 export { RecoveryService } from './services/recovery.js';
+export { ProviderReceiptService } from './services/provider-receipts.js';
 export type { IntegrityReport } from './services/recovery.js';
 export { DispatchWorker } from './services/worker.js';
 export type { DispatchCommand, RailDispatcher, WorkerRunReport } from './services/worker.js';

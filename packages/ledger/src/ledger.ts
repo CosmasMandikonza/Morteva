@@ -18,6 +18,7 @@ import { EvidenceService } from './services/evidence.js';
 import { OutboxService } from './services/outbox.js';
 import { RecoveryService } from './services/recovery.js';
 import { DispatchWorker } from './services/worker.js';
+import { ProviderReceiptService } from './services/provider-receipts.js';
 
 export class Ledger {
   readonly organizations: OrganizationService;
@@ -31,6 +32,7 @@ export class Ledger {
   readonly evidence: EvidenceService;
   readonly outbox: OutboxService;
   readonly recovery: RecoveryService;
+  readonly providerReceipts: ProviderReceiptService;
   readonly worker: DispatchWorker;
 
   constructor(
@@ -57,6 +59,7 @@ export class Ledger {
     );
     this.outbox = new OutboxService(db, clock);
     this.recovery = new RecoveryService(db, clock, this.outbox);
+    this.providerReceipts = new ProviderReceiptService(db, clock);
     this.worker = new DispatchWorker(
       db,
       clock,

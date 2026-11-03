@@ -37,7 +37,15 @@ const TRANSITIONS: Readonly<Record<OperationState, readonly OperationState[]>> =
   SUBMITTING: ['IN_FLIGHT', 'STATUS_UNKNOWN', 'SETTLED', 'CANCELLED', 'REQUIRES_HUMAN'],
   IN_FLIGHT: ['SETTLED', 'STATUS_UNKNOWN', 'CANCELLED', 'REQUIRES_HUMAN'],
   STATUS_UNKNOWN: ['SUBMITTING', 'IN_FLIGHT', 'SETTLED', 'CANCELLED', 'REJECTED', 'REQUIRES_HUMAN'],
-  SETTLED: ['RECONCILED'],
+  /**
+   * SETTLED may (a) be human-reconciled, or (b) be REVERSED to human review
+   * when the provider later reports failure after PAID (Airwallex transfer
+   * statuses: a PAID transfer "may subsequently fail... transition to
+   * FAILED"). A reversal never rewrites history: the evidence journal keeps
+   * the settlement and the reversal as separate audited events, and the
+   * mission budget stays consumed until a human adjustment decides otherwise.
+   */
+  SETTLED: ['RECONCILED', 'REQUIRES_HUMAN'],
   RECONCILED: [],
   REJECTED: [],
   EXPIRED: [],

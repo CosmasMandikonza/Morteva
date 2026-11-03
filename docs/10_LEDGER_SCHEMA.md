@@ -27,7 +27,12 @@ Single source of truth for the persisted financial model. The executable schema 
 | `actors` (v2) | persisted identity: role + scrypt credential | `UNIQUE(org_id, username)`; role ∈ owner/admin/approver/operator/viewer/service; service actors have no password |
 | `sessions` (v2) | hashed-token expiring sessions | `token_hash`/`csrf_hash` UNIQUE (sha256); `expires_at`; `revoked_at` |
 | `mission_grants` (v2) | explicit per-mission machine authority | `UNIQUE(mission_id, actor_id)`; `revoked_at` |
+| `provider_receipts` (v3) | append-only Airwallex/(later) Metal interaction evidence | trigger-enforced append-only; org-scoped; kinds dispatch-create/readback-by-id/readback-by-request-id/balance-read/definitive-rejection/ambiguous-failure/webhook; environment sandbox vs offline-fixture never conflated; payloads redacted twice (adapter + persistence) |
 | `schema_migrations` | applied versions | PK `version` |
+
+## Provider receipts (v3, issue #5)
+
+Every provider interaction persists a tenant-scoped, append-only receipt with the redacted raw payload, HTTP status, original provider status and timestamps. A **submission receipt alone can never settle an operation** — settlement requires a readback receipt showing terminal success AND the ledger's `provider-readback` attestation. Receipts keep tenant scope across restarts via the durable operation lookup (`orgIdForRequestId`); receipts with no owning organization are skipped rather than mis-scoped. See [ADR 0005](adr/0005-airwallex-adapter.md).
 
 ## The mandate budget invariant (v2)
 
