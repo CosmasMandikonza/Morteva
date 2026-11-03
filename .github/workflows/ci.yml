@@ -44,6 +44,12 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
+      - name: Show formatting diff when prior check fails (temporary review diagnostic)
+        if: failure()
+        run: |
+          npx prettier --write packages/providers/src/ports.ts packages/providers/test/offline.test.ts
+          git diff -- packages/providers/src/ports.ts packages/providers/test/offline.test.ts
+
       - name: Typecheck (tsc, strict)
         run: npm run typecheck
 
