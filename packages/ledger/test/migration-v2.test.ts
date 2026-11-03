@@ -73,6 +73,7 @@ describe('v1 → v2 upgrade on an existing ledger', () => {
     expect(legacyApproval.status).toBe('consumed');
     expect(legacyApproval.evidenceDigest).toBe(''); // legacy default
     const legacyMandate = upgraded.mandates.latest('org_v1', 'msn_v1', 'mnd_v1');
+    expect(legacyMandate.status).toBe('superseded'); // unauthenticated v1 mandate cannot dispatch
     expect(legacyMandate.totalBudgetMinor).toBe(-1); // legacy: envelope = per-op max
     expect(upgraded.mandates.effectiveTotalBudget(legacyMandate)).toBe(250_000);
     expect(legacyMandate.rails).toEqual(['airwallex']);
