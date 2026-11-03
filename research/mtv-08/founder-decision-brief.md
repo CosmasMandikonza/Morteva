@@ -14,17 +14,17 @@
 
 ## Decision 1 — Visual direction
 
-| Option                                       | The bet                                                                               | Cost/risk                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| **A · Harbour Watch**                        | Buyer-credibility per hour; light institutional; safest WCAG                          | Quieter demo; "enterprise" risk if hierarchy is lazy             |
-| **B · Night Sortie**                         | Memorable command-deck story; strongest demo video                                    | Contrast/perf/motion discipline required (mitigations verified)  |
+| Option                                       | The bet                                                                               | Cost/risk                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **A · Harbour Watch**                        | Buyer-credibility per hour; light institutional; safest WCAG                          | Quieter demo; "enterprise" risk if hierarchy is lazy                             |
+| **B · Night Sortie**                         | Memorable command-deck story; strongest demo video                                    | Contrast/perf/motion discipline required (mitigations verified)                  |
 | **B-led hybrid (engineers' recommendation)** | B tokens/motion on Decision Room + 3D flagship; A's calm density on Treasury & Replay | One token system; carries B visual language with A's disciplined content density |
 
 Pick one: `A` / `B` / `B-led hybrid`. After you inspect reference-grounded desktop/mobile style tiles and choose, we record the design ADR + `design/tokens.json` (docs/03 artifacts), and only then does any theme code land in `apps/web`.
 
 ## Decision 2 — 3D primary vertical (first asset built in #11)
 
-| Option                                            | Asset candidates (not yet rights-cleared)                                                     | Story fit                                       |
+| Option                                            | Asset candidates (not yet rights-cleared)                        | Story fit                                       |
 | ------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------- |
 | **Offshore inspection drone** (recommended first) | DJI Matrice 30T (primary), 300 RTK (cinematic), Tello (fallback) | Journey A end-to-end; cheaper scene (sky/ocean) |
 | **Subsea ROV**                                    | MBARI Doc Ricketts (primary), Hercules, Weaver                   | Maps 1:1 to Metal "paid diagnostics" beat       |
@@ -53,6 +53,6 @@ Every external claim was observed live on its source page (or via the platform's
 
 **Do not approve A/B/B-led solely from this text.** Before selecting, compare actual desktop/mobile typography, financial data hierarchy, status chips and 3D/inspector composition rendered from permitted sources. A disposable preview or linked reference board is sufficient for this decision; no production theme needs to be merged first. If none is provided, the visual system remains **UNAPPROVED**.
 
-**Rights caveat:** DJI Matrice models on Sketchfab are only *candidates*. A CC-BY upload is not proof of permission to display manufacturer trademarks, logos or imply endorsement. The repo is public; React Bits' Commons Clause has a separate component-source redistribution restriction, so do not copy its source to this public repository without confirming the proposed use is permitted. See the licensing/3D gate addenda in the ledger and asset research.
+**Rights caveat:** DJI Matrice models on Sketchfab are only _candidates_. A CC-BY upload is not proof of permission to display manufacturer trademarks, logos or imply endorsement. The repo is public; React Bits' Commons Clause has a separate component-source redistribution restriction, so do not copy its source to this public repository without confirming the proposed use is permitted. See the licensing/3D gate addenda in the ledger and asset research.
 
 **Recommended decision sequence:** (1) select ONE coherent visual language after viewing previews; (2) select drone or ROV as the primary physical story after the asset-download/rights check. **Defaults:** no Skiper components, no paid purchases. The external Webby Design URL remains optional. Mark Issue #10 complete only after the chosen references, rights and visual decision are documented; PR #22 may merge earlier as research only.
