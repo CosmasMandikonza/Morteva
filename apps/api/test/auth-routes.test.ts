@@ -301,6 +301,23 @@ describe('HTTP auth boundary', () => {
       plan: { id: string; version: number; digest: string };
     };
 
+    const owner = await login(app, 'http-owner', TEST_PASSWORD);
+    const mandateResponse = await app.inject({
+      method: 'POST',
+      url: '/api/mandates',
+      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrfToken },
+      payload: {
+        missionId: world.mission.id,
+        currency: 'USD',
+        maxAmountMinor: 500_000,
+        totalBudgetMinor: 500_000,
+        permittedOperationKinds: ['airwallex_transfer'],
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+    });
+    expect(mandateResponse.statusCode).toBe(200);
+    const { mandate } = mandateResponse.json() as { mandate: { id: string } };
+
     const operatorApprove = await app.inject({
       method: 'POST',
       url: '/api/approvals',
@@ -346,22 +363,7 @@ describe('HTTP auth boundary', () => {
     });
     expect(operatorMandate.statusCode).toBe(403);
 
-    const owner = await login(app, 'http-owner', TEST_PASSWORD);
-    const mandateResponse = await app.inject({
-      method: 'POST',
-      url: '/api/mandates',
-      headers: { cookie: owner.cookie, 'x-csrf-token': owner.csrfToken },
-      payload: {
-        missionId: world.mission.id,
-        currency: 'USD',
-        maxAmountMinor: 500_000,
-        totalBudgetMinor: 500_000,
-        permittedOperationKinds: ['airwallex_transfer'],
-        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-      },
-    });
-    expect(mandateResponse.statusCode).toBe(200);
-    const { mandate } = mandateResponse.json() as { mandate: { id: string } };
+
 
     // Operator reserves using the approval.
     const reserveResponse = await app.inject({
