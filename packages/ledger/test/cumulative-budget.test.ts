@@ -75,9 +75,7 @@ describe('cumulative mandate budgets', () => {
       'superseded',
     );
     expect(ledger.mandates.consumedBudget(ctx.org.id, freshIdentity.id)).toBe(0);
-    expect(ledger.mandates.consumedMissionBudget(ctx.org.id, ctx.mission.id, 'USD')).toBe(
-      30_000,
-    );
+    expect(ledger.mandates.consumedMissionBudget(ctx.org.id, ctx.mission.id, 'USD')).toBe(30_000);
     const ref = approvedPlan(ledger, ctx.org.id, ctx.mission.id, {
       amountMinor: 1,
       currency: 'USD',
