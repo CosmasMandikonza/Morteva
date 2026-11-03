@@ -25,6 +25,13 @@
 - Both Airwallex sandbox and Metal testnet must coexist; MTV-01's provider-mode variable is only a local scenario flag, not the future financial rail selection.
 - These are new code-contract protections, not real provider integrations. PR #20 was reviewed and squash-merged with the exact-head guard. GitHub Actions CI and docs-integrity checks passed on reviewed head `aea1b992b29a25befcca5f3d29fb8f891247d580`.
 
+## MTV-08 design research delivered — PR branch `research/mtv-08-design-references` (Nov 3, 2026)
+- Verified component/reference ledger for the four user-supplied sources (Cult UI MIT; React Bits MIT+Commons Clause; Skiper UI attribution-required free tier + paid pro, recommended rejected; Awwwards art-direction study only) compiled from live inspection on 2026-11-02/03; component names, URLs, dependencies, licenses and rejected alternatives recorded per docs/03.
+- Two competing visual-direction proposals (A "Harbour Watch" light/institutional IBM Plex; B "Night Sortie" dark/cinematic Space Grotesk+Inter+Geist Mono) with license- and tabular-figure-verified font stacks; **both explicitly UNAPPROVED** — founder decision brief with 4 bounded choices in `research/mtv-08/founder-decision-brief.md`. No theme code written in `apps/web`.
+- 3D reconnaissance (no scene built; prototype is #11): verified CC-BY shortlists — DJI Matrice 30T/300 RTK (drone), MBARI Doc Ricketts ROV/Hercules (ROV), CC0 Poly Haven harbour HDRI; camera/perf/context-loss strategy sourced from three.js/R3F/drei docs.
+- Complete screen/flow specs incl. honest-state matrix and 320–1920 + 200% zoom accessibility budgets; reproducible design rubric + 5-minute demo storyboard.
+- No financial-domain files, provider ports, SQLite or shared contracts touched (MTV-02 boundary respected). Pending founder decisions: visual direction, first 3D vertical, Skiper disposition, paid-tier stance, plus unresolved "Webby Design" URL.
+
 ## NOT yet verified
 No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, production deployment, approved palette/typeface, 3D asset, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
 
