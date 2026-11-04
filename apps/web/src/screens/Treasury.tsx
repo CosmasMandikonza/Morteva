@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { StatusChip } from '../components/StatusChip';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
+import { ConsequenceTrace } from '../components/ConsequenceTrace';
 import {
   ApiError,
   fetchMandates,
@@ -256,6 +257,28 @@ export function Treasury({
                   mandates — not an account balance.
                 </p>
               </section>
+            )}
+
+            {selectedMission !== null && mandates.kind === 'ok' && (
+              <ConsequenceTrace
+                missionTitle={selectedMission.title}
+                _createdAt={selectedMission.created_at}
+                committed={[...envelopeTotals.entries()]
+                  .filter(([, t]) => t.consumed > 0)
+                  .map(([currency, t]) => ({
+                    currency,
+                    minor: t.consumed,
+                  }))}
+                activeMandates={activeMandates.length}
+                onGotoAuthority={() =>
+                  document
+                    .querySelector('[data-testid="mandates-panel"]')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                onGotoDecisions={() => {
+                  window.location.hash = 'decisions';
+                }}
+              />
             )}
 
             <Panel

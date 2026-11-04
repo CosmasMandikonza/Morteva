@@ -825,3 +825,101 @@ a {
 .mv-mandate__meaning {
   overflow-wrap: anywhere;
 }
+/* ------------------------------------------------------------ consequence trace (PROPOSAL) */
+.mv-trace {
+  border: 1px solid var(--mv-line);
+  border-radius: 10px;
+  background: var(--mv-surface-card);
+  padding: 16px 18px;
+}
+.mv-trace__rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(min(150px, 100%), 1fr));
+  gap: 12px;
+}
+.mv-trace__node {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--mv-line);
+  border-radius: 7px;
+  background: var(--mv-surface-page);
+  animation: mv-trace-in 420ms var(--mv-motion-standard) backwards;
+  animation-delay: calc(var(--mv-trace-i) * 40ms);
+}
+@keyframes mv-trace-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.mv-trace__node--ledger {
+  border-left: 3px solid var(--mv-accent-fill);
+}
+.mv-trace__node--pending {
+  border-left: 3px solid var(--mv-hold-text);
+  opacity: 0.85;
+}
+.mv-trace__node--absent {
+  border-left: 3px solid var(--mv-line-strong);
+  opacity: 0.75;
+}
+.mv-trace__glyph {
+  font-size: var(--mv-size-md);
+  color: var(--mv-accent-text);
+}
+.mv-trace__node--pending .mv-trace__glyph {
+  color: var(--mv-hold-text);
+}
+.mv-trace__node--absent .mv-trace__glyph {
+  color: var(--mv-ink-3);
+}
+.mv-trace__label {
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-sm);
+  font-weight: 600;
+}
+.mv-trace__datum {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-1);
+}
+.mv-trace__tag {
+  justify-self: start;
+  margin-top: 2px;
+}
+.mv-trace__provenance {
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-3);
+}
+.mv-trace__link {
+  position: absolute;
+  right: -13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mv-ink-3);
+  z-index: 1;
+}
+@media (max-width: 1023px) {
+  .mv-trace__rail {
+    grid-template-columns: 1fr;
+  }
+  .mv-trace__link {
+    display: none;
+  }
+}
+
+/* Proposal trace on narrow screens: envelopes before the trace. */
+@media (max-width: 1023px) {
+  .mv-grid__main > .mv-trace {
+    order: 2;
+  }
+}
