@@ -300,9 +300,12 @@ export interface MissionEvidenceEventView {
   readonly seq: number;
   readonly id: string;
   readonly topic: 'financial' | 'operational';
-  readonly type: string;
-  readonly eventKey: string;
+  /** Engine-shaped event type, or null when a writer stored an unstructured string. */
+  readonly type: string | null;
+  /** Structured `namespace:id[:suffix…]` key, or null when it is not engine-shaped. */
+  readonly eventKey: string | null;
   readonly payloadDigest: string;
+  /** Allowlisted, format-validated projection — never the stored JSON, never free text. */
   readonly payload: unknown;
   readonly recordedAt: string;
 }

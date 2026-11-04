@@ -210,11 +210,20 @@ describe('GET /api/missions/:missionId/evidence — mission financial history', 
     const escalatedEvent = body.events.find(
       (e: { type: string }) => e.type === 'operation.requires_human',
     );
-    // Escalation keeps history: settlement AND reversal-decision both present,
-    // with the attestation and reason the operator must see.
+    // Escalation keeps history: settlement AND reversal-decision both present.
+    // Free text (reason, attestation.note) is deliberately NOT disclosed to
+    // viewers — the structured linkage survives: ids, from/to states and the
+    // validated attestation source.
     expect(escalatedEvent.seq).toBeGreaterThan(settledEvent.seq);
-    expect(escalatedEvent.payload.reason).toMatch(/FAILED AFTER settlement/);
-    expect(escalatedEvent.payload.attestation.note).toMatch(/post-settlement reversal/);
+    expect(escalatedEvent.payload).toMatchObject({
+      operationId: world.settledOp,
+      from: 'SETTLED',
+      to: 'REQUIRES_HUMAN',
+    });
+    expect(escalatedEvent.payload.attestation).toEqual({ source: 'provider-readback' });
+    const journey = JSON.stringify(body);
+    expect(journey).not.toContain('FAILED AFTER settlement');
+    expect(journey).not.toContain('post-settlement reversal');
   });
 
   it('topic filter narrows to financial events; invalid topic/limit fail closed', async () => {
@@ -405,13 +414,13 @@ describe('evidence disclosure boundary (#37 CTO review) — payloads are project
       from: 'IN_FLIGHT',
       to: 'SETTLED',
     });
-    // …the attestation is projected to source+note only…
-    expect(settled.payload.attestation).toEqual({
-      source: 'provider-readback',
-      note: 'legitimate note',
-    });
+    // …the attestation projects to its validated SOURCE only (note is free
+    // text and never disclosed)…
+    expect(settled.payload.attestation).toEqual({ source: 'provider-readback' });
     // …and NOTHING else crosses the wire — not top-level secrets, not nested
-    // objects under allowlisted keys, not PII blobs.
+    // objects under allowlisted keys, not PII blobs, and not the free-text
+    // fields themselves (reason/message/note are dropped regardless of
+    // content, so even benign-looking text stays server-side).
     const serialized = JSON.stringify(response.json());
     for (const leak of [
       'leak-if-you-can',
@@ -422,6 +431,120 @@ describe('evidence disclosure boundary (#37 CTO review) — payloads are project
       'Bearer leak-token',
       'account_number',
       'bank_details',
+      'legitimate note',
+    ]) {
+      expect(serialized).not.toContain(leak);
+    }
+    await app.close();
+    ledger.close();
+  });
+
+  it('an UNKNOWN operation.* type gets NO wildcard treatment — payload null even with transition-shaped fields', async () => {
+    const { app, ledger } = makeApp();
+    const seeded = seedOrg(ledger, 'UnkOp', true);
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'operation.debug.private', // looks like a transition; NOT in the enumerated set
+      eventKey: 'operation:op_x:debug-private',
+      payload: {
+        operationId: 'op_x',
+        from: 'SETTLED',
+        to: 'ANYTHING',
+        reason: 'api_key=AAAA1111BBBB2222',
+        attestation: { source: 'provider-readback', note: 'Jane Doe +1-555-0100' },
+      },
+    });
+    const cookie = await loginAs(app, 'UnkOp-viewer');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/missions/${seeded.mission.id}/evidence`,
+      headers: { cookie },
+    });
+    const event = response
+      .json()
+      .events.find((e: { type: string | null }) => e.type === 'operation.debug.private');
+    expect(event).toBeDefined();
+    expect(event.payload).toBeNull(); // no wildcard: unknown operation.* discloses nothing
+    expect(event.payloadDigest).toMatch(/^[0-9a-f]{16,}/);
+    const serialized = JSON.stringify(response.json());
+    expect(serialized).not.toContain('AAAA1111BBBB2222');
+    expect(serialized).not.toContain('Jane Doe');
+    await app.close();
+    ledger.close();
+  });
+
+  it('a credential/PII string placed as a SCALAR under allowlisted fields (or eventKey) never reaches a viewer', async () => {
+    const { app, ledger } = makeApp();
+    const seeded = seedOrg(ledger, 'ScalarLeak', true);
+    // Free-text fields are dropped ENTIRELY, so a secret placed inside one is
+    // structurally undiscoverable; a secret-shaped eventKey fails the
+    // structured-key format and is nulled as metadata.
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'operation.settled',
+      eventKey: 'operation:op_y:settled',
+      payload: {
+        operationId: 'op_y',
+        from: 'IN_FLIGHT',
+        to: 'SETTLED',
+        reason: 'password hunter2-secret scalar text',
+        attestation: { source: 'provider-readback', note: 'sk-live-SECRET1234567890' },
+      },
+    });
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'reservation.denied',
+      eventKey: 'denial:scalarleak:req-1:INSUFFICIENT_SPENDABLE',
+      payload: {
+        requestId: 'req-1',
+        code: 'INSUFFICIENT_SPENDABLE',
+        message: 'Jane Doe jane@example.test api_key=ABCD1234EFGH5678',
+      },
+    });
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'operation.cancelled',
+      eventKey: 'Bearer free-text key with spaces and secrets sk-0000111122223333',
+      payload: { operationId: 'op_z', from: 'RESERVED', to: 'CANCELLED' },
+    });
+    const cookie = await loginAs(app, 'ScalarLeak-viewer');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/missions/${seeded.mission.id}/evidence`,
+      headers: { cookie },
+    });
+    const settled = response
+      .json()
+      .events.find((e: { eventKey: string | null }) => e.eventKey === 'operation:op_y:settled');
+    expect(settled.payload.reason).toBeUndefined();
+    expect(settled.payload.attestation).toEqual({ source: 'provider-readback' });
+    const denied = response
+      .json()
+      .events.find(
+        (e: { eventKey: string | null }) => e.eventKey != null && e.eventKey.includes('req-1'),
+      );
+    expect(denied.payload.message).toBeUndefined(); // free text dropped…
+    expect(denied.payload.code).toBe('INSUFFICIENT_SPENDABLE'); // …structured code kept
+    const cancelled = response
+      .json()
+      .events.find((e: { type: string | null }) => e.type === 'operation.cancelled');
+    expect(cancelled.eventKey).toBeNull(); // unstructured key nulled as metadata
+    const serialized = JSON.stringify(response.json());
+    for (const leak of [
+      'hunter2-secret',
+      'sk-live-SECRET',
+      'Jane Doe',
+      'jane@example.test',
+      'ABCD1234EFGH5678',
+      'sk-0000111122223333',
     ]) {
       expect(serialized).not.toContain(leak);
     }
