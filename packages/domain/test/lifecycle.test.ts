@@ -44,6 +44,17 @@ describe('operation lifecycle transitions', () => {
     expect(isTerminalOperationState('RESERVED')).toBe(false);
   });
 
+  it('SETTLED may be human-reconciled OR reversed to human review on late provider failure (PAID→FAILED)', () => {
+    expect(canTransitionOperation('SETTLED', 'RECONCILED')).toBe(true);
+    // Airwallex: a PAID transfer "may subsequently fail... transition to FAILED".
+    // The reversal escalates to a human; it never rewrites history or releases funds.
+    expect(canTransitionOperation('SETTLED', 'REQUIRES_HUMAN')).toBe(true);
+    // But it may never silently rewind to a pre-settlement state.
+    expect(canTransitionOperation('SETTLED', 'STATUS_UNKNOWN')).toBe(false);
+    expect(canTransitionOperation('SETTLED', 'RESERVED')).toBe(false);
+    expect(canTransitionOperation('SETTLED', 'CANCELLED')).toBe(false);
+  });
+
   it('validates state strings', () => {
     expect(isOperationState('RESERVED')).toBe(true);
     expect(isOperationState('reserved')).toBe(false);

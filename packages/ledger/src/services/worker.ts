@@ -46,6 +46,20 @@ export interface DispatchCommand {
   readonly purpose: string;
 }
 
+/**
+ * Tenant-safe reconciliation scope (R3 review P0-2/P0-3): the worker binds
+ * every readback to the durable operation it belongs to, so provider
+ * identities cannot collide across organizations and the adapter can
+ * validate the readback against the authorized economic terms.
+ */
+export interface ReconcileScope {
+  readonly orgId: string;
+  readonly operationId: string | null;
+  readonly amountMinor?: number;
+  readonly currency?: string;
+  readonly beneficiary?: string;
+}
+
 export interface RailDispatcher {
   readonly rail: 'airwallex' | 'metal';
   /** Dispatch with the durable original requestId. Must not self-attest settlement. */
@@ -55,9 +69,13 @@ export interface RailDispatcher {
   /**
    * Resolve an ambiguous earlier dispatch by original requestId. Unlike a
    * submission, a readback MAY return 'confirmed' — that is the only source
-   * of provider-verified finality (or it may remain status-unknown).
+   * of provider-verified finality (or it may remain status-unknown). The
+   * scope binds the request id to its owning organization/operation.
    */
-  reconcileByRequestId(requestId: string): Promise<ProviderCallResult<unknown, ProviderCallStatus>>;
+  reconcileByRequestId(
+    requestId: string,
+    scope?: ReconcileScope,
+  ): Promise<ProviderCallResult<unknown, ProviderCallStatus>>;
 }
 
 export interface WorkerRunReport {
@@ -171,8 +189,15 @@ export class DispatchWorker {
         if (gated.phase === 'reconcile') {
           // A claimed operation already entered the dispatch attempt before a
           // possible crash, or is ambiguous. Reconcile by its ORIGINAL request
-          // id; NEVER submit it again just because a worker restarted.
-          const reconciledResult = await dispatcher.reconcileByRequestId(gated.requestId);
+          // id, scoped to the owning org/operation; NEVER submit it again
+          // just because a worker restarted.
+          const reconciledResult = await dispatcher.reconcileByRequestId(gated.requestId, {
+            orgId: gated.operation.orgId,
+            operationId: gated.operation.id,
+            amountMinor: gated.operation.amountMinor,
+            currency: gated.operation.currency,
+            beneficiary: gated.operation.beneficiary,
+          });
           this.evidence.append({
             orgId: gated.operation.orgId,
             missionId: gated.operation.missionId,
@@ -188,33 +213,96 @@ export class DispatchWorker {
             },
           });
           if (reconciledResult.status === 'confirmed') {
-            // Verified provider readback — the only path that may finalize money state.
-            this.reservations.transition({
-              orgId: gated.operation.orgId,
-              operationId: gated.operation.id,
-              to: 'SETTLED',
-              attestation: { source: 'provider-readback', note: 'reconcileByRequestId' },
-            });
-            this.outbox.completeDispatch(gated.operation.orgId, gated.dispatchId, gated.claimToken);
+            // Verified provider readback — the only path that may finalize
+            // money state. PAID is verified-at-readback-time finality, NOT
+            // irreversible delivery (R3 P0-4): post-PAID FAILED transitions
+            // exist, so the outbox claim stays ELIGIBLE and reconciliation
+            // keeps monitoring until a human moves the operation to
+            // RECONCILED — only then does the dispatch drain.
+            if (gated.operation.state === 'RECONCILED') {
+              // Human already reconciled (funds confirmed arrived): stop monitoring.
+              this.outbox.completeDispatch(
+                gated.operation.orgId,
+                gated.dispatchId,
+                gated.claimToken,
+              );
+            } else if (gated.operation.state !== 'SETTLED') {
+              this.reservations.transition({
+                orgId: gated.operation.orgId,
+                operationId: gated.operation.id,
+                to: 'SETTLED',
+                attestation: { source: 'provider-readback', note: 'reconcileByRequestId' },
+              });
+            }
+            // Already SETTLED re-confirmations: no transition, monitoring continues.
             reconciled += 1;
           } else if (reconciledResult.status === 'failed') {
-            this.reservations.transition({
-              orgId: gated.operation.orgId,
-              operationId: gated.operation.id,
-              to: 'REQUIRES_HUMAN',
-              attestation: {
-                source: 'provider-readback',
-                note: 'reconcile says definitively not executed',
-              },
-              reason: 'reconcileByRequestId reported definitive failure',
-            });
-            this.outbox.abandon(gated.operation.orgId, gated.dispatchId, gated.claimToken);
-            escalated += 1;
+            if (gated.operation.state === 'SETTLED') {
+              // LATE FAILURE after PAID (R3 P0-4): Airwallex documents that a
+              // PAID transfer "may subsequently fail if it is rejected by the
+              // local clearing system or the recipient bank". Escalate with an
+              // auditable reversal event — history is never rewritten, the
+              // envelope stays consumed pending a human adjustment decision.
+              this.reservations.transition({
+                orgId: gated.operation.orgId,
+                operationId: gated.operation.id,
+                to: 'REQUIRES_HUMAN',
+                attestation: {
+                  source: 'provider-readback',
+                  note: 'PAID later transitioned to FAILED (post-settlement reversal)',
+                },
+                reason: `provider reported ${String(reconciledResult.providerState)} AFTER settlement; funds may have been returned`,
+              });
+              this.evidence.append({
+                orgId: gated.operation.orgId,
+                missionId: gated.operation.missionId,
+                topic: 'financial',
+                type: 'settlement.reversed',
+                eventKey: `dispatch:${gated.dispatchId}:reversed:${gated.attempts}`,
+                payload: {
+                  dispatchId: gated.dispatchId,
+                  requestId: gated.requestId,
+                  providerState: reconciledResult.providerState ?? null,
+                  note: 'SETTLED operation later read back as terminal-failed; exposure accounting unchanged pending human adjustment',
+                },
+              });
+              this.outbox.abandon(gated.operation.orgId, gated.dispatchId, gated.claimToken);
+              escalated += 1;
+            } else if (gated.operation.state === 'RECONCILED') {
+              // Reversal after human reconciliation is beyond the provider's
+              // own finality model: record it, never rewrite the terminal state.
+              this.evidence.append({
+                orgId: gated.operation.orgId,
+                missionId: gated.operation.missionId,
+                topic: 'financial',
+                type: 'settlement.reversed.after_reconciled',
+                eventKey: `dispatch:${gated.dispatchId}:reversed-after-reconciled:${gated.attempts}`,
+                payload: {
+                  dispatchId: gated.dispatchId,
+                  requestId: gated.requestId,
+                  providerState: reconciledResult.providerState ?? null,
+                },
+              });
+              escalated += 1;
+            } else {
+              this.reservations.transition({
+                orgId: gated.operation.orgId,
+                operationId: gated.operation.id,
+                to: 'REQUIRES_HUMAN',
+                attestation: {
+                  source: 'provider-readback',
+                  note: 'reconcile says definitively not executed',
+                },
+                reason: 'reconcileByRequestId reported definitive failure',
+              });
+              this.outbox.abandon(gated.operation.orgId, gated.dispatchId, gated.claimToken);
+              escalated += 1;
+            }
           } else {
             // No verified finality: keep the lease eligible for future readback.
             if (
               reconciledResult.status === 'status-unknown' &&
-              gated.operation.state !== 'STATUS_UNKNOWN'
+              (gated.operation.state === 'SUBMITTING' || gated.operation.state === 'IN_FLIGHT')
             ) {
               this.reservations.transition({
                 orgId: gated.operation.orgId,
@@ -223,6 +311,8 @@ export class DispatchWorker {
                 reason: 'provider reconciliation could not establish finality',
               });
             }
+            // Settled/requires-human operations keep monitoring without
+            // regressing their state; unknown stays unknown.
             markedUnknown += 1;
           }
           continue;
