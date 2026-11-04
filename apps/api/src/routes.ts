@@ -431,11 +431,16 @@ export function registerAuthAndFinancialRoutes(
         observedAt: latest.snapshot.observedAt,
         expiresAt: latest.snapshot.expiresAt,
         stale: !latest.fresh,
-        // Only a provider observation makes funds provider-verified. A manual
-        // seed is recorded operator input — NOT provider-verified money — and
-        // balance is a different concept from mandate authority (what the org
-        // is PERMITTED to spend; served by /api/mandates). Authority is not money.
-        providerVerified: latest.snapshot.source !== 'manual-seed',
+        // TRUTHFULNESS (final CTO review): `source` is descriptive provenance
+        // only — recordBalanceSnapshot accepts a caller-provided source label
+        // with no durable, independently validated provider observation
+        // linked to the snapshot, so a label alone can NEVER imply verified
+        // funds. providerVerified stays false for every snapshot until an
+        // attestation-linked provider read path exists and its binding to
+        // THIS snapshot is verified explicitly. A manual seed is recorded
+        // operator input, and a balance is a different concept from mandate
+        // authority (permission; served by /api/mandates). Authority is not money.
+        providerVerified: false,
       };
       const breakdown = commitmentBreakdown(ledger, orgId, currency, latest.snapshot.observedAt);
       if (!latest.fresh) {
