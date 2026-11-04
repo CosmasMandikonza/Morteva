@@ -13,6 +13,17 @@ import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { isLedgerError, LedgerError } from '@moterva/ledger';
 import { createMoney, isOperationState, toMajorString } from '@moterva/domain';
+import type {
+  AttentionLevel,
+  CommitmentBreakdownView,
+  FinancialCurrencyView,
+  FinancialOverviewView,
+  MissionEvidenceEventView,
+  MissionEvidenceListView,
+  MoneyView,
+  OperationListView,
+  OperationReadView,
+} from '@moterva/domain';
 import type { AppConfig } from './config.js';
 import { clearSessionCookie, csrfOk, guard, LoginRateLimiter, setSessionCookie } from './auth.js';
 
@@ -409,7 +420,7 @@ export function registerAuthAndFinancialRoutes(
       )
       .all(orgId) as { currency: string; protected_floor_minor: number }[];
 
-    const currencies = accounts.map((account) => {
+    const currencies: FinancialCurrencyView[] = accounts.map((account) => {
       const currency = account.currency;
       const floorMinor = account.protected_floor_minor;
       const latest = ledger.accounts.latestSnapshot(orgId, currency, ledger.clock.now());
@@ -472,7 +483,12 @@ export function registerAuthAndFinancialRoutes(
       };
     });
 
-    return { orgId, generatedAt: ledger.clock.iso(), currencies };
+    const overview: FinancialOverviewView = {
+      orgId,
+      generatedAt: ledger.clock.iso(),
+      currencies,
+    };
+    return overview;
   });
 
   app.get('/api/operations', async (request, reply) => {
@@ -560,7 +576,7 @@ export function registerAuthAndFinancialRoutes(
       )
       .get(orgId) as { total: number; needsHuman: number | null; ambiguous: number | null };
 
-    return {
+    const list: OperationListView = {
       operations: rows.map((row) => enrichOperationRow(ledger, row)),
       counts: {
         returned: rows.length,
@@ -568,7 +584,304 @@ export function registerAuthAndFinancialRoutes(
         ambiguous: countsRow.ambiguous ?? 0,
       },
     };
+    return list;
   });
+
+  // ---------------------------------------- mission financial history (#36)
+  //
+  // The append-only evidence journal is the mission's financial replay:
+  // why the money looks the way it does (reservation, settlement, reversal,
+  // denial, dispatch decisions), with each event's integrity digest. The
+  // payload is the journal's own stored JSON — provider payloads were already
+  // minimized at write time, so nothing raw can appear here.
+
+  app.get('/api/missions/:missionId/evidence', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const orgId = g.actor.orgId;
+    const missionId = (request.params as { missionId: string }).missionId;
+    try {
+      ledger.organizations.getMission(orgId, missionId); // cross-tenant is 404
+    } catch (error) {
+      return notFoundOrRethrow(error, reply, 'mission not found');
+    }
+    const query = request.query as { topic?: unknown; limit?: unknown };
+    let topic: 'financial' | 'operational' | undefined;
+    if (typeof query.topic === 'string' && query.topic !== '') {
+      if (query.topic !== 'financial' && query.topic !== 'operational') {
+        return void reply.code(400).send({
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'topic must be "financial" or "operational" when present',
+          },
+        });
+      }
+      topic = query.topic;
+    }
+    const limitRaw = query.limit === undefined ? 50 : Number(query.limit);
+    if (!Number.isSafeInteger(limitRaw) || limitRaw < 1 || limitRaw > 200) {
+      return void reply.code(400).send({
+        error: { code: 'INVALID_INPUT', message: 'limit must be an integer between 1 and 200' },
+      });
+    }
+
+    const rows = ledger.db
+      .prepare(
+        `SELECT seq, id, topic, type, event_key, payload_digest, payload_json, recorded_at
+           FROM evidence_events
+          WHERE org_id = ? AND mission_id = ?
+          ${topic === undefined ? '' : 'AND topic = ?'}
+          ORDER BY seq DESC
+          LIMIT ?`,
+      )
+      .all(
+        ...(topic === undefined
+          ? [orgId, missionId, limitRaw]
+          : [orgId, missionId, topic, limitRaw]),
+      ) as Record<string, unknown>[];
+
+    const events: MissionEvidenceEventView[] = rows.map((row) => ({
+      seq: row.seq as number,
+      id: String(row.id),
+      topic: String(row.topic) as 'financial' | 'operational',
+      // Metadata is format-validated too: an unstructured event key or type
+      // string from any writer is reported as null, never verbatim.
+      type: safeEventType(String(row.type)),
+      eventKey: safeEventKey(String(row.event_key)),
+      payloadDigest: String(row.payload_digest),
+      // DISCLOSURE BOUNDARY (#37 CTO review): the stored journal JSON is NOT
+      // disclosed as-is. EvidenceService.append accepts caller-supplied
+      // payloads, and provider-side minimization is not universal proof about
+      // every writer — so the API projects an explicit per-event-type public
+      // allowlist of scalar fields. Unrecognized event types → payload null.
+      payload: projectEvidencePayload(String(row.type), safeJsonParse(row.payload_json)),
+      recordedAt: String(row.recorded_at),
+    }));
+    const view: MissionEvidenceListView = { missionId, events };
+    return view;
+  });
+}
+
+/**
+ * Public evidence-payload projection (#37 CTO review, final follow-up). For
+ * every event type the engine journals today, ONLY these top-level fields are
+ * disclosed to viewer sessions, and each value must pass the field's format
+ * validator. Three disclosure rules, deliberately conservative:
+ *
+ *  1. NO FREE TEXT. Unstructured strings (reason, message, note) are never
+ *     disclosed — a field-name allowlist cannot sanitize the CONTENTS of free
+ *     text, so the text simply does not cross the wire. Operator narration
+ *     remains in the journal and in server-side tooling.
+ *  2. EXPLICIT TYPES ONLY. Both the tabulated types above and the exact set
+ *     of known state-transition types below are enumerated; ANY unrecognized
+ *     type — including unknown `operation.*` names — yields `payload: null`
+ *     (the event stays listed with its integrity digest).
+ *  3. VALIDATED FORMATS. Every disclosed value must match a strict engine
+ *     shape (ids, state names, machine codes, ISO timestamps, structured
+ *     `namespace:id[:suffix]` event keys). Anything else is dropped/null.
+ *
+ * The stored journal itself is untouched — projection is read-time only.
+ * The tables were derived from an audit of every EvidenceService.append
+ * writer (plans, mandates, authority, reservations, worker); adding a new
+ * journaling call site REQUIRES extending this projection deliberately.
+ */
+// --- format validators: the only shapes that may cross the viewer boundary ---
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const NON_NEGATIVE_INT = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const LOWER_WORD = /^[a-z][a-z0-9_-]{0,39}$/; // hyphens: engine enums use them (provider-readback, status-unknown)
+const UPPER_WORDISH = /^[A-Za-z0-9_.-]{1,60}$/; // provider states (PAID, NO_TRANSFER_FOR_REQUEST_ID…)
+const CURRENCY = /^[A-Z]{3}$/;
+const HEXISH = /^[0-9a-f]{8,128}$/; // digests (sha256 hex)
+const ISO_OR_EMPTY = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/;
+const MACHINE_CODE = /^[A-Z][A-Z0-9_]{0,47}$/;
+const LOWER_WORD_ARRAY = (v: unknown) =>
+  Array.isArray(v) && v.every((item) => typeof item === 'string' && LOWER_WORD.test(item));
+/** Engine event keys are structured `namespace:id[:suffix…]` — never free text. */
+const SAFE_EVENT_KEY = /^[a-z][a-z0-9_]*(?::[A-Za-z0-9_.+-]{1,80}){1,8}$/;
+const SAFE_EVENT_TYPE = /^[a-z][a-z0-9_.]{2,60}$/;
+
+type FieldRule = readonly [string, RegExp | ((v: unknown) => boolean)];
+
+const EVIDENCE_PAYLOAD_ALLOWLIST: Readonly<Record<string, readonly FieldRule[]>> = {
+  'approval.granted': [
+    ['approvalId', ID],
+    ['planId', ID],
+    ['planVersion', NON_NEGATIVE_INT],
+    ['planDigest', HEXISH],
+    ['decidedBy', ID],
+    ['kind', LOWER_WORD],
+    ['mandateId', ID],
+    ['mandateVersion', NON_NEGATIVE_INT],
+    ['expiresAt', ISO_OR_EMPTY],
+  ],
+  'approval.revoked': [
+    ['approvalId', ID],
+    ['by', ID], // reason (free text) deliberately NOT disclosed
+  ],
+  'mandate.issued': [
+    ['mandateId', ID],
+    ['version', NON_NEGATIVE_INT],
+    ['currency', CURRENCY],
+    ['maxAmountMinor', NON_NEGATIVE_INT],
+    ['totalBudgetMinor', NON_NEGATIVE_INT],
+    ['rails', LOWER_WORD_ARRAY],
+    ['by', ID],
+  ],
+  'mandate.revoked': [
+    ['mandateId', ID],
+    ['by', ID], // reason (free text) deliberately NOT disclosed
+  ],
+  'actor.created': [
+    ['actorId', ID],
+    ['role', LOWER_WORD], // username deliberately NOT disclosed
+    ['kind', LOWER_WORD],
+  ],
+  'actor.revoked': [
+    ['actorId', ID],
+    ['by', ID], // username deliberately NOT disclosed
+  ],
+  'session.created': [
+    ['actorId', ID],
+    ['expiresAt', ISO_OR_EMPTY],
+  ],
+  'grant.created': [
+    ['grantId', ID],
+    ['actorId', ID],
+    ['by', ID],
+  ],
+  'grant.revoked': [
+    ['missionId', ID],
+    ['actorId', ID],
+    ['by', ID],
+  ],
+  'reservation.denied': [
+    ['requestId', ID],
+    ['code', MACHINE_CODE], // message (free text) deliberately NOT disclosed
+  ],
+  'operation.reserved': [
+    ['operationId', ID],
+    ['requestId', ID],
+    ['kind', LOWER_WORD],
+    ['amountMinor', NON_NEGATIVE_INT],
+    ['currency', CURRENCY],
+    ['beneficiary', ID],
+    ['planDigest', HEXISH],
+    ['approvalId', ID],
+  ],
+  'dispatch.attempt': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['attempt', NON_NEGATIVE_INT],
+  ],
+  'dispatch.result': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['providerStatus', LOWER_WORD],
+    ['providerState', UPPER_WORDISH],
+  ],
+  'dispatch.unknown': [
+    ['dispatchId', ID],
+    ['requestId', ID], // raw error text deliberately NOT disclosed
+  ],
+  'dispatch.blocked': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['operationId', ID], // reason (free text) deliberately NOT disclosed
+  ],
+  'dispatch.reconcile': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['providerStatus', LOWER_WORD],
+    ['providerState', UPPER_WORDISH],
+    ['verifiedAt', ISO_OR_EMPTY],
+  ],
+  'settlement.reversed': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['providerState', UPPER_WORDISH], // note (free text) deliberately NOT disclosed
+  ],
+  'settlement.reversed.after_reconciled': [
+    ['dispatchId', ID],
+    ['requestId', ID],
+    ['providerState', UPPER_WORDISH],
+  ],
+};
+
+/**
+ * The exact state-transition event types the engine journals via
+ * reservations.transition (`operation.${to.toLowerCase()}`), enumerated so an
+ * unrecognized `operation.*` name from any future writer gets payload null
+ * instead of wildcard treatment. `operation.reserved` is tabulated above
+ * (its payload is richer than a plain transition).
+ */
+const TRANSITION_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'operation.submitting',
+  'operation.in_flight',
+  'operation.settled',
+  'operation.reconciled',
+  'operation.rejected',
+  'operation.expired',
+  'operation.status_unknown',
+  'operation.cancelled',
+  'operation.requires_human',
+]);
+
+function passesRule(value: unknown, rule: RegExp | ((v: unknown) => boolean)): boolean {
+  if (typeof rule === 'function') return rule(value);
+  return typeof value === 'string' && rule.test(value);
+}
+
+function projectEvidencePayload(type: string, raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  const applyRules = (rules: readonly FieldRule[]): void => {
+    for (const [key, rule] of rules) {
+      if (key in record && passesRule(record[key], rule)) out[key] = record[key];
+    }
+  };
+
+  if (EVIDENCE_PAYLOAD_ALLOWLIST[type] !== undefined) {
+    applyRules(EVIDENCE_PAYLOAD_ALLOWLIST[type]!);
+  } else if (TRANSITION_EVENT_TYPES.has(type)) {
+    // Known state transitions: identifiers + state names only. The
+    // attestation projects to its validated SOURCE — the note is free text
+    // and is never disclosed.
+    applyRules([
+      ['operationId', ID],
+      ['from', UPPER_WORDISH],
+      ['to', UPPER_WORDISH],
+    ]);
+    const attestation = record.attestation;
+    if (attestation !== null && typeof attestation === 'object' && !Array.isArray(attestation)) {
+      const source = (attestation as Record<string, unknown>).source;
+      if (typeof source === 'string' && LOWER_WORD.test(source)) {
+        out.attestation = { source };
+      }
+    }
+  } else {
+    return null; // unrecognized type (incl. unknown operation.*): digest only
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** Viewer-safe event metadata: structured event key and type, or null. */
+function safeEventKey(eventKey: string): string | null {
+  return SAFE_EVENT_KEY.test(eventKey) ? eventKey : null;
+}
+function safeEventType(type: string): string | null {
+  return SAFE_EVENT_TYPE.test(type) ? type : null;
+}
+
+/** Parse stored journal JSON without ever throwing on malformed legacy rows. */
+function safeJsonParse(raw: unknown): unknown {
+  if (typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 /** Operation columns shared by the list and the single-get enrichment (#34). */
@@ -604,7 +917,7 @@ function orgOperationRow(
 }
 
 /** Exact money formatting: minor-unit integer plus the domain major string (never floats). */
-function moneyView(currency: string, minorUnits: number): { minorUnits: number; major: string } {
+function moneyView(currency: string, minorUnits: number): MoneyView {
   return { minorUnits, major: toMajorString(createMoney(currency, minorUnits)) };
 }
 
@@ -620,14 +933,7 @@ function commitmentBreakdown(
   orgId: string,
   currency: string,
   observedAt: string | null,
-): {
-  reservedMinor: number;
-  unknownMinor: number;
-  settledPendingObservationMinor: number | null;
-  settledTotalMinor: number;
-  releasedMinor: number;
-  totalOutstandingMinor: number | null;
-} {
+): CommitmentBreakdownView {
   const rows = ledger.db
     .prepare(
       `SELECT state, COALESCE(SUM(amount_minor), 0) AS total
@@ -669,14 +975,14 @@ function commitmentBreakdown(
 }
 
 /** Human-attention classification shared by list and detail (#34). */
-function attentionFor(state: string): 'none' | 'ambiguous' | 'human' {
+function attentionFor(state: string): AttentionLevel {
   if (state === 'REQUIRES_HUMAN') return 'human';
   if (state === 'STATUS_UNKNOWN') return 'ambiguous';
   return 'none';
 }
 
 /** Shape one operation row for the API (list + detail agree). */
-function enrichOperationRow(ledger: Ledger, row: Record<string, unknown>): Record<string, unknown> {
+function enrichOperationRow(ledger: Ledger, row: Record<string, unknown>): OperationReadView {
   void ledger;
   const currency = String(row.currency);
   const amountMinor = row.amount_minor as number;
