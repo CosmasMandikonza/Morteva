@@ -67,7 +67,13 @@ export function SystemStatusCard(): JSX.Element {
                     {provider.label}
                   </span>
                 </div>
-                <p className="mv-provider__detail">{provider.detail}</p>
+                {/* The API's status label is the essential truth and stays
+                    always visible; the long server-owned prose collapses
+                    behind a native keyboard-operable disclosure. */}
+                <details className="mv-provider__details">
+                  <summary>status detail</summary>
+                  <p>{provider.detail}</p>
+                </details>
               </li>
             ))}
           </ul>

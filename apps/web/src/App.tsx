@@ -208,6 +208,18 @@ export function App(): JSX.Element {
         </ol>
       </nav>
 
+      {/* Mobile provenance banner: same honest copy as the top-bar chip,
+          composed for narrow screens instead of a cramped pill. Rendered
+          only while the demo gate session is active. */}
+      {actor !== null && session.kind === 'signed-in' && session.session.demoAuth && (
+        <p className="mv-provenance-banner" data-testid="provenance-banner">
+          <span className="mv-provenance-banner__glyph" aria-hidden="true">
+            ▚
+          </span>
+          DEMO_AUTH · seeded internal ledger — not Airwallex funds
+        </p>
+      )}
+
       <main className="mv-main" id="main">
         <h1 className="mv-h1">{active.label}</h1>
         {section === 'missions' ? (

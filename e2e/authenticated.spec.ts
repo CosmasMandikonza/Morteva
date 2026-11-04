@@ -173,4 +173,34 @@ test.describe('authenticated treasury journey', () => {
     await expect(page.getByTestId('signin-panel')).toBeVisible();
     await expect(page.getByTestId('actor-chip')).toHaveCount(0);
   });
+
+  test('mobile presents provenance as a banner and keeps the top bar clear', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page);
+
+    // Exactly one provenance instance: banner visible, cramped chip hidden.
+    const banner = page.getByTestId('provenance-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('DEMO_AUTH · seeded internal ledger — not Airwallex funds');
+    await expect(page.getByTestId('provenance-chip')).toBeHidden();
+
+    // The banner must not crowd the controls: it lives below the top bar and
+    // never exceeds the viewport width.
+    const box = await banner.boundingBox();
+    expect(box?.x).toBeDefined();
+    if (box) {
+      expect(box.x + box.width).toBeLessThanOrEqual(391);
+    }
+    const scrollWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
+    expect(scrollWidth).toBeLessThanOrEqual(391);
+
+    // Provider truth stays visible as badges; prose sits behind a keyboard
+    // operable disclosure that opens on click.
+    const status = page.getByTestId('system-status');
+    await expect(status.locator('.mv-badge--offline, .mv-badge--sandbox')).toHaveCount(2);
+    const disclosure = status.locator('.mv-provider__details').first();
+    await expect(disclosure.locator('summary')).toBeVisible();
+    await disclosure.locator('summary').click();
+    await expect(disclosure.locator('p')).toBeVisible();
+  });
 });

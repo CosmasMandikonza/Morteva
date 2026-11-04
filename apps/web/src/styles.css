@@ -876,3 +876,52 @@ a {
   color: var(--mv-ink-3);
   border: 1px solid var(--mv-line-strong);
 }
+
+/* ------------------------------------------------------------ mobile provenance banner */
+/* Desktop keeps the compact top-bar chip; narrow screens get a composed
+   one-line banner so the header never crowds. Only one instance renders. */
+.mv-provenance-banner {
+  display: none;
+  margin: 10px 16px 0;
+  padding: 6px 12px;
+  border: 1px solid var(--mv-hold-text);
+  border-left-width: 3px;
+  border-radius: 7px;
+  color: var(--mv-hold-text);
+  font-size: var(--mv-size-sm);
+  line-height: 1.35;
+}
+.mv-provenance-banner__glyph {
+  color: var(--mv-accent-text);
+  margin-right: 8px;
+}
+@media (max-width: 1023px) {
+  .mv-provenance-chip {
+    display: none;
+  }
+  .mv-provenance-banner {
+    display: block;
+  }
+}
+
+/* System-status disclosure: provider name + label always visible; the long
+   server-owned prose collapses behind a native, keyboard-operable summary. */
+.mv-provider__details {
+  margin: 4px 0 0;
+  font-size: var(--mv-size-xs);
+}
+.mv-provider__details summary {
+  cursor: pointer;
+  color: var(--mv-interactive);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  user-select: none;
+}
+.mv-provider__details[open] summary {
+  color: var(--mv-accent-text);
+}
+.mv-provider__details p {
+  margin: 6px 0 0;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+}
