@@ -318,6 +318,39 @@ describe('GET /api/financial/overview — balances, provenance, spendable, commi
     expect(eur.commitments.totalOutstandingMinor).toBeNull();
   });
 
+  it('a snapshot LABELED airwallex-sandbox (no provider receipt linkage) is NOT provider-verified', async () => {
+    // recordBalanceSnapshot accepts any caller-provided source label; a label
+    // alone must never display as independently verified funds.
+    const { app, ledger } = makeApp();
+    const seeded = seedOrg(ledger, 'FakeProvider', false);
+    ledger.accounts.ensureTreasuryAccount({
+      orgId: seeded.org.id,
+      currency: 'USD',
+      label: 'USD',
+      protectedFloorMinor: 0,
+    });
+    ledger.accounts.recordBalanceSnapshot({
+      orgId: seeded.org.id,
+      currency: 'USD',
+      minorUnits: 750_000,
+      source: 'airwallex-sandbox', // asserted label — no durable validated observation behind it
+      observedAt: ledger.clock.iso(),
+      expiresAt: new Date(ledger.clock.now().getTime() + 3_600_000).toISOString(),
+    });
+    const cookie = await loginAs(app, 'FakeProvider-viewer');
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/financial/overview',
+      headers: { cookie },
+    });
+    const usd = response.json().currencies[0];
+    expect(usd.status).toBe('ok'); // the engine still computes from the fresh snapshot…
+    expect(usd.provenance.source).toBe('airwallex-sandbox'); // …and reports the label verbatim…
+    expect(usd.provenance.providerVerified).toBe(false); // …but NEVER as verified funds
+    await app.close();
+    ledger.close();
+  });
+
   it('an EXPIRED balance is stale: provenance is shown, spendable is withheld', async () => {
     const cookie = await loginAs(staleWorld.app, 'StaleOrg-viewer');
     const response = await staleWorld.app.inject({
