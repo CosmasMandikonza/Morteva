@@ -283,7 +283,9 @@ describe('GET /api/financial/overview — balances, provenance, spendable, commi
     expect(usd.provenance).toMatchObject({
       source: 'manual-seed',
       stale: false,
+      // A manual seed is NOT provider-verified funds — the contract says so.
     });
+    expect(usd.provenance.providerVerified).toBe(false);
     // 1,000,000 − 0 floor − (250,000 reserved + 83,250 unknown [ambiguous 33,250 +
     // escalated 50,000 — both retain exposure] + 100,000 settled-pending)
     expect(usd.spendable).toEqual({ minorUnits: 566_750, major: '5667.50', overcommitted: false });

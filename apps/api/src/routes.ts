@@ -442,6 +442,11 @@ export function registerAuthAndFinancialRoutes(
         observedAt: latest.snapshot.observedAt,
         expiresAt: latest.snapshot.expiresAt,
         stale: !latest.fresh,
+        // Only a provider observation makes funds provider-verified. A manual
+        // seed is recorded operator input — NOT provider-verified money — and
+        // balance is a different concept from mandate authority (what the org
+        // is PERMITTED to spend; served by /api/mandates). Authority is not money.
+        providerVerified: latest.snapshot.source !== 'manual-seed',
       };
       const breakdown = commitmentBreakdown(ledger, orgId, currency, latest.snapshot.observedAt);
       if (!latest.fresh) {
