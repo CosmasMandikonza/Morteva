@@ -725,6 +725,9 @@ a {
   color: var(--mv-ink-2);
 }
 .mv-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   font: inherit;
   padding: 9px 12px;
   border-radius: 4px;
@@ -808,4 +811,17 @@ a {
   .mv-mandate__remaining {
     font-size: var(--mv-size-lg);
   }
+}
+
+/* Prose containment: long words never force horizontal scroll on any font. */
+.mv-signin__why,
+.mv-unavailable__what,
+.mv-unavailable__why,
+.mv-unavailable__note,
+.mv-status__notice,
+.mv-provider__detail,
+.mv-footer p,
+.mv-hero__meta,
+.mv-mandate__meaning {
+  overflow-wrap: anywhere;
 }

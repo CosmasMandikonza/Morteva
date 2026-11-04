@@ -93,7 +93,17 @@ test.describe('app shell smoke', () => {
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto('/');
+      // Measure the settled layout: fonts drive tabular figures and labels.
+      await page.evaluate('document.fonts.ready.then(() => undefined)');
+      await page.evaluate('new Promise((r) => requestAnimationFrame(() => r(null)))');
       const scrollWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
+      if (scrollWidth > width + 1) {
+        // Self-diagnosing failure: name the elements painting past the viewport.
+        const offenders = await page.evaluate<Array<Record<string, unknown>>>(
+          'Array.from(document.querySelectorAll("*")).filter((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth + 1).slice(0, 8).map((el) => ({ tag: el.tagName, cls: String(el.className).slice(0, 60), right: Math.round(el.getBoundingClientRect().right) }))',
+        );
+        console.error(`overflow at ${width}: ${JSON.stringify(offenders)}`);
+      }
       expect(scrollWidth).toBeLessThanOrEqual(width + 1);
     }
   });
