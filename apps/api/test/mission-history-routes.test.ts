@@ -342,3 +342,129 @@ describe('typed contracts (#36) — the wire shapes ARE the domain views', () =>
     ledger.close();
   });
 });
+
+describe('evidence disclosure boundary (#37 CTO review) — payloads are projected, never raw', () => {
+  // EvidenceService.append is a GENERIC writer: it stores caller-supplied
+  // JSON verbatim. These tests inject hostile payloads through that exact
+  // seam and prove the API discloses only the per-type allowlist.
+  function injectHostile() {
+    const { app, ledger } = makeApp();
+    const seeded = seedOrg(ledger, 'LeakA', true);
+    // 1. An allowlisted TYPE carrying secrets in non-allowlisted fields AND
+    //    a nested object under an allowlisted key AND nested attestation junk.
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'operation.settled',
+      eventKey: 'operation:op_leak1:settled',
+      payload: {
+        operationId: 'op_leak1',
+        from: 'IN_FLIGHT',
+        to: 'SETTLED',
+        reason: { api_key: 'leak-if-you-can', nested: { pii: 'Jane Doe' } },
+        attestation: {
+          source: 'provider-readback',
+          note: 'legitimate note',
+          authorization: 'Bearer leak-token',
+          bank_details: { account_number: '999' },
+        },
+        api_key: 'secret-key-1',
+        authorization: 'Bearer raw-credential',
+        beneficiaryDetails: { full_name: 'Jane Doe', email: 'jane@example.test' },
+      },
+    });
+    // 2. An UNRECOGNIZED event type with a fully juicy payload.
+    ledger.evidence.append({
+      orgId: seeded.org.id,
+      missionId: seeded.mission.id,
+      topic: 'financial',
+      type: 'admin.debug.internal',
+      eventKey: 'admin:debug:1',
+      payload: { password: 'hunter2-xx', sessionToken: 'tok_leak', pii: ['Jane Doe'] },
+    });
+    return { app, ledger, mission: seeded.mission };
+  }
+
+  it('an allowlisted type discloses ONLY allowlisted scalar fields; nested secrets/PII never surface', async () => {
+    const { app, ledger, mission } = injectHostile();
+    const cookie = await loginAs(app, 'LeakA-viewer');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/missions/${mission.id}/evidence`,
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const settled = response
+      .json()
+      .events.find((e: { eventKey: string }) => e.eventKey === 'operation:op_leak1:settled');
+    expect(settled).toBeDefined();
+    // Allowlisted scalars survive…
+    expect(settled.payload).toMatchObject({
+      operationId: 'op_leak1',
+      from: 'IN_FLIGHT',
+      to: 'SETTLED',
+    });
+    // …the attestation is projected to source+note only…
+    expect(settled.payload.attestation).toEqual({
+      source: 'provider-readback',
+      note: 'legitimate note',
+    });
+    // …and NOTHING else crosses the wire — not top-level secrets, not nested
+    // objects under allowlisted keys, not PII blobs.
+    const serialized = JSON.stringify(response.json());
+    for (const leak of [
+      'leak-if-you-can',
+      'Jane Doe',
+      'jane@example.test',
+      'secret-key-1',
+      'raw-credential',
+      'Bearer leak-token',
+      'account_number',
+      'bank_details',
+    ]) {
+      expect(serialized).not.toContain(leak);
+    }
+    await app.close();
+    ledger.close();
+  });
+
+  it('an UNRECOGNIZED event type is listed (digest intact) with payload null — never its raw JSON', async () => {
+    const { app, ledger, mission } = injectHostile();
+    const cookie = await loginAs(app, 'LeakA-viewer');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/missions/${mission.id}/evidence`,
+      headers: { cookie },
+    });
+    const unknownEvent = response
+      .json()
+      .events.find((e: { type: string }) => e.type === 'admin.debug.internal');
+    expect(unknownEvent).toBeDefined();
+    expect(unknownEvent.payload).toBeNull();
+    expect(unknownEvent.payloadDigest).toMatch(/^[0-9a-f]{16,}/); // integrity intact
+    const serialized = JSON.stringify(response.json());
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('tok_leak');
+    await app.close();
+    ledger.close();
+  });
+
+  it('the stored journal itself is untouched by projection (append-only history preserved)', async () => {
+    const { app, ledger, mission } = injectHostile();
+    const cookie = await loginAs(app, 'LeakA-viewer');
+    await app.inject({
+      method: 'GET',
+      url: `/api/missions/${mission.id}/evidence`,
+      headers: { cookie },
+    });
+    const stored = ledger.db
+      .prepare(`SELECT payload_json FROM evidence_events WHERE event_key = ?`)
+      .get('operation:op_leak1:settled') as { payload_json: string };
+    // What the journal STORED is exactly what was appended — the projection
+    // happens at read time only; the append-only record keeps full fidelity.
+    expect(stored.payload_json).toContain('leak-if-you-can');
+    await app.close();
+    ledger.close();
+  });
+});

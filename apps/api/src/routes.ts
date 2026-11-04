@@ -642,12 +642,125 @@ export function registerAuthAndFinancialRoutes(
       type: String(row.type),
       eventKey: String(row.event_key),
       payloadDigest: String(row.payload_digest),
-      payload: safeJsonParse(row.payload_json),
+      // DISCLOSURE BOUNDARY (#37 CTO review): the stored journal JSON is NOT
+      // disclosed as-is. EvidenceService.append accepts caller-supplied
+      // payloads, and provider-side minimization is not universal proof about
+      // every writer — so the API projects an explicit per-event-type public
+      // allowlist of scalar fields. Unrecognized event types → payload null.
+      payload: projectEvidencePayload(String(row.type), safeJsonParse(row.payload_json)),
       recordedAt: String(row.recorded_at),
     }));
     const view: MissionEvidenceListView = { missionId, events };
     return view;
   });
+}
+
+/**
+ * Public evidence-payload projection (#37 CTO review). For every event type
+ * the engine journals today, ONLY these top-level fields are disclosed to
+ * viewer sessions; each value is copied only if it is a scalar or a flat
+ * array of scalars (never a nested object). Unrecognized event types and any
+ * non-allowlisted field are dropped — the event stays listed with its
+ * integrity digest, and `payload` becomes null when nothing allowlisted
+ * remains. The stored journal itself is untouched.
+ *
+ * The allowlist was derived from an audit of every EvidenceService.append
+ * writer (plans, mandates, authority, reservations, worker). Adding a new
+ * journaling call site REQUIRES extending this table deliberately.
+ */
+const EVIDENCE_PAYLOAD_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  'approval.granted': [
+    'approvalId',
+    'planId',
+    'planVersion',
+    'planDigest',
+    'decidedBy',
+    'kind',
+    'mandateId',
+    'mandateVersion',
+    'expiresAt',
+  ],
+  'approval.revoked': ['approvalId', 'by', 'reason'],
+  'mandate.issued': [
+    'mandateId',
+    'version',
+    'currency',
+    'maxAmountMinor',
+    'totalBudgetMinor',
+    'rails',
+    'by',
+  ],
+  'mandate.revoked': ['mandateId', 'by', 'reason'],
+  'actor.created': ['actorId', 'role', 'kind'], // username deliberately NOT disclosed
+  'actor.revoked': ['actorId', 'by'], // username deliberately NOT disclosed
+  'session.created': ['actorId', 'expiresAt'],
+  'grant.created': ['grantId', 'actorId', 'by'],
+  'grant.revoked': ['missionId', 'actorId', 'by'],
+  'reservation.denied': ['requestId', 'code', 'message'],
+  'operation.reserved': [
+    'operationId',
+    'requestId',
+    'kind',
+    'amountMinor',
+    'currency',
+    'beneficiary',
+    'planDigest',
+    'approvalId',
+  ],
+  'dispatch.attempt': ['dispatchId', 'requestId', 'attempt'],
+  'dispatch.result': ['dispatchId', 'requestId', 'providerStatus', 'providerState'],
+  'dispatch.unknown': ['dispatchId', 'requestId'], // raw error text deliberately NOT disclosed
+  'dispatch.blocked': ['dispatchId', 'requestId', 'reason', 'operationId'],
+  'dispatch.reconcile': [
+    'dispatchId',
+    'requestId',
+    'providerStatus',
+    'providerState',
+    'verifiedAt',
+  ],
+  'settlement.reversed': ['dispatchId', 'requestId', 'providerState', 'note'],
+  'settlement.reversed.after_reconciled': ['dispatchId', 'requestId', 'providerState'],
+};
+
+function isDisclosableValue(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return true;
+  }
+  return Array.isArray(value) && value.every((v) => typeof v === 'string' || typeof v === 'number');
+}
+
+function projectEvidencePayload(type: string, raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  const allow = EVIDENCE_PAYLOAD_ALLOWLIST[type];
+  if (allow !== undefined) {
+    // Explicitly tabulated type (including operation.reserved, whose payload
+    // is richer than a plain state transition).
+    for (const key of allow) {
+      if (key in record && isDisclosableValue(record[key])) out[key] = record[key];
+    }
+  } else if (type.startsWith('operation.')) {
+    // State transitions (operation.<state>): identifiers + the decision text
+    // the operator must see. The attestation is itself projected — only its
+    // source and note strings survive, never arbitrary nested content.
+    for (const key of ['operationId', 'from', 'to', 'reason']) {
+      if (key in record && isDisclosableValue(record[key])) out[key] = record[key];
+    }
+    const attestation = record.attestation;
+    if (attestation !== null && typeof attestation === 'object' && !Array.isArray(attestation)) {
+      const a = attestation as Record<string, unknown>;
+      const projected: Record<string, string> = {};
+      if (typeof a.source === 'string') projected.source = a.source;
+      if (typeof a.note === 'string') projected.note = a.note;
+      if (Object.keys(projected).length > 0) out.attestation = projected;
+    }
+  } else {
+    return null; // unrecognized type: metadata + digest only
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /** Parse stored journal JSON without ever throwing on malformed legacy rows. */

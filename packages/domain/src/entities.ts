@@ -208,12 +208,19 @@ export interface MoneyView {
   readonly major: string;
 }
 
-/** Where a balance number came from, and whether it can still be trusted. */
+/**
+ * Where a balance number came from, and whether it can still be trusted.
+ * `providerVerified` is true ONLY for a balance actually observed at a
+ * provider (airwallex-sandbox / metal-testnet). A manual seed is recorded
+ * operator input, NOT provider-verified funds — and a balance is a different
+ * concept from mandate authority (what the org is PERMITTED to spend): authority is not money.
+ */
 export interface BalanceProvenanceView {
   readonly source: string;
   readonly observedAt: string;
   readonly expiresAt: string;
   readonly stale: boolean;
+  readonly providerVerified: boolean;
 }
 
 /**
@@ -282,7 +289,13 @@ export interface OperationListView {
   readonly counts: { returned: number; needsHuman: number; ambiguous: number };
 }
 
-/** One append-only journal event, with the stored (already minimized) payload. */
+/**
+ * One append-only journal event. `payload` is a PROJECTED public view, not the
+ * stored journal JSON: the API discloses only per-event-type allowlisted
+ * scalar fields (see the API's evidence projection); unrecognized event types
+ * and non-allowlisted fields yield `payload: null`/absent. The digest stays
+ * verifiable against the journal.
+ */
 export interface MissionEvidenceEventView {
   readonly seq: number;
   readonly id: string;
