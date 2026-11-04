@@ -1,37 +1,74 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Authenticated operator journey against the REAL API + seeded throwaway
- * ledger (e2e/scripts/demo-auth-server.mjs): login → missions → mandate
- * envelope math → lapsed-expiry honesty → mission switch → reload keeps the
- * session → sign out works with the persisted CSRF token.
+ * ledger (e2e/scripts/demo-auth-server.mjs): login → missions → effective
+ * authority (expiry excluded) → provenance → negative auth flows.
+ *
+ * Seed facts used by assertions:
+ * - Mission A "Harbor turbine inspection": USD mandate 150,000.00 envelope
+ *   with 60,000.00 committed; EUR 40,000.00 uncommitted; GBP mandate issued
+ *   with a 200ms fuse (valid at issue, lapsed by clock when rendered);
+ *   one superseded USD v1.
+ * - Mission B "Subsea mooring survey": USD 60,000.00 envelope,
+ *   12,000.00 committed.
  */
-test.describe('authenticated treasury journey', () => {
-  test('login renders real ledger data with honest mandate states', async ({ page }) => {
-    await page.goto('/');
-    await page.getByLabel('Username').fill('founder');
-    await page.getByLabel('Password').fill('moterva-e2e-demo');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+async function signIn(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.getByLabel('Username').fill('founder');
+  await page.getByLabel('Password').fill('moterva-e2e-demo');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByTestId('actor-chip')).toBeVisible();
+}
 
+test.describe('authenticated treasury journey', () => {
+  test('login renders real ledger data with effective authority and provenance', async ({
+    page,
+  }) => {
+    await signIn(page);
     await expect(page.getByTestId('actor-chip')).toContainText('E2E Founder');
+
+    // Provenance is explicit, compact and accurate for a seeded demo.
+    await expect(page.getByTestId('provenance-chip')).toContainText(
+      'DEMO_AUTH · seeded internal ledger — not Airwallex funds',
+    );
 
     // Real missions from the ledger.
     const missions = page.getByTestId('missions-panel');
     await expect(missions).toContainText('Harbor turbine inspection');
     await expect(missions).toContainText('Subsea mooring survey');
 
-    // Real envelope math: USD 150,000.00 total, 60,000.00 committed → 90,000.00 remaining.
+    // EFFECTIVE authority excludes the clock-lapsed GBP mandate: the hero
+    // counts USD + EUR only — USD 90,000.00 and EUR 40,000.00 remaining.
+    const hero = page.getByTestId('mission-hero');
+    await expect(hero).toContainText('USD 90,000.00');
+    await expect(hero).toContainText('EUR 40,000.00');
+    await expect(hero).not.toContainText('GBP');
+    await expect(hero).toContainText('effective authority');
+
+    // Real envelope math on the effective card.
     const mandates = page.getByTestId('mandates-panel');
-    await expect(mandates).toContainText('USD 90,000.00');
     await expect(mandates).toContainText('of 150,000.00 envelope');
     await expect(mandates).toContainText('40% committed');
 
-    // Honest status semantics: three active mandates (USD, EUR and the
-    // clock-lapsed GBP), a superseded history row, and the lapsed surfacing.
-    await expect(mandates.locator('.mv-chip--info', { hasText: 'Mandate active' })).toHaveCount(3);
+    // The lapsed mandate stays inspectable but is NEVER spendable: its own
+    // section, a not-spendable chip (no "Mandate active" claim), historical
+    // framing, and the recorded status shown for audit.
+    const lapsed = page.getByTestId('lapsed-mandate');
+    await expect(lapsed).toContainText('Lapsed — not spendable');
+    await expect(lapsed).toContainText('historical envelope 20,000.00');
+    await expect(lapsed).toContainText('recorded status: active');
+    await expect(lapsed.locator('.mv-chip--info')).toHaveCount(0);
+    await expect(page.locator('.mv-chip--info', { hasText: 'Mandate active' })).toHaveCount(2);
+
+    // Superseded history remains.
     await expect(mandates.locator('.mv-chip--neutral', { hasText: 'Superseded' })).toBeVisible();
-    await expect(page.getByTestId('lapsed-tag')).toContainText('expiry passed');
-    await expect(mandates.getByText('— lapsed')).toBeVisible();
+
+    // Provenance panel: no blanket "no data" claims; provider state accurate.
+    const caps = page.getByTestId('capabilities-panel');
+    await expect(caps).toContainText('seeded demonstration data');
+    await expect(caps).toContainText('adapter is implemented but disabled');
+    await expect(caps.getByText('No simulated or fixture data')).toHaveCount(0);
 
     // Mission selection actually drives the content.
     await page.getByRole('button', { name: /Subsea mooring survey/ }).click();
@@ -45,11 +82,7 @@ test.describe('authenticated treasury journey', () => {
   test('session survives reload and sign out works with the persisted CSRF token', async ({
     page,
   }) => {
-    await page.goto('/');
-    await page.getByLabel('Username').fill('founder');
-    await page.getByLabel('Password').fill('moterva-e2e-demo');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByTestId('actor-chip')).toBeVisible();
+    await signIn(page);
 
     // Reload: cookie session + stored CSRF token must keep Sign out functional.
     await page.reload();
@@ -59,6 +92,76 @@ test.describe('authenticated treasury journey', () => {
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByTestId('signin-panel')).toBeVisible();
     await expect(page.getByTestId('actor-chip')).toHaveCount(0);
+  });
+
+  test('server-rejected logout keeps the authenticated state and shows the failure', async ({
+    page,
+  }) => {
+    await signIn(page);
+
+    await page.route('**/api/auth/logout', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+    );
+    await page.getByRole('button', { name: 'Sign out' }).click();
+
+    // No fake signed-out state: session UI stays, failure is announced.
+    await expect(page.getByTestId('actor-chip')).toContainText('E2E Founder');
+    await expect(page.getByRole('alert')).toContainText('Sign out failed');
+    await expect(page.getByRole('alert')).toContainText('session remains active');
+    await expect(page.getByTestId('signin-panel')).toHaveCount(0);
+
+    // After the server recovers, sign out succeeds with the same token.
+    await page.unroute('**/api/auth/logout');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByTestId('signin-panel')).toBeVisible();
+    await expect(page.getByTestId('actor-chip')).toHaveCount(0);
+  });
+
+  test('session expiration (401 on a financial read) hides financial content', async ({ page }) => {
+    await signIn(page);
+    await expect(page.getByTestId('missions-panel')).toContainText('Harbor turbine inspection');
+
+    // The server rejects the next authenticated read: content must not remain.
+    await page.route('**/api/missions', (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'expired' } }),
+      }),
+    );
+    await page.reload();
+
+    await expect(page.getByTestId('signin-panel')).toBeVisible();
+    await expect(page.getByTestId('actor-chip')).toHaveCount(0);
+    await expect(page.getByTestId('missions-panel')).toHaveCount(0);
+    await expect(page.getByText('Harbor turbine inspection')).toHaveCount(0);
+  });
+
+  test('recovers from an API error via retry', async ({ page }) => {
+    let failing = true;
+    await page.route('**/api/missions', async (route) => {
+      if (failing) {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'INTERNAL', message: 'boom' } }),
+        });
+      } else {
+        const response = await route.fetch();
+        await route.fulfill({ response });
+      }
+    });
+
+    await signIn(page);
+    const alert = page.getByRole('alert').filter({ hasText: 'Could not load' });
+    await expect(alert).toBeVisible();
+    // No missions leaked into view while the read fails.
+    await expect(page.getByText('Harbor turbine inspection')).toHaveCount(0);
+
+    failing = false;
+    await alert.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByTestId('missions-panel')).toContainText('Harbor turbine inspection');
+    await expect(page.getByRole('alert').filter({ hasText: 'Could not load' })).toHaveCount(0);
   });
 
   test('wrong password shows the server error, never a session', async ({ page }) => {

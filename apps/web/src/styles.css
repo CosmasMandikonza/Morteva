@@ -825,3 +825,54 @@ a {
 .mv-mandate__meaning {
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------ P0 additions */
+/* Lapsed-by-clock mandate: inspectable history, never spendable. */
+.mv-mandate--lapsed {
+  border-style: dashed;
+  border-color: var(--mv-danger-text);
+}
+.mv-mandate--lapsed .mv-meter {
+  background: var(--mv-line);
+}
+.mv-mandate--lapsed .mv-meter > span {
+  background: var(--mv-ink-3);
+}
+.mv-mandate__remaining--muted {
+  color: var(--mv-ink-3);
+  font-weight: 400;
+}
+.mv-mandate__recorded {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  margin-left: auto;
+}
+.mv-provenance-chip {
+  max-width: 340px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+/* Provenance kinds (compact inline labels, not warning cards). */
+.mv-caps__kind {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 8px;
+  vertical-align: 1px;
+}
+.mv-caps__kind--internal {
+  color: var(--mv-info-text);
+  border: 1px solid var(--mv-info-text);
+}
+.mv-caps__kind--unavailable {
+  color: var(--mv-hold-text);
+  border: 1px solid var(--mv-hold-text);
+}
+.mv-caps__kind--none {
+  color: var(--mv-ink-3);
+  border: 1px solid var(--mv-line-strong);
+}

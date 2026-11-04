@@ -30,6 +30,7 @@ export function Treasury({
   selectedMissionId,
   onSelectMission,
   onLogin,
+  onSessionExpired,
   loginBusy,
   loginError,
 }: {
@@ -37,6 +38,8 @@ export function Treasury({
   selectedMissionId: string | null;
   onSelectMission: (id: string | null) => void;
   onLogin: (username: string, password: string) => void;
+  /** Invoked when an authenticated read returns 401: financial content must not remain exposed. */
+  onSessionExpired: () => void;
   loginBusy: boolean;
   loginError: string | null;
 }): JSX.Element {
@@ -44,6 +47,10 @@ export function Treasury({
   const [mandates, setMandates] = useState<Load<MandateRow[]>>({ kind: 'loading' });
 
   const signedIn = session.kind === 'signed-in';
+  // Provenance: records are genuine internal ledger rows, but under DEMO_AUTH
+  // the ledger itself is locally seeded demonstration data — never presented
+  // as externally verified banking information.
+  const isDemoLedger = session.kind === 'signed-in' && session.session.demoAuth;
   const actorId = session.kind === 'signed-in' ? session.session.actor.id : null;
 
   useEffect(() => {
@@ -58,6 +65,12 @@ export function Treasury({
       .then((rows) => setMissions({ kind: 'ok', data: rows }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401) {
+          // Session expired / revoked server-side: drop the authenticated
+          // state immediately so no financial content stays on screen.
+          onSessionExpired();
+          return;
+        }
         setMissions({
           kind: 'error',
           message: error instanceof Error ? error.message : 'Unknown error',
@@ -65,7 +78,7 @@ export function Treasury({
         });
       });
     return () => controller.abort();
-  }, [signedIn, actorId]);
+  }, [signedIn, actorId, onSessionExpired]);
 
   const missionList = missions.kind === 'ok' ? missions.data : [];
   const effectiveMissionId = useMemo(() => {
@@ -87,21 +100,33 @@ export function Treasury({
       .then((rows) => setMandates({ kind: 'ok', data: rows }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401) {
+          onSessionExpired();
+          return;
+        }
         setMandates({
           kind: 'error',
           message: error instanceof Error ? error.message : 'Unknown error',
         });
       });
     return () => controller.abort();
-  }, [signedIn, effectiveMissionId]);
+  }, [signedIn, effectiveMissionId, onSessionExpired]);
 
   const selectedMission = missionList.find((m) => m.id === effectiveMissionId) ?? null;
   const mandateList = mandates.kind === 'ok' ? mandates.data : [];
-  const activeMandates = mandateList.filter((m) => m.status === 'active');
+  // Persisted status is the ledger's truth and stays inspectable. EFFECTIVE
+  // authority is separate: a mandate whose expiry has passed by wall clock is
+  // not spendable now, whatever its recorded status — it must never inflate
+  // usable-authority sums or counts (P0-1). The ledger's own financial
+  // calculations are untouched.
+  const isLapsed = (m: MandateRow): boolean =>
+    m.status === 'active' && Date.parse(m.expires_at) <= Date.now();
+  const effectiveMandates = mandateList.filter((m) => m.status === 'active' && !isLapsed(m));
+  const lapsedMandates = mandateList.filter(isLapsed);
   const historyMandates = mandateList.filter((m) => m.status !== 'active');
   const envelopeTotals = useMemo(() => {
     const totals = new Map<string, { total: number; consumed: number }>();
-    for (const mandate of activeMandates) {
+    for (const mandate of effectiveMandates) {
       const total =
         mandate.total_budget_minor !== -1 ? mandate.total_budget_minor : mandate.max_amount_minor;
       const current = totals.get(mandate.currency) ?? { total: 0, consumed: 0 };
@@ -111,7 +136,7 @@ export function Treasury({
       });
     }
     return totals;
-  }, [activeMandates]);
+  }, [effectiveMandates]);
 
   return (
     <div className="mv-treasury">
@@ -156,12 +181,16 @@ export function Treasury({
                     setMissions({ kind: 'loading' });
                     void fetchMissions()
                       .then((rows) => setMissions({ kind: 'ok', data: rows }))
-                      .catch((error: unknown) =>
+                      .catch((error: unknown) => {
+                        if (error instanceof ApiError && error.status === 401) {
+                          onSessionExpired();
+                          return;
+                        }
                         setMissions({
                           kind: 'error',
                           message: error instanceof Error ? error.message : 'Unknown error',
-                        }),
-                      );
+                        });
+                      });
                   }}
                 />
               )}
@@ -196,30 +225,57 @@ export function Treasury({
             </Panel>
 
             <Panel
-              title="Ledger capabilities"
-              meta={<span className="mv-tag mv-tag--unavailable">not available</span>}
+              title="Data provenance"
+              meta={<span className="mv-tag">what each figure is</span>}
               testId="capabilities-panel"
             >
               <ul className="mv-caps">
                 <li>
-                  <span className="mv-caps__name">Organization balances</span>
+                  <span className="mv-caps__name">
+                    Missions &amp; mandates{' '}
+                    <span className="mv-caps__kind mv-caps__kind--internal">internal ledger</span>
+                  </span>
                   <span className="mv-caps__why">
-                    Spendable capacity and the protected reserve live in the ledger engine; no
-                    authorized read endpoint exists yet.
+                    Genuine internal ledger records
+                    {isDemoLedger
+                      ? ' — in this local demo the ledger itself is seeded demonstration data'
+                      : ''}
+                    . Envelope figures are mandate-authorized spending authority, not account
+                    balances.
                   </span>
                 </li>
                 <li>
-                  <span className="mv-caps__name">Operations &amp; exceptions</span>
+                  <span className="mv-caps__name">
+                    Account balance &amp; spendable{' '}
+                    <span className="mv-caps__kind mv-caps__kind--unavailable">unavailable</span>
+                  </span>
                   <span className="mv-caps__why">
-                    Reserved / in-flight / unknown / verified outcomes and the needs-human queue
-                    need a list route (single-ID lookup exists only).
+                    No authorized endpoint exposes balances yet (financial-overview API under
+                    review, #35). Nothing is derived, estimated or simulated here.
+                  </span>
+                </li>
+                <li>
+                  <span className="mv-caps__name">
+                    Operations &amp; exceptions{' '}
+                    <span className="mv-caps__kind mv-caps__kind--unavailable">unavailable</span>
+                  </span>
+                  <span className="mv-caps__why">
+                    Needs an org-scoped list route (#35); single-operation lookup by ID exists only.
+                    Reserved / in-flight / unknown / verified outcomes are not listed anywhere yet.
+                  </span>
+                </li>
+                <li>
+                  <span className="mv-caps__name">
+                    Provider observations{' '}
+                    <span className="mv-caps__kind mv-caps__kind--none">none</span>
+                  </span>
+                  <span className="mv-caps__why">
+                    The Airwallex sandbox adapter is implemented but disabled until sandbox
+                    credentials exist (#5 open); no provider call is made or claimed. Metal remains
+                    offline (#6). See System status below for the server&rsquo;s verbatim report.
                   </span>
                 </li>
               </ul>
-              <p className="mv-panel__note">
-                No simulated or fixture data is shown. These panels activate when the financial API
-                surface ships.
-              </p>
             </Panel>
           </div>
 
@@ -239,28 +295,30 @@ export function Treasury({
                         {money(currency, Math.max(0, t.total - t.consumed))}
                       </span>
                       <span className="mv-hero__label">
-                        envelope remaining · {moneyAmount(t.total)} {currency} active authority
+                        envelope remaining · {moneyAmount(t.total)} {currency} effective authority
                       </span>
                     </div>
                   ))}
                   {envelopeTotals.size === 0 && mandates.kind === 'ok' && (
                     <div className="mv-hero__figure">
                       <span className="mv-hero__value">—</span>
-                      <span className="mv-hero__label">no active authority</span>
+                      <span className="mv-hero__label">no effective authority</span>
                     </div>
                   )}
                 </div>
                 <p className="mv-hero__meta">
                   {selectedMission.status} mission · created{' '}
-                  {formatDate(selectedMission.created_at)}. Mission-scoped envelopes from active
-                  mandates — not an account balance.
+                  {formatDate(selectedMission.created_at)}. Mission-scoped envelopes from mandates
+                  that are effective now (active and unexpired) — not an account balance. Source:
+                  internal ledger
+                  {isDemoLedger ? ' (locally seeded demonstration data)' : ''}.
                 </p>
               </section>
             )}
 
             <Panel
               title="Spending authority"
-              meta="mandates, newest version first"
+              meta="mandate-authorized envelopes · newest version first"
               testId="mandates-panel"
             >
               {mandates.kind === 'loading' && <SkeletonRows rows={4} />}
@@ -273,9 +331,9 @@ export function Treasury({
                   workflow; nothing is invented here.
                 </p>
               )}
-              {mandates.kind === 'ok' && activeMandates.length > 0 && (
+              {mandates.kind === 'ok' && effectiveMandates.length > 0 && (
                 <ul className="mv-mandates">
-                  {activeMandates.map((mandate) => {
+                  {effectiveMandates.map((mandate) => {
                     const presentation = mandatePresentation(mandate.status);
                     const total =
                       mandate.total_budget_minor !== -1
@@ -284,22 +342,10 @@ export function Treasury({
                     const used = percent(mandate.consumed_minor, total);
                     const kinds = parseJsonArray(mandate.permitted_kinds_json);
                     const rails = parseJsonArray(mandate.rails_json);
-                    // Ledger status is the truth we render; a wall-clock lapse
-                    // is surfaced honestly without inventing a ledger state.
-                    const lapsedByClock =
-                      mandate.status === 'active' && Date.parse(mandate.expires_at) <= Date.now();
                     return (
                       <li className="mv-mandate" key={mandate.id} data-state={mandate.status}>
                         <div className="mv-mandate__head">
                           <StatusChip entry={presentation} />
-                          {lapsedByClock && (
-                            <span className="mv-chip mv-chip--danger" data-testid="lapsed-tag">
-                              <span className="mv-chip__glyph" aria-hidden="true">
-                                ⏱
-                              </span>
-                              expiry passed
-                            </span>
-                          )}
                           <span className="mv-mandate__version">v{mandate.version}</span>
                           <span className="mv-mandate__currency">{mandate.currency}</span>
                         </div>
@@ -335,10 +381,7 @@ export function Treasury({
                             </div>
                             <div>
                               <dt>Expires</dt>
-                              <dd className={lapsedByClock ? 'mv-mandate__lapsed' : undefined}>
-                                {formatDate(mandate.expires_at)}
-                                {lapsedByClock && ' — lapsed'}
-                              </dd>
+                              <dd>{formatDate(mandate.expires_at)}</dd>
                             </div>
                             <div>
                               <dt>Kind / rails</dt>
@@ -354,6 +397,79 @@ export function Treasury({
                     );
                   })}
                 </ul>
+              )}
+              {mandates.kind === 'ok' && lapsedMandates.length > 0 && (
+                <>
+                  <p className="mv-subhead">Expired by clock — not spendable now</p>
+                  <ul className="mv-mandates">
+                    {lapsedMandates.map((mandate) => {
+                      const total =
+                        mandate.total_budget_minor !== -1
+                          ? mandate.total_budget_minor
+                          : mandate.max_amount_minor;
+                      const used = percent(mandate.consumed_minor, total);
+                      return (
+                        <li
+                          className="mv-mandate mv-mandate--lapsed"
+                          key={mandate.id}
+                          data-state="lapsed-by-clock"
+                          data-testid="lapsed-mandate"
+                        >
+                          <div className="mv-mandate__head">
+                            <span className="mv-chip mv-chip--danger">
+                              <span className="mv-chip__glyph" aria-hidden="true">
+                                ⏱
+                              </span>
+                              Lapsed — not spendable
+                            </span>
+                            <span className="mv-mandate__version">v{mandate.version}</span>
+                            <span className="mv-mandate__currency">{mandate.currency}</span>
+                            <span className="mv-mandate__recorded mv-num">
+                              recorded status: {mandate.status}
+                            </span>
+                          </div>
+                          <div className="mv-mandate__envelope">
+                            <div className="mv-mandate__figures">
+                              <span className="mv-num mv-mandate__remaining mv-mandate__remaining--muted">
+                                {money(mandate.currency, mandate.remaining_minor)}
+                              </span>
+                              <span className="mv-num mv-mandate__total">
+                                historical envelope {moneyAmount(total)} · {used}% committed
+                              </span>
+                            </div>
+                            <div
+                              className="mv-meter mv-meter--muted"
+                              role="img"
+                              aria-label={`historical: ${used} percent of the ${money(mandate.currency, total)} envelope was committed before expiry`}
+                            >
+                              <span style={{ width: `${used}%` }} />
+                            </div>
+                            <dl className="mv-mandate__meta">
+                              <div>
+                                <dt>Committed (historical)</dt>
+                                <dd className="mv-num">
+                                  {money(mandate.currency, mandate.consumed_minor)}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Expired</dt>
+                                <dd className="mv-mandate__lapsed">
+                                  {formatDate(mandate.expires_at)}
+                                </dd>
+                              </div>
+                            </dl>
+                            <p className="mv-mandate__meaning">
+                              Expiry passed by wall clock — this authority cannot authorize new
+                              spending now. The remaining envelope is a historical figure, not
+                              available authority; the ledger still records status “{mandate.status}
+                              ” until it applies its own transition.
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
               {mandates.kind === 'ok' && historyMandates.length > 0 && (
                 <>

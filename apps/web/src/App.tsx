@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { SystemStatusCard } from './components/SystemStatusCard';
 import { Treasury } from './screens/Treasury';
@@ -119,6 +119,19 @@ export function App(): JSX.Element {
       });
   };
 
+  /**
+   * An authenticated read returned 401 (expired/revoked session): drop the
+   * local authenticated state so no financial content remains exposed. The
+   * stale CSRF token is cleared with it — it is a session-bound demo detail,
+   * not an independent credential (the HttpOnly cookie is the real session).
+   */
+  const handleSessionExpired = useCallback(() => {
+    setCsrfToken(null);
+    storeCsrf(null);
+    setSelectedMissionId(null);
+    setSession({ kind: 'signed-out' });
+  }, []);
+
   const active = NAV_ITEMS.find((item) => item.id === section) ?? NAV_ITEMS[0];
   if (!active) throw new Error('navigation table is empty');
   const actor = session.kind === 'signed-in' ? session.session.actor : null;
@@ -154,6 +167,15 @@ export function App(): JSX.Element {
         </nav>
 
         <div className="mv-topbar__ops">
+          {actor !== null && session.kind === 'signed-in' && session.session.demoAuth && (
+            <span
+              className="mv-tag mv-tag--demo mv-provenance-chip"
+              data-testid="provenance-chip"
+              title="This session authenticates against the server's loopback-only DEMO_AUTH gate. Figures are genuine internal ledger records, but the ledger itself is locally seeded demonstration data — not Airwallex funds."
+            >
+              DEMO_AUTH · seeded internal ledger — not Airwallex funds
+            </span>
+          )}
           {actor !== null && (
             <span className="mv-actor" data-testid="actor-chip">
               <span className="mv-actor__name">{actor.displayName}</span>
@@ -194,6 +216,7 @@ export function App(): JSX.Element {
             selectedMissionId={selectedMissionId}
             onSelectMission={setSelectedMissionId}
             onLogin={handleLogin}
+            onSessionExpired={handleSessionExpired}
             loginBusy={loginBusy}
             loginError={loginError}
           />
