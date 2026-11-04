@@ -154,6 +154,11 @@ a {
 .mv-actor__role {
   color: var(--mv-accent-text);
 }
+.mv-actor__error {
+  color: var(--mv-danger-text);
+  font-size: var(--mv-size-sm);
+  max-width: 320px;
+}
 
 /* ------------------------------------------------------------ buttons */
 .mv-btn {
@@ -242,6 +247,14 @@ a {
 @media (max-width: 1023px) {
   .mv-grid--treasury {
     grid-template-columns: 1fr;
+  }
+  /* Mobile ordering: the selected mission's financial content comes first;
+     the mission selector follows. Primary-operator reading order. */
+  .mv-grid__main {
+    order: 0;
+  }
+  .mv-grid__side {
+    order: 1;
   }
 }
 .mv-grid__side,
@@ -511,6 +524,9 @@ a {
   margin: 10px 0 0;
   color: var(--mv-ink-3);
   font-size: var(--mv-size-sm);
+}
+.mv-mandate__lapsed {
+  color: var(--mv-danger-text);
 }
 
 /* ------------------------------------------------------------ mission hero */

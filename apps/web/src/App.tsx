@@ -8,6 +8,30 @@ import { ApiError, fetchSession, login, logout, type SessionState } from './lib/
 
 type Theme = 'dark' | 'light';
 
+const CSRF_STORAGE_KEY = 'moterva-csrf';
+
+/**
+ * The CSRF token ships with the login response; the session cookie survives
+ * reloads, so the token must too — otherwise Sign out breaks (403) after a
+ * page reload. Loopback demo gate only; not a credential.
+ */
+function readStoredCsrf(): string | null {
+  try {
+    return window.localStorage.getItem(CSRF_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeCsrf(token: string | null): void {
+  try {
+    if (token === null) window.localStorage.removeItem(CSRF_STORAGE_KEY);
+    else window.localStorage.setItem(CSRF_STORAGE_KEY, token);
+  } catch {
+    /* storage unavailable — logout falls back to the in-memory token */
+  }
+}
+
 function readInitialSection(): SectionId {
   const hash = window.location.hash.replace('#', '');
   const match = NAV_ITEMS.find((item) => item.id === hash);
@@ -23,9 +47,10 @@ export function App(): JSX.Element {
   const [section, setSection] = useState<SectionId>(readInitialSection);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
   const [session, setSession] = useState<SessionState>({ kind: 'checking' });
-  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string | null>(readStoredCsrf);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,9 +84,11 @@ export function App(): JSX.Element {
   const handleLogin = (username: string, password: string): void => {
     setLoginBusy(true);
     setLoginError(null);
+    setLogoutError(null);
     login(username, password)
       .then((result) => {
         setCsrfToken(result.csrfToken);
+        storeCsrf(result.csrfToken);
         return fetchSession();
       })
       .then((info) => {
@@ -76,12 +103,19 @@ export function App(): JSX.Element {
 
   const handleLogout = (): void => {
     if (csrfToken === null) return;
+    setLogoutError(null);
     logout(csrfToken)
-      .catch(() => undefined)
-      .finally(() => {
+      .then(() => {
         setCsrfToken(null);
+        storeCsrf(null);
         setSelectedMissionId(null);
         setSession({ kind: 'signed-out' });
+      })
+      .catch((error: unknown) => {
+        // Server-side session stays valid — never fake a signed-out state.
+        setLogoutError(
+          `Sign out failed (${error instanceof Error ? error.message : 'unknown error'}) — the session remains active.`,
+        );
       });
   };
 
@@ -127,6 +161,11 @@ export function App(): JSX.Element {
               <button type="button" className="mv-btn mv-btn--ghost" onClick={handleLogout}>
                 Sign out
               </button>
+            </span>
+          )}
+          {logoutError !== null && actor !== null && (
+            <span className="mv-actor__error" role="alert">
+              {logoutError}
             </span>
           )}
           <button

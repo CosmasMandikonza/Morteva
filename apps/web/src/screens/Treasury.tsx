@@ -284,10 +284,22 @@ export function Treasury({
                     const used = percent(mandate.consumed_minor, total);
                     const kinds = parseJsonArray(mandate.permitted_kinds_json);
                     const rails = parseJsonArray(mandate.rails_json);
+                    // Ledger status is the truth we render; a wall-clock lapse
+                    // is surfaced honestly without inventing a ledger state.
+                    const lapsedByClock =
+                      mandate.status === 'active' && Date.parse(mandate.expires_at) <= Date.now();
                     return (
                       <li className="mv-mandate" key={mandate.id} data-state={mandate.status}>
                         <div className="mv-mandate__head">
                           <StatusChip entry={presentation} />
+                          {lapsedByClock && (
+                            <span className="mv-chip mv-chip--danger" data-testid="lapsed-tag">
+                              <span className="mv-chip__glyph" aria-hidden="true">
+                                ⏱
+                              </span>
+                              expiry passed
+                            </span>
+                          )}
                           <span className="mv-mandate__version">v{mandate.version}</span>
                           <span className="mv-mandate__currency">{mandate.currency}</span>
                         </div>
@@ -323,7 +335,10 @@ export function Treasury({
                             </div>
                             <div>
                               <dt>Expires</dt>
-                              <dd>{formatDate(mandate.expires_at)}</dd>
+                              <dd className={lapsedByClock ? 'mv-mandate__lapsed' : undefined}>
+                                {formatDate(mandate.expires_at)}
+                                {lapsedByClock && ' — lapsed'}
+                              </dd>
                             </div>
                             <div>
                               <dt>Kind / rails</dt>
