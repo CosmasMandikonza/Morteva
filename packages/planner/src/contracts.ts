@@ -160,7 +160,8 @@ export type CandidateRejectionCode =
   | 'CURRENCY_UNSUPPORTED'
   | 'UNCONFIRMED_AVAILABILITY_FORBIDDEN'
   | 'PROBABILITY_OUT_OF_RANGE'
-  | 'INFORMATION_NOT_WORTH_PRICE';
+  | 'INFORMATION_NOT_WORTH_PRICE'
+  | 'INVALID_ARITHMETIC';
 
 // ------------------------------------------------------------------- policy
 

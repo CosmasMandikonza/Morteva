@@ -30,4 +30,5 @@ export type { GenerationContext, SupplierOffer } from './candidates.js';
 export { evaluate, scoreCandidate, replayDecision } from './evaluate.js';
 export type { EvaluationInput } from './evaluate.js';
 export { FixtureModelAdapter, sanitizeModelProse } from './model.js';
+export { validateCandidate, validateFacts, validatePolicy } from './validate.js';
 export { financialFacts, recordDecisionPlan, journalDecision } from './ledger-binding.js';

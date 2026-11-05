@@ -14,6 +14,7 @@ import type {
   ScoredCandidate,
 } from './contracts.js';
 import type { AcceptedEvidence, EvidenceReview, MissionEvidenceInput } from './contracts.js';
+import { validateCandidate, validateFacts, validatePolicy } from './validate.js';
 
 export interface EvaluationInput {
   readonly now: Date;
@@ -33,57 +34,89 @@ function sha256Hex(value: string): string {
 }
 
 function sanitizeRationale(text: string): string {
+  // Runtime-hardened (CTO review 6651660983): non-strings can reach this
+  // boundary from model adapters — coerce before touching .replace.
+  const asString = typeof text === 'string' ? text : '';
   // Control characters stripped; length capped. Rationale NEVER influences
   // evaluation — this only keeps stored prose safe to display.
   // eslint-disable-next-line no-control-regex -- stripping control characters IS the sanitize behavior
-  const stripped = text.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+  const stripped = asString.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
   return stripped.slice(0, 500);
 }
 
-function validateShape(candidate: PlannerCandidate): string | null {
-  if (candidate.id === '' || candidate.label === '') return 'id and label are required';
-  if (!Number.isSafeInteger(candidate.costMinor) || candidate.costMinor < 0)
-    return 'costMinor must be a non-negative safe integer';
-  if (!Number.isSafeInteger(candidate.feeMinor) || candidate.feeMinor < 0)
-    return 'feeMinor must be a non-negative safe integer';
-  if (typeof candidate.beneficiary !== 'string' || candidate.beneficiary === '')
-    return 'beneficiary required';
-  if (typeof candidate.purpose !== 'string' || candidate.purpose === '') return 'purpose required';
-  if (!Number.isFinite(candidate.durationMinutes) || candidate.durationMinutes <= 0)
-    return 'durationMinutes must be positive';
-  if (Number.isNaN(Date.parse(candidate.earliestStartAt))) return 'earliestStartAt malformed';
-  if (Number.isNaN(Date.parse(candidate.deadlineAt))) return 'deadlineAt malformed';
-  if (candidate.probabilityOfSuccess < 0 || candidate.probabilityOfSuccess > 1)
-    return 'probabilityOfSuccess outside 0..1';
-  if (
-    candidate.kind === 'purchase-diagnostics' &&
-    (candidate.informationGain === undefined ||
-      candidate.informationGain < 0 ||
-      candidate.informationGain > 1)
-  )
-    return 'purchase-diagnostics requires informationGain in 0..1';
-  return null;
+/**
+ * Display-safe placeholder for a malformed candidate. Never selected
+ * (infeasible by construction); exists only so traces and JSON serialization
+ * cannot crash on hostile runtime shapes.
+ */
+function malformedCandidateView(raw: unknown): PlannerCandidate {
+  const r = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+  const id =
+    typeof r.id === 'string' && r.id.length > 0 ? r.id.slice(0, 64) : '(malformed candidate)';
+  return {
+    id,
+    kind: 'no-action',
+    label: '(malformed candidate — rejected at the validation boundary)',
+    costMinor: 0,
+    feeMinor: 0,
+    beneficiary: '(unavailable)',
+    purpose: '(unavailable)',
+    currency: '(invalid)',
+    earliestStartAt: '1970-01-01T00:00:00.000Z',
+    durationMinutes: 1,
+    deadlineAt: '1970-01-01T00:00:00.000Z',
+    probabilityOfSuccess: 0,
+    availability: 'confirmed',
+    evidenceIds: [],
+    rationale: '(malformed candidate — details withheld)',
+  };
 }
 
-/** Score one candidate against policy and facts. Pure. */
+/**
+ * Score one candidate against policy and facts. Pure.
+ *
+ * VALIDATION BOUNDARY (CTO review 6651660983): the candidate is UNTRUSTED at
+ * runtime (TypeScript interfaces do not protect the model/external boundary).
+ * `validateCandidate` rejects NaN/Infinity probabilities (NaN bypasses range
+ * comparisons), non-string prose, wrong runtime types, unsafe integers,
+ * individually-safe-but-overflowing cost+fee sums and impossible timing
+ * BEFORE any field is read for arithmetic — malformed input produces an
+ * explicit fail-closed MALFORMED_CANDIDATE result, never an uncaught
+ * TypeError and never a selected action.
+ */
 export function scoreCandidate(
   candidate: PlannerCandidate,
   input: EvaluationInput,
 ): ScoredCandidate {
   const assumptions: string[] = [];
 
-  const gross = candidate.costMinor + candidate.feeMinor;
-
-  const evidenceById = new Map<string, { accepted: boolean }>();
-  for (const a of input.evidence.accepted) evidenceById.set(a.input.event.id, { accepted: true });
-  for (const r of input.evidence.rejected) evidenceById.set(r.input.event.id, { accepted: false });
-
-  const malformed = validateShape(candidate);
-  if (malformed !== null) {
+  // ---- validation boundary FIRST: nothing below reads an unvalidated field.
+  const check = validateCandidate(candidate);
+  if (!check.ok) {
     return {
-      candidate: { ...candidate, rationale: sanitizeRationale(candidate.rationale) },
+      candidate: malformedCandidateView(candidate),
       feasible: false,
-      rejection: { code: 'MALFORMED_CANDIDATE', reason: malformed },
+      rejection: { code: 'MALFORMED_CANDIDATE', reason: check.reason },
+      grossCostMinor: 0,
+      effectiveProbability: 0,
+      expectedMissionValueMinor: 0,
+      expectedNetMinor: 0,
+      assumptions,
+    };
+  }
+  // Gross is now proven safe: both operands are safe integers AND their sum
+  // is range-checked together in validateCandidate.
+  const gross = check.value.costMinor + check.value.feeMinor;
+  if (!Number.isSafeInteger(gross)) {
+    // Unreachable with the validator in place; kept as a belt-and-braces
+    // fail-closed guard for future refactors.
+    return {
+      candidate: malformedCandidateView(candidate),
+      feasible: false,
+      rejection: {
+        code: 'MALFORMED_CANDIDATE',
+        reason: 'internal guard: gross cost is not a safe integer',
+      },
       grossCostMinor: 0,
       effectiveProbability: 0,
       expectedMissionValueMinor: 0,
@@ -92,9 +125,17 @@ export function scoreCandidate(
     };
   }
 
+  const evidenceById = new Map<string, { accepted: boolean }>();
+  for (const a of Array.isArray(input.evidence?.accepted) ? input.evidence.accepted : []) {
+    evidenceById.set(a.input.event.id, { accepted: true });
+  }
+  for (const r of Array.isArray(input.evidence?.rejected) ? input.evidence.rejected : []) {
+    evidenceById.set(r.input.event.id, { accepted: false });
+  }
+
   const safeCandidate: PlannerCandidate = {
-    ...candidate,
-    rationale: sanitizeRationale(candidate.rationale),
+    ...check.value,
+    rationale: sanitizeRationale(check.value.rationale),
   };
   const nowMs = input.now.getTime();
 
@@ -280,6 +321,25 @@ export function scoreCandidate(
     diagnosticsVoi !== null ? diagnosticsVoi - gross : expectedMissionValue - gross;
   assumptions.push(`expected net ${String(expectedNet)} minor = E[mission value] − gross cost`);
 
+  // ---- arithmetic safety (CTO review 6651660983): every score term must be
+  // finite and within the safe-integer magnitude envelope before it can rank.
+  // With validated inputs this is unreachable (proof: p ∈ [0,1] finite,
+  // monetary terms ≤ MAX_SAFE_INTEGER, so each product ≤ MAX_SAFE_INTEGER and
+  // differences stay bounded) — the guard exists so a future refactor cannot
+  // silently overflow or emit NaN/Infinity into selection.
+  if (
+    !Number.isFinite(expectedMissionValue) ||
+    !Number.isFinite(expectedNet) ||
+    Math.abs(expectedMissionValue) > Number.MAX_SAFE_INTEGER ||
+    Math.abs(expectedNet) > Number.MAX_SAFE_INTEGER ||
+    !Number.isFinite(p)
+  ) {
+    return verdict(
+      'INVALID_ARITHMETIC',
+      'expected-value computation left the finite safe-integer envelope; rejecting rather than ranking an unsafe score',
+    );
+  }
+
   return {
     candidate: safeCandidate,
     feasible: true,
@@ -314,6 +374,21 @@ export function scoreCandidate(
  * materially different finalists.
  */
 export function evaluate(input: EvaluationInput): DecisionResult {
+  // ---- trust boundary for the evaluation inputs themselves (CTO review
+  // 6651660983): TypeScript cannot guarantee runtime shapes from external
+  // callers. Invalid policy/facts/clock NEVER reach ranking — the decision
+  // fails closed as an escalation to a human with the violated rule named.
+  if (!(input.now instanceof Date) || Number.isNaN(input.now.getTime())) {
+    return invalidInputResult('evaluation clock (input.now) must be a valid Date');
+  }
+  if (!Array.isArray(input.candidates)) {
+    return invalidInputResult('candidates must be an array');
+  }
+  const policyCheck = validatePolicy(input.policy);
+  if (!policyCheck.ok) return invalidInputResult(`invalid policy: ${policyCheck.reason}`);
+  const factsCheck = validateFacts(input.facts);
+  if (!factsCheck.ok) return invalidInputResult(`invalid financial facts: ${factsCheck.reason}`);
+
   const scored = input.candidates.map((c) => scoreCandidate(c, input));
   const feasible = scored.filter((s) => s.feasible);
   const declined = scored.filter((s) => !s.feasible);
@@ -410,6 +485,44 @@ export function evaluate(input: EvaluationInput): DecisionResult {
   return buildResult('select', best, ordered.slice(1), declined, [...reasons, out], input, scored);
 }
 
+/**
+ * Fail-closed result for invalid evaluation INPUTS (clock, candidates
+ * container, policy, facts). Never a selection; the reason names the exact
+ * violated rule so an operator can correct it. Trace is synthetic but
+ * digested and labeled like every other decision.
+ */
+function invalidInputResult(reason: string): DecisionResult {
+  const evaluationId = sha256Hex(`invalid-input:${reason}`).slice(0, 16);
+  const trace: DecisionTrace = {
+    evaluationId,
+    evaluatedAt: new Date().toISOString(),
+    truthLabel:
+      'SIMULATED_OPERATION — POLICY-ONLY (deterministic policy evaluation; no live model inference)',
+    modelAdapter: null,
+    inputDigest: sha256Hex(reason).slice(0, 32),
+    evidenceAcceptedIds: [],
+    evidenceRejectedIds: [],
+    contradictions: [],
+    factsSummary: { invalidInput: reason },
+    scores: [],
+    decision: 'escalate',
+    selectedId: null,
+  };
+  return {
+    outcome: 'escalate',
+    selected: null,
+    runnersUp: [],
+    declined: [],
+    reasons: [
+      {
+        code: 'ESCALATED',
+        message: `INVALID INPUT — refusing to evaluate: ${reason}`,
+        evidenceIds: [],
+      },
+    ],
+    trace,
+  };
+}
 function policyOnlyReason(input: EvaluationInput): DecisionReason {
   if (input.modelOutage !== undefined) {
     return {
