@@ -19,6 +19,7 @@ import { systemStatusView, type AirwallexRailFacts } from './routes/system-statu
 import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
+import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
 
 export function buildApp(
   config: AppConfig,
@@ -55,6 +56,8 @@ export function buildApp(
       await scope.register(cookie);
       attachSession(scope, ledger);
       registerAuthAndFinancialRoutes(scope, config, ledger);
+      // Controlled local-only physical-to-money demo; never mounted in production.
+      registerDemoDecisionRoutes(scope, ledger);
     });
   }
 
