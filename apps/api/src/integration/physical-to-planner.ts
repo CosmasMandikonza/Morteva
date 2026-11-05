@@ -72,7 +72,7 @@ export function physicalTimelineToPlannerSafety(
     for (const observation of event.observations) {
       if (observation.kind === 'wind_speed') {
         if (observation.unit !== 'kt' || typeof observation.value !== 'string' ||
-            !/^\\d+\\.\\d$/.test(observation.value)) {
+            !/^[0-9]+[.][0-9]$/.test(observation.value)) {
           throw new Error('INVALID_JOURNALED_WIND_OBSERVATION');
         }
         latest.windKt = Number(observation.value);
