@@ -32,6 +32,8 @@ export interface GenerationContext {
   readonly missionDeadlineAt: string;
   /** The incumbent supplier executing the current plan (kind continue-supplier). */
   readonly incumbent: SupplierOffer;
+  /** The real physical asset the incumbent UAV service depends on, when known. */
+  readonly incumbentAssetId?: string;
   /** Alternative suppliers (kind hire-alternative). */
   readonly alternatives: readonly SupplierOffer[];
   /** A diagnostic information service, if one exists (kind purchase-diagnostics). */
@@ -105,9 +107,17 @@ export function generateCandidates(
   const evidenceAll = accepted.map((a) => a.input.event.id);
   const candidates: PlannerCandidate[] = [];
   const primaryAsset =
-    accepted.length > 0 ? accepted[0]!.input.asset.id : `${ctx.incumbent.id}-default-asset`;
+    ctx.incumbentAssetId ??
+    (accepted.length > 0 ? accepted[0]!.input.asset.id : `${ctx.incumbent.id}-default-asset`);
   const window = weatherWindowOf(accepted, primaryAsset);
+  const safetyReadings = accepted
+    .filter((a) => a.input.asset.id === primaryAsset && a.input.constraint.kind === 'asset-safety')
+    .sort((a, b) => a.input.event.sequence - b.input.event.sequence);
+  const safety = safetyReadings.at(-1)?.input.constraint;
+  const operationallyBlocked =
+    safety?.kind === 'asset-safety' && safety.state !== 'clear';
 
+  // ---- no-action: safe abstention if physical clearance is missing or blocked.
   // ---- no-action: always present; its probability collapses when accepted
   // evidence makes the current plan infeasible.
   let noActionProbability = ctx.incumbent.probabilityOfSuccess;
@@ -137,10 +147,14 @@ export function generateCandidates(
       noActionAssumptions.push(`weather confidence ${String(window.confidence)} applied`);
     }
   }
+  if (operationallyBlocked) {
+    noActionProbability = 0;
+    noActionAssumptions.push('physical clearance missing/blocked; no spend is a safe pause, never permission to fly');
+  }
   candidates.push({
     id: 'no-action',
     kind: 'no-action',
-    label: 'Hold the current plan (no new spend)',
+    label: operationallyBlocked ? 'Pause the physical operation (no new spend)' : 'Hold the current plan (no new spend)',
     costMinor: 0,
     currency: ctx.policyCurrency,
     feeMinor: 0,
@@ -186,6 +200,7 @@ export function generateCandidates(
     id: `continue-${ctx.incumbent.id}`,
     kind: 'continue-supplier',
     label: `Continue with ${ctx.incumbent.id}`,
+    requiresAssetId: ctx.incumbentAssetId,
     costMinor: continueCost,
     currency: ctx.incumbent.currency,
     feeMinor: ctx.incumbent.feeMinor,
@@ -214,6 +229,7 @@ export function generateCandidates(
         id: 'reschedule-into-window',
         kind: 'reschedule',
         label: `Reschedule ${ctx.incumbent.id} into the observed weather window`,
+        requiresAssetId: ctx.incumbentAssetId,
         costMinor: 0,
         currency: ctx.policyCurrency,
         feeMinor: Math.round(ctx.incumbent.baseCostMinor * 0.05), // 5% rescheduling fee (assumption)
