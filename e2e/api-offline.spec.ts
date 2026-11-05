@@ -18,7 +18,7 @@ test('shows an explicit API-offline error state when the backend is unreachable'
   await expect(alert.getByRole('button', { name: 'Retry' })).toBeVisible();
 
   // No OFFLINE badges may render from fabricated data in the error state.
-  await expect(page.locator('.badge--offline')).toHaveCount(0);
+  await expect(page.locator('.mv-badge--offline')).toHaveCount(0);
   await expect(page.getByText(/connected/i)).toHaveCount(0);
 });
 
@@ -38,6 +38,6 @@ test('recovers from the error state once the API answers again', async ({ page }
 
   offline = false;
   await page.getByRole('button', { name: 'Retry' }).click();
-  await expect(page.locator('.badge--offline')).toHaveCount(2);
+  await expect(page.locator('.mv-badge--offline')).toHaveCount(2);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });

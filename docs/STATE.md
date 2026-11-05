@@ -92,6 +92,15 @@
 - **Exact evidence claims:** 24 declared contrast combinations × 2 modes = 48 evaluations (48 pass: 22 AAA, 26 AA/UI); direct token↔lab values verified equal AFTER NORMALIZATION (lowercase, whitespace-insensitive) with token-reference edges counted separately as reuse — not independent lab comparisons; checker scope stated plainly (declared pairs + annotations + mapping completeness — NOT a component-render audit); font gate = npm dependency presence, not a license audit. ADR and token report agree.
 - No production theme code, no new research, no financial-backend changes; issue #10 remains open; ADR 0004 stays reserved for B-led (PR #30 → 0005).
 
+
+## MTV-08.2 delivered on branch `feat/mtv-08-2-production-treasury` (Nov 3, 2026, draft PR pending founder visual review)
+
+- Production shell (apps/web): B-led semantic tokens (theme/tokens.css mirrored from design/tokens.json v1.1.0), four-surface navigation, breadcrumbs, dark flagship + working light toggle, responsive 320-1920, focus rings + reduced-motion gate, skeleton/error/empty/unavailable states.
+
+- Mission Treasury binds ONLY real API data: session via the loopback DEMO_AUTH login, missions via GET /api/missions, mandates + envelope consumption via GET /api/mandates; status presentation from the domain-anchored mapping (statusMap.ts). Capabilities without endpoints (org balances/spendable, operations list, exceptions) render one honest Ledger-capabilities panel. Read-only; no financial mutations; MTV-05 role checks untouched.
+
+- Verification: 8 e2e passed on the default build (31 lab/capture self-skip), 181 unit, lint/typecheck/docs/secrets green, design-token contract green; 320/390 no-overflow asserted in e2e; 200%-zoom reflow evidence sw=720=cw; 8 production captures under docs/assets/production (seeded local ledger, real login through the UI). NOT merged: awaits founder visual review (issue #10 gate).
+
 - Scope guards carried forward: production financial routes keep MTV-05's security restrictions (loopback-only DEMO_AUTH etc.); synthetic preview state is never presented as genuine Airwallex transactions; the financial agent owns issue #5; Metal, adaptive planning, operational adapters and production 3D retain their separate issue boundaries.
 
 ## MTV-03 Airwallex adapter — branch `feat/mtv-03-airwallex-sandbox` (Nov 3, 2026; PR under review; real-provider gate BLOCKED)
