@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/CosmasMandikonza/Morteva/apps/api/src/mission-events/contract/mission-event.v1.schema.json",
+  "title": "MOTERVA mission-event wire envelope (contract v1)",
+  "description": "The ONLY shape an external physical source may submit to mission-event ingestion (issue #9). Strict: unknown keys are rejected. No field is free text; every string is an id, enum word, ISO-8601 UTC timestamp or 64-hex digest. Typed observations are validated against the closed kind/unit/value table in observation-kinds.v1.json. An event carries NO financial authority: banking vocabulary anywhere in a string field rejects the whole event, and accepted events journal under topic 'operational' only. Coordination: issue #8 (planner, Agent A) consumes the normalized form (same shape minus source.signature).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "eventId",
+    "sequence",
+    "orgId",
+    "missionId",
+    "assetId",
+    "observedAt",
+    "ingestedAt",
+    "source",
+    "observations"
+  ],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "eventId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "description": "Source-assigned unique event identity. Duplicate submission of the same id is rejected idempotently (DUPLICATE_EVENT)."
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Strictly contiguous per (missionId, assetId, sourceId) stream. Gaps are lost updates and fail closed (SEQUENCE_GAP); regressions are rejected (SEQUENCE_REGRESSION)."
+    },
+    "orgId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "missionId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "assetId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "observedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "When the physical world was measured. Must be <= ingestedAt and within the freshness policy (default 15 min) at arrival."
+    },
+    "ingestedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "When the source emitted the event. Must not be in the future beyond the clock tolerance (default 2 min)."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "sourceType", "keyId", "provenance", "signature"],
+      "properties": {
+        "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+        "sourceType": {
+          "enum": [
+            "asset_telemetry",
+            "mission_control",
+            "vessel_gateway",
+            "warehouse_wms",
+            "simulator"
+          ]
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "description": "Identifies the registered HMAC key. Unregistered keys are UNAUTHENTICATED_SOURCE; the signature is HMAC-SHA256 over the canonical JSON of the envelope minus source.signature."
+        },
+        "provenance": {
+          "enum": ["SYNTHETIC", "FIELD"],
+          "description": "SYNTHETIC labels simulated sources explicitly. An authenticated source is NOT a verified physical measurement; FIELD claims must match the source registration (PROVENANCE_MISMATCH otherwise)."
+        },
+        "signature": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "description": "Typed (kind, unit, value) readings. Kind appears at most once per event (CONFLICTING_OBSERVATIONS). Values: integers for counts/percent; exact decimal strings for physical measures (floats are forbidden — canonical digests require integers); enum words for states/categories. See observation-kinds.v1.json.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "unit", "value"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "wind_speed",
+              "wave_height",
+              "visibility",
+              "weather_hold",
+              "battery_soc",
+              "asset_comms",
+              "asset_position_status",
+              "inspection_progress",
+              "defect_severity",
+              "aisle_access",
+              "charger_status",
+              "stock_discrepancy"
+            ]
+          },
+          "unit": { "type": "string" },
+          "value": { "type": ["integer", "string"] }
+        }
+      }
+    }
+  }
+}
