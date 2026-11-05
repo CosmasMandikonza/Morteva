@@ -21,7 +21,9 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: 'npm run start -w @moterva/api',
+      // Seeded throwaway ledger + DEMO_AUTH gate so browser tests exercise
+      // the real authenticated journey. Requires `npm run build` first.
+      command: 'node e2e/scripts/demo-auth-server.mjs',
       url: 'http://127.0.0.1:8787/healthz',
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
