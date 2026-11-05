@@ -31,7 +31,9 @@ export interface RegisteredSource {
 }
 
 export class SourceRegistry {
-  private readonly bySourceId = new Map<string, RegisteredSource>();
+  /** Composite-keyed (org, mission, sourceId) — the same sourceId string may
+   *  legitimately exist in many missions/orgs (correction A). */
+  private readonly byScopedSourceId = new Map<string, RegisteredSource>();
   private readonly byKeyId = new Map<string, RegisteredSource>();
 
   register(source: RegisteredSource): void {
@@ -40,11 +42,11 @@ export class SourceRegistry {
         `asset_telemetry source "${source.sourceId}" must be bound to exactly one asset`,
       );
     }
-    const existingKey = this.byKeyId.get(source.keyId);
-    if (existingKey !== undefined && existingKey.keyId === source.keyId) {
+    if (this.byKeyId.has(source.keyId)) {
       throw new Error(`keyId "${source.keyId}" is already registered`);
     }
-    this.bySourceId.set(source.sourceId, source);
+    const scoped = JSON.stringify([source.orgId, source.missionId, source.sourceId]);
+    this.byScopedSourceId.set(scoped, source);
     this.byKeyId.set(source.keyId, source);
   }
 
@@ -57,14 +59,14 @@ export class SourceRegistry {
     return this.byKeyId.get(keyId);
   }
 
-  findBySourceId(sourceId: string): RegisteredSource | undefined {
-    return this.bySourceId.get(sourceId);
+  findBySourceId(orgId: string, missionId: string, sourceId: string): RegisteredSource | undefined {
+    return this.byScopedSourceId.get(JSON.stringify([orgId, missionId, sourceId]));
   }
 
   /** All assets any source has registered for one (org, mission) scope. */
   assetsForMission(orgId: string, missionId: string): Set<string> {
     const assets = new Set<string>();
-    for (const source of this.bySourceId.values()) {
+    for (const source of this.byScopedSourceId.values()) {
       if (source.orgId === orgId && source.missionId === missionId) {
         for (const assetId of source.assetIds) assets.add(assetId);
       }
@@ -73,6 +75,6 @@ export class SourceRegistry {
   }
 
   all(): readonly RegisteredSource[] {
-    return [...this.bySourceId.values()];
+    return [...this.byScopedSourceId.values()];
   }
 }

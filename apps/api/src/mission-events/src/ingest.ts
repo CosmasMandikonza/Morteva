@@ -43,7 +43,6 @@ import {
 } from './view.js';
 import type { FreshnessPolicy, IngestState, JournaledEvent, MissionTimelineView } from './view.js';
 import { observationKindSpec } from './vocabulary.js';
-
 export const JOURNAL_EVENT_TYPE = 'mission.event.ingested';
 
 export interface IngestOptions {
@@ -75,6 +74,13 @@ export class MissionEventIngestService {
   private state: IngestState = newIngestState();
   private readonly policy: FreshnessPolicy;
   private readonly futureToleranceMs: number;
+  /**
+   * (org, mission) scopes whose validation state has been loaded from the
+   * journal. Admission NEVER trusts empty state for an existing stream
+   * (correction B): the first ingest/rehydrate for a scope rebuilds it from
+   * the journal before any check runs, and a corrupt journal fails closed.
+   */
+  private readonly hydratedScopes = new Set<string>();
 
   constructor(
     private readonly ledger: Ledger,
@@ -86,13 +92,18 @@ export class MissionEventIngestService {
     this.futureToleranceMs = options.futureToleranceMs ?? 120_000;
   }
 
-  /** Rebuild the in-memory validation state from the journal (startup path). */
+  /**
+   * Rebuild the validation state for ONE (org, mission) scope from the journal
+   * (startup/explicit path). Additive and idempotent: the journal is
+   * append-only, so re-applying a scope's rows can never contradict rows of
+   * another scope, and other missions' in-memory state is never touched
+   * (correction A — rehydrating mission A must not erase mission B).
+   */
   rehydrate(orgId: string, missionId: string): void {
-    const rebuilt = newIngestState();
     for (const row of this.readJournal(orgId, missionId)) {
-      applyEvent(rebuilt, row.event);
+      applyEvent(this.state, row.event);
     }
-    this.state = rebuilt;
+    this.hydratedScopes.add(scopeKey(orgId, missionId));
   }
 
   /** Ingest one wire envelope. Throws MissionEventError on rejection. */
@@ -115,8 +126,17 @@ export class MissionEventIngestService {
       },
       observations: envelope.observations,
     };
+    // Correction B: no admission before the target scope's state is loaded
+    // from the journal — a fresh instance must not trust empty state.
+    this.ensureHydrated(event.orgId, event.missionId);
     this.validateAndCheck(callerOrgId, event, envelope.source.signature);
     return this.journal(event);
+  }
+
+  private ensureHydrated(orgId: string, missionId: string): void {
+    if (!this.hydratedScopes.has(scopeKey(orgId, missionId))) {
+      this.rehydrate(orgId, missionId);
+    }
   }
 
   /**
@@ -197,8 +217,8 @@ export class MissionEventIngestService {
       );
     }
 
-    // --- duplication ----------------------------------------------------------
-    if (this.state.eventIds.has(event.eventId)) {
+    // --- duplication (org-scoped: journal keys are unique per organization) --
+    if (this.state.eventIdsByOrg.get(callerOrgId)?.has(event.eventId)) {
       throw new MissionEventError(
         'DUPLICATE_EVENT',
         `eventId "${event.eventId}" was already ingested; replays are rejected`,
@@ -231,13 +251,20 @@ export class MissionEventIngestService {
       );
     }
 
-    // --- ordering (per mission/asset/source stream) ----------------------------
-    const key = streamKey(event.missionId, event.assetId, event.source.sourceId);
+    // --- ordering (per org/mission/asset/source stream) ------------------------
+    const key = streamKey(event.orgId, event.missionId, event.assetId, event.source.sourceId);
     const stream = this.state.streams.get(key);
     if (stream !== undefined && event.sequence <= stream.sequence) {
       throw new MissionEventError(
         'SEQUENCE_REGRESSION',
         `sequence ${event.sequence} for stream ${key} does not exceed ${stream.sequence}`,
+      );
+    }
+    if (stream === undefined && event.sequence !== 1) {
+      throw new MissionEventError(
+        'SEQUENCE_GAP',
+        `sequence ${event.sequence} for new stream ${key} skips missing event 1; a stream must start at sequence 1 (fail closed)`,
+        { expectedNext: 1 },
       );
     }
     if (stream !== undefined && event.sequence > stream.sequence + 1) {
@@ -249,7 +276,7 @@ export class MissionEventIngestService {
     }
 
     // --- physical-state consistency ---------------------------------------------
-    const comms = commsState(this.state, event.assetId);
+    const comms = commsState(this.state, event.orgId, event.missionId, event.assetId);
     if (comms === 'offline') {
       const isRecovery =
         event.source.sourceType !== 'asset_telemetry' &&
@@ -274,7 +301,13 @@ export class MissionEventIngestService {
       seenKinds.add(observation.kind);
       const spec = observationKindSpec(observation.kind);
       if (spec?.monotonic === true) {
-        const prior = lastObservation(this.state, event.assetId, observation.kind);
+        const prior = lastObservation(
+          this.state,
+          event.orgId,
+          event.missionId,
+          event.assetId,
+          observation.kind,
+        );
         if (prior !== undefined && Number(observation.value) < Number(prior.value)) {
           throw new MissionEventError(
             'MONOTONIC_VIOLATION',
@@ -285,6 +318,19 @@ export class MissionEventIngestService {
     }
   }
 
+  /**
+   * Journal append with DB-AUTHORITATIVE sequence admission (correction B).
+   *
+   * The in-memory checks above are a fast path; this is the authority. Inside
+   * one BEGIN IMMEDIATE write transaction the last journaled sequence of the
+   * target stream is re-read from the evidence journal and re-enforced
+   * (regression / gap / first-event-must-be-1), then the append happens in the
+   * SAME transaction. Two concurrent service instances therefore cannot both
+   * admit the same stream sequence for different event ids — the second
+   * transaction sees the first's committed row and fails closed. This holds
+   * because every mission-event writer goes through this method; raw writers
+   * bypassing it are still detected at replay by the stream-continuity check.
+   */
   private journal(event: NormalizedEvent): IngestAccepted {
     const digest = eventDigest(event);
     const receivedAt = this.clock.iso();
@@ -295,17 +341,21 @@ export class MissionEventIngestService {
     };
     let recorded: { seq: number; recordedAt: string };
     try {
-      const view = this.ledger.evidence.append({
-        orgId: event.orgId,
-        missionId: event.missionId,
-        topic: 'operational',
-        type: JOURNAL_EVENT_TYPE,
-        eventKey: `mevt:${event.eventId}`,
-        payload,
-        occurredAt: event.observedAt,
-      });
-      recorded = { seq: view.seq, recordedAt: view.recordedAt };
+      recorded = this.ledger.db.transaction(() => {
+        this.admitByJournal(event);
+        const view = this.ledger.evidence.append({
+          orgId: event.orgId,
+          missionId: event.missionId,
+          topic: 'operational',
+          type: JOURNAL_EVENT_TYPE,
+          eventKey: `mevt:${event.eventId}`,
+          payload,
+          occurredAt: event.observedAt,
+        });
+        return { seq: view.seq, recordedAt: view.recordedAt };
+      }, 'immediate');
     } catch (error) {
+      if (error instanceof MissionEventError) throw error;
       if (error instanceof LedgerError && error.code === 'DUPLICATE_EVENT') {
         throw new MissionEventError(
           'DUPLICATE_EVENT',
@@ -314,6 +364,8 @@ export class MissionEventIngestService {
       }
       throw error;
     }
+    // State advances ONLY after a committed journal row (correction A: a
+    // failed append must never advance in-memory validation state).
     applyEvent(this.state, event);
     return {
       status: 'accepted',
@@ -326,24 +378,85 @@ export class MissionEventIngestService {
   }
 
   /**
+   * Authoritative sequence admission against the journal itself. Runs inside
+   * the write transaction so the read-then-append pair is atomic.
+   */
+  private admitByJournal(event: NormalizedEvent): void {
+    const rows = this.ledger.db
+      .prepare(
+        `SELECT payload_json FROM evidence_events
+          WHERE org_id = ? AND mission_id = ? AND topic = 'operational' AND type = ?
+          ORDER BY seq DESC`,
+      )
+      .all(event.orgId, event.missionId, JOURNAL_EVENT_TYPE) as Record<string, unknown>[];
+    for (const row of rows) {
+      // Newest-first: the first row matching this (asset, source) stream is
+      // its last admitted sequence. Payload shape and digests were verified at
+      // write time; a corrupt row here surfaces as JOURNAL_TAMPERED (fail
+      // closed) rather than a wrong admission.
+      let payload: unknown;
+      try {
+        payload = JSON.parse(String(row.payload_json));
+      } catch {
+        throw new MissionEventError(
+          'JOURNAL_TAMPERED',
+          'admission check found a non-JSON journal payload; journal is inconsistent',
+        );
+      }
+      const stored = (
+        payload as {
+          event?: { assetId?: unknown; source?: { sourceId?: unknown }; sequence?: unknown };
+        }
+      ).event;
+      if (
+        stored === undefined ||
+        stored.assetId !== event.assetId ||
+        stored.source?.sourceId !== event.source.sourceId
+      ) {
+        continue;
+      }
+      const last = stored.sequence;
+      if (typeof last !== 'number' || !Number.isSafeInteger(last)) {
+        throw new MissionEventError(
+          'JOURNAL_TAMPERED',
+          `stored sequence for asset "${event.assetId}" is not an integer; journal is inconsistent`,
+        );
+      }
+      if (event.sequence <= last) {
+        throw new MissionEventError(
+          'SEQUENCE_REGRESSION',
+          `journal-authoritative check: sequence ${event.sequence} does not exceed journaled ${last} for asset "${event.assetId}"`,
+        );
+      }
+      if (event.sequence > last + 1) {
+        throw new MissionEventError(
+          'SEQUENCE_GAP',
+          `journal-authoritative check: sequence ${event.sequence} skips journaled+1 ${last + 1} (lost update); fail closed`,
+          { expectedNext: last + 1 },
+        );
+      }
+      return;
+    }
+    // No journaled row for this stream: it must begin at sequence 1.
+    if (event.sequence !== 1) {
+      throw new MissionEventError(
+        'SEQUENCE_GAP',
+        `journal-authoritative check: new stream for asset "${event.assetId}" must start at sequence 1, received ${event.sequence}`,
+        { expectedNext: 1 },
+      );
+    }
+  }
+
+  /**
    * Replay the mission's accepted mission events from the append-only journal
-   * and project the timeline view. Verifies both digests on every row: the
-   * journal's own payload digest and the event digest recomputed from the
-   * stored normalized event. Tampering fails closed.
+   * and project the timeline view. Verifies both digests on every row and the
+   * per-stream sequence continuity (readJournal): tampering or an
+   * inconsistent journal fails closed.
    */
   replay(callerOrgId: string, missionId: string): MissionTimelineView {
     this.requireMissionInOrg(callerOrgId, missionId);
     const rows = this.readJournal(callerOrgId, missionId);
-    const view = projectTimeline(
-      callerOrgId,
-      missionId,
-      rows,
-      this.clock.now().getTime(),
-      this.policy,
-    );
-    // Post-projection continuity proof: every stream must be gap-free.
-    this.verifyStreamContinuity(rows);
-    return view;
+    return projectTimeline(callerOrgId, missionId, rows, this.clock.now().getTime(), this.policy);
   }
 
   /** Read-time access to the current in-memory validation state (tests). */
@@ -409,13 +522,22 @@ export class MissionEventIngestService {
         recordedAt: String(row.recorded_at),
       });
     }
+    // Continuity proof on EVERY reader (replay AND rehydrate): a journal with
+    // a duplicated or regressed stream sequence is inconsistent and fails
+    // closed — it is never silently accepted as a baseline.
+    this.verifyStreamContinuity(events);
     return events;
   }
 
   private verifyStreamContinuity(rows: readonly JournaledEvent[]): void {
     const lastByStream = new Map<string, number>();
     for (const row of rows) {
-      const key = streamKey(row.event.missionId, row.event.assetId, row.event.source.sourceId);
+      const key = streamKey(
+        row.event.orgId,
+        row.event.missionId,
+        row.event.assetId,
+        row.event.source.sourceId,
+      );
       const last = lastByStream.get(key);
       if (last !== undefined && row.event.sequence !== last + 1) {
         throw new MissionEventError(
@@ -461,4 +583,9 @@ export class MissionEventIngestService {
 /** Journal digest recomputation must match EvidenceService's canonical form. */
 function digestOfJson(payload: unknown): string {
   return createHash('sha256').update(canonicalJson(payload)).digest('hex');
+}
+
+/** Hydrated-scope identity (collision-safe JSON tuple, like the state keys). */
+function scopeKey(orgId: string, missionId: string): string {
+  return JSON.stringify([orgId, missionId]);
 }

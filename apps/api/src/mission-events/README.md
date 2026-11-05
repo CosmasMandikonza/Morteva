@@ -31,12 +31,24 @@ It does not touch the financial engine, the frontend, routes or the app factory.
 
 An event is `(contractVersion, eventId, sequence, orgId, missionId, assetId, observedAt,
 ingestedAt, source{sourceId, sourceType, keyId, provenance, signature}, observations[])`.
-Sequences are strictly contiguous per `(missionId, assetId, sourceId)` stream — a gap is a lost
-update and fails closed until the missing event is delivered. The signature is HMAC-SHA256 over the
-canonical JSON of the envelope without the signature; digests use `@moterva/domain` `canonicalJson`
-(floats forbidden — decimals travel as exact strings). Freshness: observations older than 15 min are
-refused at arrival (`STALE_EVENT`); at read time accepted events age `fresh → stale → expired` and
-`expired` events are `planningValid: false`. See `contract/mission-event.v1.schema.json`,
+Sequences are strictly contiguous per `(missionId, assetId, sourceId)` stream and **a stream must
+begin at sequence 1** — a first-ever sequence >1, a regression and a gap all fail closed (the gap
+case is a lost update and stays closed until the missing event is delivered). Admission is enforced
+TWICE: against in-memory state (lazy-hydrated from the journal per `(org, mission)` scope on first
+use — a fresh instance never trusts empty state for an existing stream) and journal-authoritatively
+inside a `BEGIN IMMEDIATE` write transaction, so two concurrent service instances cannot both admit
+the same stream sequence. All in-memory validation state is keyed by composite `org+mission+asset`
+(+ `source` for streams) JSON-tuple identities, so organizations or missions reusing the same id
+strings cannot contaminate one another's offline/monotonic/duplicate checks. The signature is
+HMAC-SHA256 over the canonical JSON of the envelope without the signature; digests use
+`@moterva/domain` `canonicalJson` (floats forbidden — decimals travel as exact strings).
+Observations older than 15 min are refused at arrival (`STALE_EVENT`).
+
+**Planning eligibility (for planner consumers, issue #8): `planningValid` is true ONLY while
+`freshness === 'fresh'`.** Stale (≥15 min) and expired (≥30 min) events remain visible as
+digest-verifiable journal history — never deleted, never rewritten — but must not influence
+consequential planning unless a fresh refresh event arrives or an explicit, separately-reviewed
+override policy says otherwise. See `contract/mission-event.v1.schema.json`,
 `contract/observation-kinds.v1.json` and `contract/examples/`.
 
 ## Rejection taxonomy (deterministic first-failure)
@@ -50,8 +62,13 @@ refused at arrival (`STALE_EVENT`); at read time accepted events age `fresh → 
 
 Notable rules:
 
+- **Streams start at sequence 1** and stay contiguous. Admission never trusts a fresh instance's
+  empty state: the target scope is rebuilt from the journal on first use, the sequence is re-checked
+  journal-authoritatively inside the write transaction, and an inconsistent journal (including a
+  duplicated sequence injected by a raw DB writer bypassing ingest) fails closed at replay.
 - **Offline assets cannot speak.** Once a trusted observation declares `asset_comms: offline`, the
-  asset's own telemetry is rejected (`ASSET_OFFLINE`). Recovery requires a _different_,
+  asset's own telemetry is rejected (`ASSET_OFFLINE`) — scoped to that one (org, mission, asset), so
+  the same asset id in another mission is unaffected. Recovery requires a _different_,
   `trustedForRecovery` source (e.g. the support vessel's gateway) carrying an explicit
   `asset_comms: online` observation. There is no magic recovery.
 - **Banking vocabulary cannot enter.** Any occurrence of approve/reserve/settle/dispatch/payment/…
@@ -67,7 +84,7 @@ npm ci
 npm run build -w @moterva/api            # tsc -b (builds domain/ledger refs first)
 node apps/api/dist/mission-events/demo/run.js          # human-readable two-scenario trace
 node apps/api/dist/mission-events/demo/run.js --json   # machine-readable report
-npx vitest run test/mission-events -w @moterva/api     # the isolated test suite (58 tests)
+npx vitest run test/mission-events -w @moterva/api     # the isolated test suite (82 tests)
 npx tsx apps/api/src/mission-events/fixtures/generate.ts  # regenerate reference fixtures
 ```
 
@@ -109,8 +126,15 @@ Committed reference traces: `fixtures/*.reference-trace.json` (regenerate with
   module is the consumer contract meanwhile.
 - **Keys:** source keys in fixtures are derived from the scenario seed and are fixture-only. A
   production deployment provisions real keys from a secret manager into the same registry shape.
-- **Registry is in-memory** per service instance; durable truth is the journal (a restart rebuilds
-  validation state via `rehydrate`, proven by tests). Key rotation/revocation tooling is future work.
+- **Registry is in-memory** per service instance; durable truth is the journal. A service
+  lazily rebuilds a scope's validation state from the journal on first admission (and
+  `rehydrate(orgId, missionId)` does it explicitly); the rebuild is additive per scope, so
+  rehydrating one mission never disturbs another. Key rotation/revocation tooling is future work.
+- **Concurrent multiwriter admission** is safe between instances of THIS module (journal-authoritative
+  sequence check inside `BEGIN IMMEDIATE`; proven by test). A raw writer that bypasses ingest and
+  inserts a duplicate sequence directly into the journal is NOT prevented by the journal's
+  per-eventId uniqueness — that residual is detected fail-closed at replay (stream-continuity
+  check) rather than prevented.
 - **Freshness policy** (15 min stale / 30 min expired, 2 min future tolerance) is one global default;
   per-kind policies can be added without contract changes if a domain needs them.
 - The planner (issue #8, Agent A) decides what the evidence MEANS economically; this module supplies

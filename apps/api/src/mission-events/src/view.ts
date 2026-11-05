@@ -4,8 +4,20 @@
  * events — the live ingest path and the journal-replay path run the exact same
  * `applyEvent` function, so a restart reconstructs an identical view with no
  * side-channel state. Freshness is computed at READ time against the injected
- * clock: stale/expired evidence is still journaled (the journal is immutable)
- * but flagged `planningValid: false` so no consumer can treat it as current.
+ * clock.
+ *
+ * PLANNING ELIGIBILITY (CTO correction C): `planningValid` is TRUE ONLY for
+ * `fresh` evidence. Stale and expired events stay in the view (and the
+ * journal) as historical truth for audit/replay, but must never influence
+ * consequential planning without a fresh refresh event or an explicit,
+ * separately-reviewed override policy — this is issue #9's fail-closed rule
+ * that stale telemetry may not drive financial reasoning.
+ *
+ * TENANT SAFETY (CTO correction A): all in-memory validation state is keyed by
+ * composite identities (org+mission+asset, org+mission+asset+source) built
+ * with JSON tuple encoding, so organizations and missions that reuse the same
+ * asset or source id strings can never contaminate one another — regardless of
+ * which characters an id contains.
  */
 import type { NormalizedEvent, NormalizedObservation } from './schema.js';
 import { observationKindSpec } from './vocabulary.js';
@@ -13,9 +25,9 @@ import { observationKindSpec } from './vocabulary.js';
 export type Freshness = 'fresh' | 'stale' | 'expired';
 
 export interface FreshnessPolicy {
-  /** Observations older than this are `stale` — usable only with the flag. */
+  /** Observations at least this old are `stale` — history only, not planning-valid. */
   readonly maxAgeMs: number;
-  /** Observations older than this are `expired` — never planning-valid. */
+  /** Observations at least this old are `expired` — history only, not planning-valid. */
   readonly expiredMs: number;
 }
 
@@ -38,6 +50,11 @@ export interface AcceptedEventView {
   readonly eventDigest: string;
   readonly observations: readonly NormalizedObservation[];
   readonly freshness: Freshness;
+  /**
+   * Planning eligibility for consequential decisions — TRUE ONLY WHILE FRESH.
+   * Stale/expired events remain listed as journaled history (digest-verifiable)
+   * but carry `planningValid: false`; consumers must not act on them.
+   */
   readonly planningValid: boolean;
 }
 
@@ -73,12 +90,29 @@ export interface MissionTimelineView {
   readonly streams: Readonly<Record<string, StreamStateView>>;
 }
 
-export function streamKey(missionId: string, assetId: string, sourceId: string): string {
-  return `${missionId}:${assetId}:${sourceId}`;
+/**
+ * Composite state keys are JSON tuple encodings: collision-proof even if an
+ * identifier contains delimiters or quote characters (a plain `a:b:c` join is
+ * not). Ids are also schema-constrained, but the encoding makes the guarantee
+ * structural rather than accidental.
+ */
+export function assetStateKey(orgId: string, missionId: string, assetId: string): string {
+  return JSON.stringify([orgId, missionId, assetId]);
+}
+
+export function streamKey(
+  orgId: string,
+  missionId: string,
+  assetId: string,
+  sourceId: string,
+): string {
+  return JSON.stringify([orgId, missionId, assetId, sourceId]);
 }
 
 export function freshnessOf(observedAt: string, nowMs: number, policy: FreshnessPolicy): Freshness {
-  const age = nowMs - Date.parse(observedAt);
+  const observedMs = Date.parse(observedAt);
+  if (Number.isNaN(observedMs)) return 'expired'; // unparseable time is never planning-eligible
+  const age = nowMs - observedMs;
   if (age >= policy.expiredMs) return 'expired';
   if (age >= policy.maxAgeMs) return 'stale';
   return 'fresh';
@@ -87,44 +121,64 @@ export function freshnessOf(observedAt: string, nowMs: number, policy: Freshness
 // ---------------------------------------------------------------------------
 // Incremental ingest state (pre-checks) — everything the validator needs to
 // reject duplicates, regressions, offline telemetry and monotonic violations.
+// Every entry is scoped by composite identity (correction A): an asset id is
+// only meaningful within one (org, mission), an event id within one org
+// (matching the journal's org-scoped key uniqueness), and a stream additionally
+// within one source.
 // ---------------------------------------------------------------------------
 
 export interface IngestState {
-  readonly eventIds: Set<string>;
+  /** Event ids already admitted, per organization (journal keys are org-scoped). */
+  readonly eventIdsByOrg: Map<string, Set<string>>;
+  /** Stream tails keyed by [org, mission, asset, source]. */
   readonly streams: Map<string, { sequence: number; eventId: string }>;
+  /** Latest per-kind readings keyed by [org, mission, asset]. */
   readonly assets: Map<string, Map<string, { value: unknown; eventId: string }>>;
 }
 
 export function newIngestState(): IngestState {
-  return { eventIds: new Set(), streams: new Map(), assets: new Map() };
+  return { eventIdsByOrg: new Map(), streams: new Map(), assets: new Map() };
 }
 
 /** Pure transition: register one ACCEPTED event into the state. */
 export function applyEvent(state: IngestState, event: NormalizedEvent): void {
-  state.eventIds.add(event.eventId);
-  const key = streamKey(event.missionId, event.assetId, event.source.sourceId);
-  state.streams.set(key, { sequence: event.sequence, eventId: event.eventId });
-  let perAsset = state.assets.get(event.assetId);
+  let eventIds = state.eventIdsByOrg.get(event.orgId);
+  if (eventIds === undefined) {
+    eventIds = new Set();
+    state.eventIdsByOrg.set(event.orgId, eventIds);
+  }
+  eventIds.add(event.eventId);
+  const stream = streamKey(event.orgId, event.missionId, event.assetId, event.source.sourceId);
+  state.streams.set(stream, { sequence: event.sequence, eventId: event.eventId });
+  const asset = assetStateKey(event.orgId, event.missionId, event.assetId);
+  let perAsset = state.assets.get(asset);
   if (perAsset === undefined) {
     perAsset = new Map();
-    state.assets.set(event.assetId, perAsset);
+    state.assets.set(asset, perAsset);
   }
   for (const observation of event.observations) {
     perAsset.set(observation.kind, { value: observation.value, eventId: event.eventId });
   }
 }
 
-export function commsState(state: IngestState, assetId: string): string | null {
-  const reading = state.assets.get(assetId)?.get('asset_comms');
+export function commsState(
+  state: IngestState,
+  orgId: string,
+  missionId: string,
+  assetId: string,
+): string | null {
+  const reading = state.assets.get(assetStateKey(orgId, missionId, assetId))?.get('asset_comms');
   return reading === undefined ? null : String(reading.value);
 }
 
 export function lastObservation(
   state: IngestState,
+  orgId: string,
+  missionId: string,
   assetId: string,
   kind: string,
 ): { value: unknown; eventId: string } | undefined {
-  return state.assets.get(assetId)?.get(kind);
+  return state.assets.get(assetStateKey(orgId, missionId, assetId))?.get(kind);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,9 +223,11 @@ export function projectTimeline(
       eventDigest: row.eventDigest,
       observations: event.observations,
       freshness,
-      planningValid: freshness !== 'expired',
+      // Correction C: ONLY fresh evidence is planning-valid. Stale/expired
+      // rows stay listed as digest-verifiable history, never as eligibility.
+      planningValid: freshness === 'fresh',
     });
-    const key = streamKey(event.missionId, event.assetId, event.source.sourceId);
+    const key = streamKey(orgId, missionId, event.assetId, event.source.sourceId);
     streams[key] = {
       sourceId: event.source.sourceId,
       assetId: event.assetId,
@@ -180,7 +236,10 @@ export function projectTimeline(
     };
   }
 
-  for (const [assetId, perKind] of state.assets) {
+  for (const [assetStateKeyId, perKind] of state.assets) {
+    // Composite key [org, mission, asset] → the mission-scoped view reports by
+    // bare assetId (unique within one mission's replay).
+    const assetId = (JSON.parse(assetStateKeyId) as string[])[2]!;
     const latest: Record<string, ObservationReading> = {};
     for (const [kind, reading] of perKind) {
       const owner = rowsByEventId.get(reading.eventId);

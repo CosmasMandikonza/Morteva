@@ -45,6 +45,7 @@ export type { RegisteredSource } from './src/registry.js';
 export {
   DEFAULT_FRESHNESS_POLICY,
   applyEvent,
+  assetStateKey,
   commsState,
   freshnessOf,
   newIngestState,

@@ -67,7 +67,7 @@ describe('mission-event journal replay', () => {
     world.ledger.close();
   });
 
-  it('freshness ages with the clock and expires stop being planning-valid', () => {
+  it('freshness ages with the clock; ONLY fresh is planning-valid (correction C)', () => {
     const world = makeWorld();
     world.service.ingest(
       world.orgId,
@@ -80,12 +80,17 @@ describe('mission-event journal replay', () => {
     world.clock.advance(16 * 60_000); // > maxAge (15m) but < expired (30m)
     const stale = world.service.replay(world.orgId, world.missionId);
     expect(stale.events[0]!.freshness).toBe('stale');
-    expect(stale.events[0]!.planningValid).toBe(true); // stale is a flag, still journaled truth
+    // UPDATED EXPECTATION (CTO correction C): stale evidence stays visible as
+    // journaled history but is NO LONGER planning-valid.
+    expect(stale.events[0]!.planningValid).toBe(false);
 
     world.clock.advance(20 * 60_000); // > 30m total
     const expired = world.service.replay(world.orgId, world.missionId);
     expect(expired.events[0]!.freshness).toBe('expired');
     expect(expired.events[0]!.planningValid).toBe(false);
+    // History is never deleted: the row remains digest-verifiable.
+    expect(expired.events).toHaveLength(1);
+    expect(expired.events[0]!.eventDigest).toMatch(/^[0-9a-f]{64}$/);
     world.ledger.close();
   });
 

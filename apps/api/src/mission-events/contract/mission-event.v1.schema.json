@@ -18,7 +18,9 @@
     "observations"
   ],
   "properties": {
-    "contractVersion": { "const": 1 },
+    "contractVersion": {
+      "const": 1
+    },
     "eventId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{1,64}$",
@@ -27,15 +29,24 @@
     "sequence": {
       "type": "integer",
       "minimum": 1,
-      "description": "Strictly contiguous per (missionId, assetId, sourceId) stream. Gaps are lost updates and fail closed (SEQUENCE_GAP); regressions are rejected (SEQUENCE_REGRESSION)."
+      "description": "Strictly contiguous per (missionId, assetId, sourceId) stream, and the FIRST event of a stream must be sequence 1. First-ever sequence >1, gaps (lost updates) and regressions all fail closed (SEQUENCE_GAP / SEQUENCE_REGRESSION); admission is re-verified journal-authoritatively inside a BEGIN IMMEDIATE transaction so concurrent service instances cannot both admit the same sequence."
     },
-    "orgId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
-    "missionId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
-    "assetId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "orgId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "missionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "assetId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
     "observedAt": {
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
-      "description": "When the physical world was measured. Must be <= ingestedAt and within the freshness policy (default 15 min) at arrival."
+      "description": "When the physical world was measured. Must be <= ingestedAt and within the freshness policy (default 15 min) at arrival. Planning eligibility (planningValid in the replay view) is TRUE ONLY while the event is fresh (< 15 min old at read time); stale/expired events remain visible as journal history only."
     },
     "ingestedAt": {
       "type": "string",
@@ -47,7 +58,10 @@
       "additionalProperties": false,
       "required": ["sourceId", "sourceType", "keyId", "provenance", "signature"],
       "properties": {
-        "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
         "sourceType": {
           "enum": [
             "asset_telemetry",
@@ -66,7 +80,10 @@
           "enum": ["SYNTHETIC", "FIELD"],
           "description": "SYNTHETIC labels simulated sources explicitly. An authenticated source is NOT a verified physical measurement; FIELD claims must match the source registration (PROVENANCE_MISMATCH otherwise)."
         },
-        "signature": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "observations": {
@@ -96,8 +113,12 @@
               "stock_discrepancy"
             ]
           },
-          "unit": { "type": "string" },
-          "value": { "type": ["integer", "string"] }
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": ["integer", "string"]
+          }
         }
       }
     }
