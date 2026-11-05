@@ -16,12 +16,18 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
 
   await page.getByRole('link', { name: 'Decision Room' }).click();
   await expect(page.getByTestId('decision-room')).toContainText('Harbor turbine inspection');
-  await expect(page.getByTestId('start-synthetic')).toBeEnabled();
-  await page.getByTestId('start-synthetic').click();
+  // CI retries share the same seeded server. If the first attempt already
+  // journaled the incident, replay it instead of demanding a fresh baseline.
+  await expect(page.getByTestId('decision-room')).not.toContainText(
+    'Loading actual journal and planner results',
+  );
+  if (await page.getByTestId('start-synthetic').isEnabled()) {
+    await page.getByTestId('start-synthetic').click();
+  }
   await expect(page.getByTestId('decision-room')).toContainText('Before · initial plan');
-  await expect(page.getByTestId('introduce-incident')).toBeEnabled();
-
-  await page.getByTestId('introduce-incident').click();
+  if (await page.getByTestId('introduce-incident').isEnabled()) {
+    await page.getByTestId('introduce-incident').click();
+  }
   await expect(page.getByTestId('physical-incident')).toContainText('24.6 kt');
   await expect(page.getByTestId('physical-incident')).toContainText('SYNTHETIC');
   await expect(page.getByTestId('decision-room')).toContainText('ASSET_SAFETY_BLOCKED');
@@ -54,7 +60,7 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   await expect(page.getByTestId('physical-incident')).toContainText(result.incident.eventId);
   // The existing viewer-safe evidence projection must carry the SAME admitted
   // physical event ID, never a fabricated frontend-only narrative.
-  await page.getByRole('link', { name: 'Evidence Replay' }).click();
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Evidence Replay', exact: true }).click();
   await expect(page.getByTestId('evidence-list')).toContainText(result.incident.eventId);
   await expect(page.getByTestId('evidence-list')).toContainText('mission.event.ingested');
 });
