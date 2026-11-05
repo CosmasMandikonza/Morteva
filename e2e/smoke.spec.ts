@@ -68,8 +68,8 @@ test.describe('app shell smoke', () => {
 
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Decision Room' })).toBeVisible();
-    await expect(page.getByTestId('planned-status')).toContainText('#13');
-    await expect(page.getByTestId('planned-status')).toContainText('No mock data');
+    await expect(page.getByTestId('decision-room')).toContainText('authenticated local demo');
+    await expect(page.getByTestId('start-synthetic')).toHaveCount(0);
 
     await page.getByRole('link', { name: 'Authority & Execution' }).click();
     await expect(
