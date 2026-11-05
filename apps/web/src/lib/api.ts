@@ -240,3 +240,86 @@ export function fetchMissionEvidence(
     { signal },
   );
 }
+
+
+// -------------------------------- connected simulated mission planner (#19)
+
+export interface PhysicalCandidateSummary {
+  readonly candidateId: string;
+  readonly label: string;
+  readonly kind: string;
+  readonly grossMinor: number;
+  readonly expectedNetMinor: number;
+}
+
+export interface PhysicalDecisionSummary {
+  readonly evaluationId: string;
+  readonly outcome: 'select' | 'decline' | 'escalate';
+  readonly selected: PhysicalCandidateSummary | null;
+  readonly alternatives: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly kind: string;
+    readonly feasible: boolean;
+    readonly grossMinor: number;
+    readonly expectedNetMinor: number;
+    readonly rejection: string | null;
+  }[];
+  readonly evidenceIds: readonly string[];
+  readonly reasons: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly evidenceIds: readonly string[];
+  }[];
+  readonly withheldEventIds: readonly string[];
+  readonly currentBalanceStatus: string;
+  readonly currentSpendableMinor: number | null;
+  readonly authorization: string;
+  readonly providerVerified: false;
+  readonly mode: string;
+}
+
+export interface PhysicalDecisionJourney {
+  readonly missionId: string;
+  readonly stage: 'empty' | 'baseline' | 'incident';
+  readonly before: PhysicalDecisionSummary | null;
+  readonly after: PhysicalDecisionSummary | null;
+  readonly admittedEventIds: readonly string[];
+  readonly incident: {
+    readonly eventId: string;
+    readonly sourceId: string;
+    readonly eventDigest: string;
+    readonly observedAt: string;
+    readonly reading: string;
+    readonly provenance: string;
+  } | null;
+  readonly disclaimer: string;
+}
+
+export function fetchPhysicalDecision(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<PhysicalDecisionJourney> {
+  return request<PhysicalDecisionJourney>(
+    `/api/missions/${encodeURIComponent(missionId)}/physical-decision`,
+    { signal },
+  );
+}
+
+export function submitSyntheticStep(
+  missionId: string,
+  step: 'baseline' | 'incident',
+  csrfToken: string,
+): Promise<PhysicalDecisionJourney> {
+  return request<PhysicalDecisionJourney>(
+    `/api/missions/${encodeURIComponent(missionId)}/synthetic-step`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify({ step }),
+    },
+  );
+}
