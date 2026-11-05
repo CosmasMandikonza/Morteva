@@ -66,7 +66,8 @@ function stepEventId(orgId: string, missionId: string, step: 'baseline' | 'incid
 }
 
 function decisionFor(ledger: Ledger, timeline: MissionTimelineView) {
-  const now = ledger.clock.now();
+  // A single injected replay clock must govern both C freshness and A evidence validity.
+  const now = new Date(timeline.asOf);
   const tenant = { orgId: timeline.orgId, missionId: timeline.missionId };
   const safety = physicalTimelineToPlannerSafety(timeline, {
     ...tenant, asOf: now, uavWindLimitKt: WIND_LIMIT_KT,
