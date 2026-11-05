@@ -111,6 +111,17 @@ describe('ledger binding — facts honesty', () => {
     w.ledger.close();
   });
 
+  it('selects the effective active mandate after a superseded same-version issue', () => {
+    const w = makeWorld();
+    const older = seededMandate(w);
+    const active = seededMandate(w);
+    const facts = financialFacts(w.ledger, w.org.id, w.mission.id, 'USD');
+    expect(active.id).not.toBe(older.id);
+    expect(facts.mandate?.id).toBe(active.id);
+    expect(facts.mandate?.expiresAt).toBe(active.expiresAt);
+    w.ledger.close();
+  });
+
   it('STALE balance carries status, never a number', () => {
     const w = makeWorld({ fund: false });
     const past = new Date(w.clock.now().getTime() - 2 * 3_600_000);
