@@ -142,9 +142,20 @@ function constraintRangeError(input: MissionEvidenceInput): string | null {
     case 'asset-safety': {
       if (!['clear', 'blocked', 'unknown'].includes(c.state))
         return 'asset safety state must be clear, blocked or unknown';
-      if (!['wind-limit', 'weather-hold', 'comms-offline', 'insufficient-evidence', 'nominal'].includes(c.reason))
+      if (
+        ![
+          'wind-limit',
+          'weather-hold',
+          'comms-offline',
+          'insufficient-evidence',
+          'nominal',
+        ].includes(c.reason)
+      )
         return 'unknown physical safety reason';
-      if (c.observedWindKt !== undefined && (!Number.isFinite(c.observedWindKt) || c.observedWindKt < 0))
+      if (
+        c.observedWindKt !== undefined &&
+        (!Number.isFinite(c.observedWindKt) || c.observedWindKt < 0)
+      )
         return 'invalid observed wind';
       if (c.maxWindKt !== undefined && (!Number.isFinite(c.maxWindKt) || c.maxWindKt <= 0))
         return 'invalid modeled wind threshold';

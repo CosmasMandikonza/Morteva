@@ -241,7 +241,6 @@ export function fetchMissionEvidence(
   );
 }
 
-
 // -------------------------------- connected simulated mission planner (#19)
 
 export interface PhysicalCandidateSummary {

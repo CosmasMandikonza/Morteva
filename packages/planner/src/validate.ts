@@ -116,7 +116,10 @@ export function validateCandidate(raw: unknown): Validated<PlannerCandidate> {
     return { ok: false, reason: 'evidenceIds must be an array of non-empty strings' };
   if (typeof raw.rationale !== 'string') return { ok: false, reason: 'rationale must be a string' };
   if (raw.requiresAssetId !== undefined && !nonEmptyString(raw.requiresAssetId, 200))
-    return { ok: false, reason: 'requiresAssetId must be a non-empty asset identifier when present' };
+    return {
+      ok: false,
+      reason: 'requiresAssetId must be a non-empty asset identifier when present',
+    };
   if (raw.quoteExpiresAt !== undefined && !isoTimestamp(raw.quoteExpiresAt))
     return { ok: false, reason: 'quoteExpiresAt, when present, must be a valid ISO timestamp' };
   return { ok: true, value: raw as unknown as PlannerCandidate };

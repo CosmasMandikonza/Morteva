@@ -71,22 +71,29 @@ export function physicalTimelineToPlannerSafety(
     let touchedSafety = false;
     for (const observation of event.observations) {
       if (observation.kind === 'wind_speed') {
-        if (observation.unit !== 'kt' || typeof observation.value !== 'string' ||
-            !/^[0-9]+[.][0-9]$/.test(observation.value)) {
+        if (
+          observation.unit !== 'kt' ||
+          typeof observation.value !== 'string' ||
+          !/^[0-9]+[.][0-9]$/.test(observation.value)
+        ) {
           throw new Error('INVALID_JOURNALED_WIND_OBSERVATION');
         }
         latest.windKt = Number(observation.value);
         touchedSafety = true;
       } else if (observation.kind === 'weather_hold') {
-        if (observation.unit !== 'state' ||
-            (observation.value !== 'active' && observation.value !== 'clear')) {
+        if (
+          observation.unit !== 'state' ||
+          (observation.value !== 'active' && observation.value !== 'clear')
+        ) {
           throw new Error('INVALID_JOURNALED_HOLD');
         }
         latest.hold = observation.value;
         touchedSafety = true;
       } else if (observation.kind === 'asset_comms') {
-        if (observation.unit !== 'state' ||
-            !['online', 'degraded', 'offline'].includes(String(observation.value))) {
+        if (
+          observation.unit !== 'state' ||
+          !['online', 'degraded', 'offline'].includes(String(observation.value))
+        ) {
           throw new Error('INVALID_JOURNALED_COMMS');
         }
         latest.comms = observation.value as LatestReadings['comms'];
@@ -97,17 +104,27 @@ export function physicalTimelineToPlannerSafety(
     if (!touchedSafety) continue;
 
     let state: 'clear' | 'blocked' | 'unknown';
-    let reason: 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
+    let reason:
+      'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
     if (latest.windKt !== undefined && latest.windKt > policy.uavWindLimitKt) {
-      state = 'blocked'; reason = 'wind-limit';
+      state = 'blocked';
+      reason = 'wind-limit';
     } else if (latest.hold === 'active') {
-      state = 'blocked'; reason = 'weather-hold';
+      state = 'blocked';
+      reason = 'weather-hold';
     } else if (latest.comms === 'offline') {
-      state = 'blocked'; reason = 'comms-offline';
-    } else if (latest.windKt === undefined || latest.hold !== 'clear' || latest.comms !== 'online') {
-      state = 'unknown'; reason = 'insufficient-evidence';
+      state = 'blocked';
+      reason = 'comms-offline';
+    } else if (
+      latest.windKt === undefined ||
+      latest.hold !== 'clear' ||
+      latest.comms !== 'online'
+    ) {
+      state = 'unknown';
+      reason = 'insufficient-evidence';
     } else {
-      state = 'clear'; reason = 'nominal';
+      state = 'clear';
+      reason = 'nominal';
     }
 
     // No invented forecast, supplier price, payment event or physical control.
@@ -130,7 +147,8 @@ export function physicalTimelineToPlannerSafety(
       },
       constraint: {
         kind: 'asset-safety',
-        state, reason,
+        state,
+        reason,
         observedWindKt: latest.windKt,
         maxWindKt: policy.uavWindLimitKt,
       },

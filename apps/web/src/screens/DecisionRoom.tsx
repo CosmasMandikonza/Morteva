@@ -36,21 +36,29 @@ function DecisionCard({
               ? 'No spend proposed.'
               : `Proposed gross: ${money(decision.selected.grossMinor)} · expected net: ${money(decision.selected.expectedNetMinor)} (model assumptions)`}
           </p>
-          <p className="mv-hud">Evaluation {decision.evaluationId} · {decision.outcome} · POLICY-ONLY</p>
+          <p className="mv-hud">
+            Evaluation {decision.evaluationId} · {decision.outcome} · POLICY-ONLY
+          </p>
           <p className="mv-decision-card__authority">{decision.authorization}</p>
           <details>
             <summary>Alternatives and reasons</summary>
             <ul>
               {decision.alternatives.map((alternative) => (
                 <li key={alternative.id}>
-                  {alternative.label} — {alternative.feasible ? 'eligible' : `blocked: ${alternative.rejection ?? 'policy'}`}
-                  {' · '}{money(alternative.grossMinor)} gross
+                  {alternative.label} —{' '}
+                  {alternative.feasible
+                    ? 'eligible'
+                    : `blocked: ${alternative.rejection ?? 'policy'}`}
+                  {' · '}
+                  {money(alternative.grossMinor)} gross
                 </li>
               ))}
             </ul>
             <ul>
               {decision.reasons.map((reason, index) => (
-                <li key={index}>{reason.code}: {reason.message}</li>
+                <li key={index}>
+                  {reason.code}: {reason.message}
+                </li>
               ))}
             </ul>
           </details>
@@ -93,7 +101,9 @@ export function DecisionRoom({
         if (reason instanceof ApiError && reason.status === 401) onSessionExpired();
         else setError(reason instanceof Error ? reason.message : 'Decision API unavailable');
       })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
   }, [mission?.id, session.kind, onSessionExpired]);
 
@@ -137,7 +147,10 @@ export function DecisionRoom({
           <strong>{mission.title}</strong> · one authenticated synthetic UAV observation,
           deterministic safety policy and live internal-ledger financial facts.
         </p>
-        <p>Modeled flight limit: <strong>22 kt</strong>. The physical source does not control banking authority.</p>
+        <p>
+          Modeled flight limit: <strong>22 kt</strong>. The physical source does not control banking
+          authority.
+        </p>
         <div className="mv-decision-room__actions">
           <button
             type="button"
@@ -166,8 +179,8 @@ export function DecisionRoom({
             <h3>Admitted physical incident</h3>
             <p>{journey.incident.reading}</p>
             <p className="mv-hud">
-              {journey.incident.provenance} · {journey.incident.sourceId} ·
-              event {journey.incident.eventId} · {journey.incident.observedAt}
+              {journey.incident.provenance} · {journey.incident.sourceId} · event{' '}
+              {journey.incident.eventId} · {journey.incident.observedAt}
             </p>
             <p className="mv-hud">Digest {journey.incident.eventDigest}</p>
           </section>
@@ -180,7 +193,10 @@ export function DecisionRoom({
           {journey?.disclaimer ??
             'Synthetic inspection only. No Airwallex funds or live physical vehicle are involved.'}
         </p>
-        <p>Every decision is a proposal. Approval, reservation, provider execution and service delivery are separate controls; none is implied by this demonstration.</p>
+        <p>
+          Every decision is a proposal. Approval, reservation, provider execution and service
+          delivery are separate controls; none is implied by this demonstration.
+        </p>
         <a href="#evidence">Inspect mission evidence in Evidence Replay</a>
       </section>
     </Panel>

@@ -11,7 +11,12 @@ function decision(state: 'clear' | 'blocked' | 'unknown') {
     {
       kind: 'asset-safety',
       state,
-      reason: state === 'blocked' ? 'wind-limit' : state === 'unknown' ? 'insufficient-evidence' : 'nominal',
+      reason:
+        state === 'blocked'
+          ? 'wind-limit'
+          : state === 'unknown'
+            ? 'insufficient-evidence'
+            : 'nominal',
       observedWindKt: state === 'blocked' ? 24.6 : 14.2,
       maxWindKt: 22,
     },
@@ -56,7 +61,10 @@ describe('physical safety → economic candidate gate', () => {
 
   it('missing or unknown physical clearance never makes a UAV candidate eligible', () => {
     const unknown = decision('unknown');
-    expect(unknown.result.trace.scores.find((s) => s.candidate.kind === 'continue-supplier')?.rejection?.code).toBe('ASSET_SAFETY_BLOCKED');
+    expect(
+      unknown.result.trace.scores.find((s) => s.candidate.kind === 'continue-supplier')?.rejection
+        ?.code,
+    ).toBe('ASSET_SAFETY_BLOCKED');
     const emptyReview = reviewEvidence([], NOW, TENANT);
     const candidates = generateCandidates(emptyReview.accepted, {
       now: NOW,
@@ -67,9 +75,15 @@ describe('physical safety → economic candidate gate', () => {
       alternatives: [ALTERNATIVE],
     });
     const result = evaluate({
-      now: NOW, policy: basePolicy(), facts: baseFacts(),
-      evidence: emptyReview, candidates, modelAdapterId: null,
+      now: NOW,
+      policy: basePolicy(),
+      facts: baseFacts(),
+      evidence: emptyReview,
+      candidates,
+      modelAdapterId: null,
     });
-    expect(result.trace.scores.find((s) => s.candidate.kind === 'continue-supplier')?.rejection?.code).toBe('ASSET_SAFETY_BLOCKED');
+    expect(
+      result.trace.scores.find((s) => s.candidate.kind === 'continue-supplier')?.rejection?.code,
+    ).toBe('ASSET_SAFETY_BLOCKED');
   });
 });

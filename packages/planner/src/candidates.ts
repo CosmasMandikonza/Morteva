@@ -114,8 +114,7 @@ export function generateCandidates(
     .filter((a) => a.input.asset.id === primaryAsset && a.input.constraint.kind === 'asset-safety')
     .sort((a, b) => a.input.event.sequence - b.input.event.sequence);
   const safety = safetyReadings.at(-1)?.input.constraint;
-  const operationallyBlocked =
-    safety?.kind === 'asset-safety' && safety.state !== 'clear';
+  const operationallyBlocked = safety?.kind === 'asset-safety' && safety.state !== 'clear';
 
   // ---- no-action: safe abstention if physical clearance is missing or blocked.
   // ---- no-action: always present; its probability collapses when accepted
@@ -149,12 +148,16 @@ export function generateCandidates(
   }
   if (operationallyBlocked) {
     noActionProbability = 0;
-    noActionAssumptions.push('physical clearance missing/blocked; no spend is a safe pause, never permission to fly');
+    noActionAssumptions.push(
+      'physical clearance missing/blocked; no spend is a safe pause, never permission to fly',
+    );
   }
   candidates.push({
     id: 'no-action',
     kind: 'no-action',
-    label: operationallyBlocked ? 'Pause the physical operation (no new spend)' : 'Hold the current plan (no new spend)',
+    label: operationallyBlocked
+      ? 'Pause the physical operation (no new spend)'
+      : 'Hold the current plan (no new spend)',
     costMinor: 0,
     currency: ctx.policyCurrency,
     feeMinor: 0,

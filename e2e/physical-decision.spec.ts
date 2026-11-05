@@ -5,7 +5,9 @@ import { expect, test } from '@playwright/test';
  * Real signed synthetic events → journal replay → planner → displayed result.
  * Explicitly NOT a provider settlement / live-model / payment-approval test.
  */
-test('one synthetic physical incident changes a real ledger-bound financial decision', async ({ page }) => {
+test('one synthetic physical incident changes a real ledger-bound financial decision', async ({
+  page,
+}) => {
   await page.goto('/');
   await page.getByLabel('Username').fill('founder');
   await page.getByLabel('Password').fill('moterva-e2e-demo');
@@ -27,14 +29,18 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   await expect(page.getByTestId('decision-provenance')).toContainText('No money sent');
 
   const mission = await page.evaluate(async () => {
-    const ms = await fetch('/api/missions', { credentials: 'same-origin' }).then((r) => r.json()) as {
+    const ms = (await fetch('/api/missions', { credentials: 'same-origin' }).then((r) =>
+      r.json(),
+    )) as {
       missions: { id: string; title: string }[];
     };
     const selected = ms.missions.find((m) => m.title === 'Harbor turbine inspection');
     if (!selected) throw new Error('seeded mission missing');
     return selected.id;
   });
-  const response = await page.request.get('/api/missions/' + encodeURIComponent(mission) + '/physical-decision');
+  const response = await page.request.get(
+    '/api/missions/' + encodeURIComponent(mission) + '/physical-decision',
+  );
   expect(response.status()).toBe(200);
   const result = await response.json();
   expect(result.stage).toBe('incident');

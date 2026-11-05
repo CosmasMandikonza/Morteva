@@ -76,7 +76,8 @@ export type MissionConstraint =
       /** Physical safety/availability restriction, never a weather forecast or payment authority. */
       readonly kind: 'asset-safety';
       readonly state: 'clear' | 'blocked' | 'unknown';
-      readonly reason: 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
+      readonly reason:
+        'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
       readonly observedWindKt?: number;
       readonly maxWindKt?: number;
     };
