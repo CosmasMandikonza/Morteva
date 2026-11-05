@@ -5,6 +5,7 @@
  * reservation time (tested in ledger-integration.test.ts).
  */
 import type { Ledger } from '@moterva/ledger';
+import { LedgerError } from '@moterva/ledger';
 import type { CandidatePlanView } from '@moterva/domain';
 import type { DecisionResult, FinancialFacts } from './contracts.js';
 
@@ -50,56 +51,36 @@ export function financialFacts(
     )
     .get(orgId, currency) as { outstanding: number; ambiguous: number };
 
-  // Latest active mandate for the mission/currency.
-  const mandateRow = ledger.db
-    .prepare(
-      `SELECT id, version, status, expires_at, max_amount_minor, total_budget_minor,
-              permitted_kinds_json, allowed_beneficiaries_json, allowed_purposes_json, revoked_at
-         FROM mandates
-        WHERE org_id = ? AND mission_id = ? AND currency = ?
-          AND status = 'active' AND revoked_at IS NULL AND expires_at > ?
-        ORDER BY version DESC, created_at DESC, rowid DESC LIMIT 1`,
-    )
-.get(orgId, missionId, currency, ledger.clock.iso()) as
-    | {
-        id: string;
-        version: number;
-        status: string;
-        expires_at: string;
-        max_amount_minor: number;
-        total_budget_minor: number;
-        permitted_kinds_json: string;
-        allowed_beneficiaries_json: string;
-        allowed_purposes_json: string;
-        revoked_at: string | null;
-      }
-    | undefined;
-
+  // IMPORTANT: use the ledger's authoritative activeFor() selector instead
+  // of sorting mandate versions in SQL. Different mandate IDs may both have
+  // version 1: the older superseded record must never hide the effective
+  // active envelope, and conflicting active rows must FAIL CLOSED.
   let mandate: FinancialFacts['mandate'] = null;
-  if (mandateRow !== undefined) {
-    const nowMs = ledger.clock.now().getTime();
-    const expired = Date.parse(mandateRow.expires_at) <= nowMs;
-    const inactive = mandateRow.status !== 'active' || mandateRow.revoked_at !== null;
-    if (!expired && !inactive) {
-      const consumed = ledger.mandates.consumedMissionBudget(orgId, missionId, currency);
-      const total =
-        mandateRow.total_budget_minor !== -1
-          ? mandateRow.total_budget_minor
-          : mandateRow.max_amount_minor;
-      mandate = {
-        id: mandateRow.id,
-        version: mandateRow.version,
-        expiresAt: mandateRow.expires_at,
-        maxPerPaymentMinor: mandateRow.max_amount_minor,
-        remainingBudgetMinor: Math.max(0, total - consumed),
-        permittedKinds: JSON.parse(mandateRow.permitted_kinds_json) as string[],
-        allowedBeneficiaries: mandateRow.allowed_beneficiaries_json
-          ? (JSON.parse(mandateRow.allowed_beneficiaries_json) as string[])
-          : [],
-        allowedPurposes: mandateRow.allowed_purposes_json
-          ? (JSON.parse(mandateRow.allowed_purposes_json) as string[])
-          : [],
-      };
+  try {
+    const active = ledger.mandates.activeFor(orgId, missionId, ledger.clock.now(), currency);
+    const consumed = ledger.mandates.consumedMissionBudget(orgId, missionId, currency);
+    const total = ledger.mandates.effectiveTotalBudget(active);
+    mandate = {
+      id: active.id,
+      version: active.version,
+      expiresAt: active.expiresAt,
+      maxPerPaymentMinor: active.maxAmountMinor,
+      remainingBudgetMinor: Math.max(0, total - consumed),
+      permittedKinds: active.permittedOperationKinds,
+      allowedBeneficiaries: active.allowedBeneficiaries,
+      allowedPurposes: active.allowedPurposes,
+    };
+  } catch (error) {
+    // A missing/revoked/superseded/expired mandate provides NO spend authority.
+    // Unexpected errors (including contradictory active mandates or DB damage)
+    // are not silently swallowed.
+    if (
+      !(error instanceof LedgerError) ||
+      !['MANDATE_NOT_FOUND', 'MANDATE_EXPIRED', 'MANDATE_REVOKED', 'MANDATE_SUPERSEDED'].includes(
+        error.code,
+      )
+    ) {
+      throw error;
     }
   }
 
