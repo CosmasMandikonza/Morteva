@@ -1192,3 +1192,74 @@ a {
     min-width: 0;
   }
 }
+
+
+/* Issue #19 — connected, evidence-backed before/after Decision Room. */
+.mv-decision-room {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.mv-decision-room__intro {
+  color: var(--mv-ink-2);
+  margin: 0;
+}
+.mv-decision-room__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mv-decision-room__actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.mv-decision-room__comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.mv-decision-card {
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 9px;
+  background: var(--mv-surface-card);
+  padding: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mv-decision-card h3,
+.mv-decision-room__incident h3 {
+  margin: 0 0 10px;
+  font-size: var(--mv-size-md);
+}
+.mv-decision-card__outcome {
+  color: var(--mv-accent-text);
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+}
+.mv-decision-card__authority,
+.mv-decision-room__disclaimer {
+  color: var(--mv-hold-text);
+  font-size: var(--mv-size-sm);
+}
+.mv-decision-card details {
+  border-top: 1px solid var(--mv-line);
+  padding-top: 8px;
+}
+.mv-decision-card details summary {
+  cursor: pointer;
+}
+.mv-decision-card li {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.mv-decision-room__incident {
+  border: 1px solid var(--mv-hold-text);
+  border-radius: 9px;
+  padding: 12px 14px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .mv-decision-room__comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
