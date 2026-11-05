@@ -156,6 +156,28 @@ export function scoreCandidate(
     }
   }
 
+  // ---- operational safety: a paid plan using a UAV cannot proceed on stale,
+  // unknown or blocked physical clearance. This gate is a prerequisite, not
+  // a probability heuristic: the policy engine never overrides flight safety.
+  if (safeCandidate.requiresAssetId !== undefined) {
+    const reports = input.evidence.accepted
+      .filter(
+        (a) =>
+          a.input.asset.id === safeCandidate.requiresAssetId &&
+          a.input.constraint.kind === 'asset-safety',
+      )
+      .sort((a, b) => a.input.event.sequence - b.input.event.sequence);
+    const last = reports.at(-1)?.input.constraint;
+    if (last?.kind !== 'asset-safety' || last.state !== 'clear') {
+      return verdict(
+        'ASSET_SAFETY_BLOCKED',
+        last?.kind === 'asset-safety'
+          ? `physical asset ${safeCandidate.requiresAssetId} safety is ${last.state} (${last.reason}); human review or independently authenticated clearance required`
+          : `no fresh admitted physical clearance for asset ${safeCandidate.requiresAssetId}`,
+      );
+    }
+  }
+
   // ---- quote freshness.
   if (safeCandidate.quoteExpiresAt !== undefined) {
     if (Date.parse(safeCandidate.quoteExpiresAt) <= nowMs) {
