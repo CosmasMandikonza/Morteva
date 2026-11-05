@@ -43,6 +43,10 @@ export interface MissionEvidenceInput {
       | 'contractor-system'
       | 'diagnostic-report';
     readonly digest: string;
+    /** Original physical source identity and per-source sequence retained alongside journal order. */
+    readonly physicalSourceId?: string;
+    readonly physicalSequence?: number;
+    readonly provenance?: 'SYNTHETIC' | 'FIELD';
   };
   readonly constraint: MissionConstraint;
   readonly validity: { readonly notAfter: string };
@@ -67,7 +71,15 @@ export type MissionConstraint =
       /** Interpretation material only — NEVER carries financial authority. */
       readonly detail: string;
     }
-  | { readonly kind: 'deadline-change'; readonly newDeadline: string };
+  | { readonly kind: 'deadline-change'; readonly newDeadline: string }
+  | {
+      /** Physical safety/availability restriction, never a weather forecast or payment authority. */
+      readonly kind: 'asset-safety';
+      readonly state: 'clear' | 'blocked' | 'unknown';
+      readonly reason: 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
+      readonly observedWindKt?: number;
+      readonly maxWindKt?: number;
+    };
 
 export type EvidenceRejectionCode =
   | 'VERSION_MISMATCH'
@@ -141,6 +153,8 @@ export interface PlannerCandidate {
   /** Every candidate must cite evidence that was ACCEPTED in this review. */
   readonly evidenceIds: readonly string[];
   readonly rationale: string;
+  /** Asset whose operational clearance is required before using this candidate. */
+  readonly requiresAssetId?: string;
 }
 
 export type CandidateRejectionCode =
@@ -161,7 +175,8 @@ export type CandidateRejectionCode =
   | 'UNCONFIRMED_AVAILABILITY_FORBIDDEN'
   | 'PROBABILITY_OUT_OF_RANGE'
   | 'INFORMATION_NOT_WORTH_PRICE'
-  | 'INVALID_ARITHMETIC';
+  | 'INVALID_ARITHMETIC'
+  | 'ASSET_SAFETY_BLOCKED';
 
 // ------------------------------------------------------------------- policy
 
