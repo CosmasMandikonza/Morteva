@@ -57,9 +57,10 @@ export function financialFacts(
               permitted_kinds_json, allowed_beneficiaries_json, allowed_purposes_json, revoked_at
          FROM mandates
         WHERE org_id = ? AND mission_id = ? AND currency = ?
-        ORDER BY version DESC LIMIT 1`,
+          AND status = 'active' AND revoked_at IS NULL AND expires_at > ?
+        ORDER BY version DESC, created_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(orgId, missionId, currency) as
+.get(orgId, missionId, currency, ledger.clock.iso()) as
     | {
         id: string;
         version: number;
