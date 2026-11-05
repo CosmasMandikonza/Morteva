@@ -60,7 +60,10 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   await expect(page.getByTestId('physical-incident')).toContainText(result.incident.eventId);
   // The existing viewer-safe evidence projection must carry the SAME admitted
   // physical event ID, never a fabricated frontend-only narrative.
-  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Evidence Replay', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('link', { name: 'Evidence Replay', exact: true })
+    .click();
   await expect(page.getByTestId('evidence-list')).toContainText(result.incident.eventId);
   await expect(page.getByTestId('evidence-list')).toContainText('mission.event.ingested');
 });
