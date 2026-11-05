@@ -407,10 +407,12 @@ export function Treasury({
                 <p className="mv-empty">No treasury accounts configured for this organization.</p>
               )}
               <p className="mv-panel__note">
-                Engine-computed spendable = fresh verified balance − protected floor − outstanding
-                commitments (unknown and escalated exposure both retain capacity). Provider
-                observation: none — adapter disabled until sandbox credentials (#5); see System
-                status.
+                Engine-computed spendable = the freshest internal ledger balance snapshot −
+                protected floor − outstanding commitments (unknown and escalated exposure both
+                retain capacity). Snapshots are internal observations with recorded source and
+                expiry — provider verification only when a verified provider observation exists
+                (none does today). Provider observation: none — adapter disabled until sandbox
+                credentials (#5); see System status.
               </p>
             </Panel>
 
