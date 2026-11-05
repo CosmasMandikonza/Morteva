@@ -849,15 +849,16 @@ function projectEvidencePayload(type: string, raw: unknown): unknown {
     if (event === null || typeof event !== 'object' || Array.isArray(event)) return null;
     const item = event as Record<string, unknown>;
     const src = item.source;
-    const source = src !== null && typeof src === 'object' && !Array.isArray(src)
-      ? (src as Record<string, unknown>) : null;
+    const source =
+      src !== null && typeof src === 'object' && !Array.isArray(src)
+        ? (src as Record<string, unknown>)
+        : null;
     if (passesRule(item.eventId, ID)) out.eventId = item.eventId;
     if (passesRule(item.assetId, ID)) out.assetId = item.assetId;
     if (passesRule(item.observedAt, ISO_OR_EMPTY)) out.observedAt = item.observedAt;
     if (passesRule(record.eventDigest, HEXISH)) out.eventDigest = record.eventDigest;
     if (source !== null && passesRule(source.sourceId, ID)) out.sourceId = source.sourceId;
-    if (source !== null &&
-        (source.provenance === 'SYNTHETIC' || source.provenance === 'FIELD'))
+    if (source !== null && (source.provenance === 'SYNTHETIC' || source.provenance === 'FIELD'))
       out.provenance = source.provenance;
   } else if (EVIDENCE_PAYLOAD_ALLOWLIST[type] !== undefined) {
     applyRules(EVIDENCE_PAYLOAD_ALLOWLIST[type]!);
