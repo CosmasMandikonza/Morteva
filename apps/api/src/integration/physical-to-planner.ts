@@ -67,7 +67,7 @@ export function physicalTimelineToPlannerSafety(
       withheldEventIds.push(event.eventId);
       continue;
     }
-    const latest = latestByAsset.get(event.assetId) ?? {};
+    const latest: LatestReadings = latestByAsset.get(event.assetId) ?? {};
     let touchedSafety = false;
     for (const observation of event.observations) {
       if (observation.kind === 'wind_speed') {
