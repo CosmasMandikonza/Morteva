@@ -1,0 +1,58 @@
+{
+  "contractVersion": 1,
+  "eventId": "mevt_60aed8f5cf48",
+  "sequence": 1,
+  "orgId": "org_fixture_reference",
+  "missionId": "msn_fixture_reference",
+  "assetId": "uav-seeker-1",
+  "observedAt": "2026-11-06T09:00:00.000Z",
+  "ingestedAt": "2026-11-06T09:00:02.000Z",
+  "source": {
+    "sourceId": "ops-console",
+    "sourceType": "mission_control",
+    "keyId": "key_ops_console_v1",
+    "provenance": "SYNTHETIC"
+  },
+  "observations": [
+    {
+      "kind": "wind_speed",
+      "unit": "kt",
+      "value": "14.2"
+    },
+    {
+      "kind": "wave_height",
+      "unit": "m",
+      "value": "0.80"
+    },
+    {
+      "kind": "visibility",
+      "unit": "category",
+      "value": "good"
+    },
+    {
+      "kind": "weather_hold",
+      "unit": "state",
+      "value": "clear"
+    },
+    {
+      "kind": "asset_comms",
+      "unit": "state",
+      "value": "online"
+    },
+    {
+      "kind": "asset_position_status",
+      "unit": "state",
+      "value": "on_station"
+    },
+    {
+      "kind": "battery_soc",
+      "unit": "percent",
+      "value": 96
+    },
+    {
+      "kind": "inspection_progress",
+      "unit": "percent",
+      "value": 0
+    }
+  ]
+}
