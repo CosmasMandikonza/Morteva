@@ -185,3 +185,58 @@ export function fetchOperation(id: string, signal?: AbortSignal): Promise<Operat
     signal,
   }).then((body) => body.operation);
 }
+
+// ------------------------------------------------- financial overview (#35)
+
+import type {
+  FinancialOverviewView,
+  MissionEvidenceListView,
+  OperationListView,
+} from '@moterva/domain';
+
+export type {
+  BalanceProvenanceView,
+  CommitmentBreakdownView,
+  FinancialCurrencyView,
+  FinancialOverviewView,
+  MissionEvidenceEventView,
+  MissionEvidenceListView,
+  OperationListView,
+  OperationReadView,
+} from '@moterva/domain';
+
+export function fetchFinancialOverview(signal?: AbortSignal): Promise<FinancialOverviewView> {
+  return request<FinancialOverviewView>('/api/financial/overview', { signal });
+}
+
+// ---------------------------------------------------- operations list (#35)
+
+export function fetchOperations(
+  query: { missionId?: string; state?: string; attention?: string; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<OperationListView> {
+  const params = new URLSearchParams();
+  if (query.missionId !== undefined) params.set('missionId', query.missionId);
+  if (query.state !== undefined) params.set('state', query.state);
+  if (query.attention !== undefined) params.set('attention', query.attention);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  return request<OperationListView>(`/api/operations${qs === '' ? '' : `?${qs}`}`, { signal });
+}
+
+// -------------------------------------------------- mission evidence (#37)
+
+export function fetchMissionEvidence(
+  missionId: string,
+  query: { topic?: 'financial' | 'operational'; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<MissionEvidenceListView> {
+  const params = new URLSearchParams();
+  if (query.topic !== undefined) params.set('topic', query.topic);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  return request<MissionEvidenceListView>(
+    `/api/missions/${encodeURIComponent(missionId)}/evidence${qs === '' ? '' : `?${qs}`}`,
+    { signal },
+  );
+}

@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
  *
  * Seed facts used by assertions:
  * - Mission A "Harbor turbine inspection": USD mandate 150,000.00 envelope
- *   with 60,000.00 committed; EUR 40,000.00 uncommitted; GBP mandate issued
+ *   with 60,000.00 committed; EUR 37,000.00 uncommitted; GBP mandate issued
  *   with a 200ms fuse (valid at issue, lapsed by clock when rendered);
  *   one superseded USD v1.
  * - Mission B "Subsea mooring survey": USD 60,000.00 envelope,
@@ -39,17 +39,17 @@ test.describe('authenticated treasury journey', () => {
     await expect(missions).toContainText('Subsea mooring survey');
 
     // EFFECTIVE authority excludes the clock-lapsed GBP mandate: the hero
-    // counts USD + EUR only — USD 90,000.00 and EUR 40,000.00 remaining.
+    // counts USD + EUR only — USD 76,500.00 and EUR 37,000.00 remaining.
     const hero = page.getByTestId('mission-hero');
-    await expect(hero).toContainText('USD 90,000.00');
-    await expect(hero).toContainText('EUR 40,000.00');
+    await expect(hero).toContainText('USD 76,500.00');
+    await expect(hero).toContainText('EUR 37,000.00');
     await expect(hero).not.toContainText('GBP');
     await expect(hero).toContainText('effective authority');
 
     // Real envelope math on the effective card.
     const mandates = page.getByTestId('mandates-panel');
     await expect(mandates).toContainText('of 150,000.00 envelope');
-    await expect(mandates).toContainText('40% committed');
+    await expect(mandates).toContainText('49% committed');
 
     // The lapsed mandate stays inspectable but is NEVER spendable: its own
     // section, a not-spendable chip (no "Mandate active" claim), historical
@@ -64,11 +64,32 @@ test.describe('authenticated treasury journey', () => {
     // Superseded history remains.
     await expect(mandates.locator('.mv-chip--neutral', { hasText: 'Superseded' })).toBeVisible();
 
-    // Provenance panel: no blanket "no data" claims; provider state accurate.
-    const caps = page.getByTestId('capabilities-panel');
-    await expect(caps).toContainText('seeded demonstration data');
-    await expect(caps).toContainText('adapter is implemented but disabled');
-    await expect(caps.getByText('No simulated or fixture data')).toHaveCount(0);
+    // Provenance (position panel replaced the old capabilities panel): the
+    // balance source + freshness is explicit, provider state stays accurate.
+    const position = page.getByTestId('position-panel');
+    await expect(position).toContainText('seeded demo data');
+    await expect(position).toContainText('internal record, not provider-verified');
+    await expect(position.getByText('No simulated or fixture data')).toHaveCount(0);
+
+    // Financial position comes from the real #35 API: USD treasury with
+    // engine-computed spendable and honest commitment pressure.
+    await expect(position).toContainText('USD');
+    await expect(position).toContainText('fresh snapshot');
+    await expect(position).toContainText('Spendable now');
+    await expect(position).toContainText('unknown/held');
+
+    // Operations list from the real #35 API: deterministic lifecycle states.
+    const ops = page.getByTestId('operations-panel');
+    await expect(ops).toContainText('Unknown');
+    await expect(ops).toContainText('Needs decision');
+    await expect(ops).toContainText('Reconciled');
+    await expect(ops.locator('[data-attention="human"]')).toHaveCount(1);
+
+    // Inspector auto-selects the needs-human operation with exact terms.
+    const inspector = page.getByTestId('operation-inspector');
+    await expect(inspector).toContainText('blade crack dye test');
+    await expect(inspector).toContainText('Required action');
+    await expect(inspector).toContainText('exposure stays held');
 
     // Mission selection actually drives the content.
     await page.getByRole('button', { name: /Subsea mooring survey/ }).click();
@@ -106,8 +127,9 @@ test.describe('authenticated treasury journey', () => {
 
     // No fake signed-out state: session UI stays, failure is announced.
     await expect(page.getByTestId('actor-chip')).toContainText('E2E Founder');
-    await expect(page.getByRole('alert')).toContainText('Sign out failed');
-    await expect(page.getByRole('alert')).toContainText('session remains active');
+    const logoutAlert = page.locator('.mv-actor__error');
+    await expect(logoutAlert).toContainText('Sign out failed');
+    await expect(logoutAlert).toContainText('session remains active');
     await expect(page.getByTestId('signin-panel')).toHaveCount(0);
 
     // After the server recovers, sign out succeeds with the same token.
@@ -169,7 +191,7 @@ test.describe('authenticated treasury journey', () => {
     await page.getByLabel('Username').fill('founder');
     await page.getByLabel('Password').fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('alert')).toContainText('invalid credentials');
+    await expect(page.locator('.mv-signin__error')).toContainText('invalid credentials');
     await expect(page.getByTestId('signin-panel')).toBeVisible();
     await expect(page.getByTestId('actor-chip')).toHaveCount(0);
   });

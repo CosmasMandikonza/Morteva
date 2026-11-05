@@ -58,6 +58,20 @@ ledger.accounts.ensureTreasuryAccount({
   label: 'USD treasury',
   protectedFloorMinor: 50_000,
 });
+ledger.accounts.ensureTreasuryAccount({
+  orgId: org.id,
+  currency: 'EUR',
+  label: 'EUR treasury',
+  protectedFloorMinor: 10_000,
+});
+ledger.accounts.recordBalanceSnapshot({
+  orgId: org.id,
+  currency: 'EUR',
+  minorUnits: 5_000_000,
+  source: 'manual-seed',
+  observedAt: ledger.clock.iso(),
+  expiresAt: iso(1),
+});
 ledger.accounts.recordBalanceSnapshot({
   orgId: org.id,
   currency: 'USD',
@@ -88,7 +102,7 @@ const usd = ledger.mandates.issue({
   maxAmountMinor: 8_000_000,
   totalBudgetMinor: 15_000_000,
   permittedOperationKinds: ['airwallex_transfer'],
-  allowedBeneficiaries: ['harbor-diagnostics'],
+  allowedBeneficiaries: ['harbor-diagnostics', 'harbor-marine'],
   byActorId: owner.id,
   expiresAt: iso(26),
 });
@@ -195,6 +209,155 @@ ledger.reservations.reserve({
   planVersion: planB.version,
   approvalId: approvalB.id,
 });
+
+// --- Deterministic lifecycle scenario for the operation-centered journey ---
+// Every transition below is a REAL ledger transition (journal events are
+// appended automatically). Nothing claims provider verification: the
+// settled/reconciled operation is an internal_hold (the one kind the ledger
+// itself can settle without provider readback), and no airwallex_transfer
+// is ever marked settled in this demo ledger.
+const planU = ledger.plans.recordVersion({
+  orgId: org.id,
+  missionId: missionA.id,
+  proposedBy: operator.id,
+  terms: {
+    amountMinor: 900_000,
+    currency: 'USD',
+    beneficiary: 'harbor-marine',
+    purpose: 'ROV tether inspection',
+    quote: { id: 'q-u', validUntil: iso(0.5) },
+  },
+});
+const approvalU = ledger.approvals.record({
+  orgId: org.id,
+  plan: planU,
+  decidedByActorId: approver.id,
+  kind: 'airwallex_transfer',
+  mandateId: usd.id,
+  mandateVersion: usd.version,
+  expiresAt: iso(1),
+});
+const unknownOp = ledger.reservations.reserve({
+  orgId: org.id,
+  missionId: missionA.id,
+  kind: 'airwallex_transfer',
+  requestId: 'e2e-op-unknown',
+  planId: planU.id,
+  planVersion: planU.version,
+  approvalId: approvalU.id,
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: unknownOp.operation.id,
+  to: 'SUBMITTING',
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: unknownOp.operation.id,
+  to: 'STATUS_UNKNOWN',
+});
+
+const planH = ledger.plans.recordVersion({
+  orgId: org.id,
+  missionId: missionA.id,
+  proposedBy: operator.id,
+  terms: {
+    amountMinor: 450_000,
+    currency: 'USD',
+    beneficiary: 'harbor-diagnostics',
+    purpose: 'blade crack dye test',
+    quote: { id: 'q-h', validUntil: iso(0.5) },
+  },
+});
+const approvalH = ledger.approvals.record({
+  orgId: org.id,
+  plan: planH,
+  decidedByActorId: approver.id,
+  kind: 'airwallex_transfer',
+  mandateId: usd.id,
+  mandateVersion: usd.version,
+  expiresAt: iso(1),
+});
+const humanOp = ledger.reservations.reserve({
+  orgId: org.id,
+  missionId: missionA.id,
+  kind: 'airwallex_transfer',
+  requestId: 'e2e-op-human',
+  planId: planH.id,
+  planVersion: planH.version,
+  approvalId: approvalH.id,
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: humanOp.operation.id,
+  to: 'SUBMITTING',
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: humanOp.operation.id,
+  to: 'IN_FLIGHT',
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: humanOp.operation.id,
+  to: 'REQUIRES_HUMAN',
+});
+
+const eurMandate = ledger.db
+  .prepare(
+    'SELECT id, version FROM mandates WHERE org_id = ? AND mission_id = ? AND currency = ? AND status = ?',
+  )
+  .get(org.id, missionA.id, 'EUR', 'active');
+const planS = ledger.plans.recordVersion({
+  orgId: org.id,
+  missionId: missionA.id,
+  proposedBy: operator.id,
+  terms: {
+    amountMinor: 300_000,
+    currency: 'EUR',
+    beneficiary: 'harbor-diagnostics',
+    purpose: 'docking-slot hold',
+    quote: null,
+  },
+});
+const approvalS = ledger.approvals.record({
+  orgId: org.id,
+  plan: planS,
+  decidedByActorId: approver.id,
+  kind: 'internal_hold',
+  mandateId: eurMandate.id,
+  mandateVersion: eurMandate.version,
+  expiresAt: iso(1),
+});
+const settledOp = ledger.reservations.reserve({
+  orgId: org.id,
+  missionId: missionA.id,
+  kind: 'internal_hold',
+  requestId: 'e2e-op-settled',
+  planId: planS.id,
+  planVersion: planS.version,
+  approvalId: approvalS.id,
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: settledOp.operation.id,
+  to: 'SETTLED',
+});
+ledger.reservations.transition({
+  orgId: org.id,
+  operationId: settledOp.operation.id,
+  to: 'RECONCILED',
+});
+
+ledger.evidence.append({
+  orgId: org.id,
+  missionId: missionA.id,
+  topic: 'operational',
+  type: 'rov.status',
+  eventKey: 'e2e:rov:1',
+  payload: { rov: 'ROV-2', status: 'tether tension spike', sector: 'B-north' },
+});
+
 ledger.db.close();
 
 console.log(`[demo-auth-server] seeded ledger at ${dbPath}`);

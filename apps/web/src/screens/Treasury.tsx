@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
+import type { FinancialOverviewView, OperationListView, OperationReadView } from '@moterva/domain';
 import { StatusChip } from '../components/StatusChip';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
+import { OperationInspector } from '../components/OperationInspector';
 import {
   ApiError,
+  fetchFinancialOverview,
   fetchMandates,
   fetchMissions,
+  fetchOperations,
   type MandateRow,
   type MissionRow,
   type SessionState,
 } from '../lib/api';
 import { formatDate, money, moneyAmount, parseJsonArray, percent, shortId } from '../lib/format';
-import { mandatePresentation } from '../status/statusMap';
+import { mandatePresentation, operationPresentation } from '../status/statusMap';
 
 type Load<T> =
   | { kind: 'loading' }
@@ -21,9 +25,10 @@ type Load<T> =
 
 /**
  * Mission Treasury — the first production surface. Every number rendered
- * here comes from the authenticated, org-scoped MOTERVA API. Capabilities
- * with no authorized endpoint render one explicit unavailable panel; the
- * design-lab fixtures are never presented as financial truth.
+ * here comes from the authenticated, org-scoped MOTERVA API (#35/#37 merged
+ * contracts): org financial position, mission mandates, and the mission's
+ * real operations with an inspector carrying one operation identity into
+ * Evidence Replay. The design-lab fixtures are never financial truth.
  */
 export function Treasury({
   session,
@@ -31,6 +36,7 @@ export function Treasury({
   onSelectMission,
   onLogin,
   onSessionExpired,
+  onInspectEvidence,
   loginBusy,
   loginError,
 }: {
@@ -40,11 +46,16 @@ export function Treasury({
   onLogin: (username: string, password: string) => void;
   /** Invoked when an authenticated read returns 401: financial content must not remain exposed. */
   onSessionExpired: () => void;
+  /** Carries ONE operation identity into the Evidence Replay surface. */
+  onInspectEvidence: (operationId: string, missionId: string) => void;
   loginBusy: boolean;
   loginError: string | null;
 }): JSX.Element {
   const [missions, setMissions] = useState<Load<MissionRow[]>>({ kind: 'loading' });
   const [mandates, setMandates] = useState<Load<MandateRow[]>>({ kind: 'loading' });
+  const [overview, setOverview] = useState<Load<FinancialOverviewView>>({ kind: 'loading' });
+  const [operations, setOperations] = useState<Load<OperationListView>>({ kind: 'loading' });
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
 
   const signedIn = session.kind === 'signed-in';
   // Provenance: records are genuine internal ledger rows, but under DEMO_AUTH
@@ -105,6 +116,65 @@ export function Treasury({
           return;
         }
         setMandates({
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
+    return () => controller.abort();
+  }, [signedIn, effectiveMissionId, onSessionExpired]);
+
+  // Org financial position (#35) — session-scoped, not mission-scoped.
+  useEffect(() => {
+    if (!signedIn) {
+      setOverview({ kind: 'loading' });
+      return;
+    }
+    const controller = new AbortController();
+    setOverview({ kind: 'loading' });
+    fetchFinancialOverview(controller.signal)
+      .then((view) => setOverview({ kind: 'ok', data: view }))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        setOverview({
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
+    return () => controller.abort();
+  }, [signedIn, onSessionExpired]);
+
+  // Mission operations (#35), mission-scoped.
+  useEffect(() => {
+    if (!signedIn || effectiveMissionId === null) {
+      setOperations({ kind: 'loading' });
+      setSelectedOperationId(null);
+      return;
+    }
+    const controller = new AbortController();
+    setOperations({ kind: 'loading' });
+    fetchOperations({ missionId: effectiveMissionId, limit: 25 }, controller.signal)
+      .then((list) => {
+        setOperations({ kind: 'ok', data: list });
+        setSelectedOperationId((current) => {
+          if (current !== null && list.operations.some((o) => o.id === current)) return current;
+          // Auto-select the first operation needing attention, else the newest.
+          const attention =
+            list.operations.find((o) => o.attention === 'human') ??
+            list.operations.find((o) => o.attention === 'ambiguous');
+          return attention?.id ?? list.operations[0]?.id ?? null;
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiError && error.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        setOperations({
           kind: 'error',
           message: error instanceof Error ? error.message : 'Unknown error',
         });
@@ -225,57 +295,186 @@ export function Treasury({
             </Panel>
 
             <Panel
-              title="Data provenance"
-              meta={<span className="mv-tag">what each figure is</span>}
-              testId="capabilities-panel"
+              title="Financial position"
+              meta={
+                overview.kind === 'ok' ? (
+                  <span className="mv-tag">org · {overview.data.currencies.length} currencies</span>
+                ) : undefined
+              }
+              testId="position-panel"
             >
-              <ul className="mv-caps">
-                <li>
-                  <span className="mv-caps__name">
-                    Missions &amp; mandates{' '}
-                    <span className="mv-caps__kind mv-caps__kind--internal">internal ledger</span>
+              {overview.kind === 'loading' && <SkeletonRows rows={3} />}
+              {overview.kind === 'error' && (
+                <div className="mv-alert" role="alert">
+                  <p className="mv-alert__body">{overview.message}</p>
+                </div>
+              )}
+              {overview.kind === 'ok' &&
+                overview.data.currencies.map((c) => (
+                  <div className="mv-position" key={c.currency} data-testid="position-currency">
+                    <div className="mv-position__head">
+                      <span className="mv-position__currency mv-num">{c.currency}</span>
+                      <span
+                        className={`mv-chip mv-chip--sm ${
+                          c.status === 'ok'
+                            ? 'mv-chip--verified'
+                            : c.status === 'stale'
+                              ? 'mv-chip--hold'
+                              : 'mv-chip--danger'
+                        }`}
+                        data-testid="freshness-chip"
+                      >
+                        {c.status === 'ok'
+                          ? 'fresh snapshot'
+                          : c.status === 'stale'
+                            ? 'stale snapshot'
+                            : 'no snapshot'}
+                      </span>
+                    </div>
+                    <dl className="mv-position__figures">
+                      <div>
+                        <dt>Balance</dt>
+                        <dd className="mv-num">
+                          {c.balance === null ? '—' : `${c.currency} ${c.balance.major}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Protected floor</dt>
+                        <dd className="mv-num">{`${c.currency} ${c.protectedFloor.major}`}</dd>
+                      </div>
+                      <div>
+                        <dt>Spendable now</dt>
+                        <dd className="mv-num mv-position__spendable">
+                          {c.spendable === null ? (
+                            <span className="mv-position__unavailable">
+                              {c.statusDetail ?? 'not computable'}
+                            </span>
+                          ) : (
+                            <>
+                              {c.currency} {c.spendable.major}
+                              {c.spendable.overcommitted && (
+                                <span className="mv-chip mv-chip--danger mv-chip--sm">
+                                  overcommitted — spending halted
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    <p className="mv-position__commitments">
+                      Commitments — reserved{' '}
+                      <span className="mv-num">{moneyAmount(c.commitments.reservedMinor)}</span> ·
+                      unknown/held{' '}
+                      <span className="mv-num">{moneyAmount(c.commitments.unknownMinor)}</span>
+                      {c.commitments.settledPendingObservationMinor !== null && (
+                        <>
+                          {' '}
+                          · settled pending observation{' '}
+                          <span className="mv-num">
+                            {moneyAmount(c.commitments.settledPendingObservationMinor)}
+                          </span>
+                        </>
+                      )}
+                      {c.commitments.totalOutstandingMinor !== null && (
+                        <>
+                          {' '}
+                          · total outstanding{' '}
+                          <span className="mv-num">
+                            {moneyAmount(c.commitments.totalOutstandingMinor)}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                    {c.provenance !== null && (
+                      <p className="mv-position__provenance">
+                        source <span className="mv-num">{c.provenance.source}</span> · observed{' '}
+                        {formatDate(c.provenance.observedAt)}
+                        {c.provenance.providerVerified
+                          ? ' · provider-verified'
+                          : ' · internal record, not provider-verified'}
+                        {isDemoLedger ? ' · seeded demo data' : ''}
+                      </p>
+                    )}
+                    {c.provenance === null && (
+                      <p className="mv-position__provenance">
+                        no balance observation recorded{isDemoLedger ? ' · seeded demo data' : ''}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              {overview.kind === 'ok' && overview.data.currencies.length === 0 && (
+                <p className="mv-empty">No treasury accounts configured for this organization.</p>
+              )}
+              <p className="mv-panel__note">
+                Engine-computed spendable = fresh verified balance − protected floor − outstanding
+                commitments (unknown and escalated exposure both retain capacity). Provider
+                observation: none — adapter disabled until sandbox credentials (#5); see System
+                status.
+              </p>
+            </Panel>
+
+            <Panel
+              title="Operations"
+              meta={
+                operations.kind === 'ok' ? (
+                  <span className="mv-tag mv-num" data-testid="operations-counts">
+                    {String(operations.data.operations.length)}·
+                    {String(operations.data.counts.needsHuman)} human·
+                    {String(operations.data.counts.ambiguous)} ambiguous
                   </span>
-                  <span className="mv-caps__why">
-                    Genuine internal ledger records
-                    {isDemoLedger
-                      ? ' — in this local demo the ledger itself is seeded demonstration data'
-                      : ''}
-                    . Envelope figures are mandate-authorized spending authority, not account
-                    balances.
-                  </span>
-                </li>
-                <li>
-                  <span className="mv-caps__name">
-                    Account balance &amp; spendable{' '}
-                    <span className="mv-caps__kind mv-caps__kind--unavailable">unavailable</span>
-                  </span>
-                  <span className="mv-caps__why">
-                    No authorized endpoint exposes balances yet (financial-overview API under
-                    review, #35). Nothing is derived, estimated or simulated here.
-                  </span>
-                </li>
-                <li>
-                  <span className="mv-caps__name">
-                    Operations &amp; exceptions{' '}
-                    <span className="mv-caps__kind mv-caps__kind--unavailable">unavailable</span>
-                  </span>
-                  <span className="mv-caps__why">
-                    Needs an org-scoped list route (#35); single-operation lookup by ID exists only.
-                    Reserved / in-flight / unknown / verified outcomes are not listed anywhere yet.
-                  </span>
-                </li>
-                <li>
-                  <span className="mv-caps__name">
-                    Provider observations{' '}
-                    <span className="mv-caps__kind mv-caps__kind--none">none</span>
-                  </span>
-                  <span className="mv-caps__why">
-                    The Airwallex sandbox adapter is implemented but disabled until sandbox
-                    credentials exist (#5 open); no provider call is made or claimed. Metal remains
-                    offline (#6). See System status below for the server&rsquo;s verbatim report.
-                  </span>
-                </li>
-              </ul>
+                ) : undefined
+              }
+              testId="operations-panel"
+            >
+              {operations.kind === 'loading' && <SkeletonRows rows={3} />}
+              {operations.kind === 'error' && (
+                <div className="mv-alert" role="alert">
+                  <p className="mv-alert__body">{operations.message}</p>
+                </div>
+              )}
+              {operations.kind === 'ok' && operations.data.operations.length === 0 && (
+                <p className="mv-empty" data-testid="operations-empty">
+                  No operations recorded for this mission.
+                </p>
+              )}
+              {operations.kind === 'ok' && operations.data.operations.length > 0 && (
+                <ul className="mv-ops">
+                  {operations.data.operations.map((op) => {
+                    const presentation = operationPresentation(op.state);
+                    return (
+                      <li key={op.id}>
+                        <button
+                          type="button"
+                          className={`mv-op ${op.id === selectedOperationId ? 'is-selected' : ''}`}
+                          data-state={op.state}
+                          data-attention={op.attention}
+                          onClick={() => setSelectedOperationId(op.id)}
+                          aria-pressed={op.id === selectedOperationId}
+                        >
+                          <span className="mv-op__state">
+                            <span aria-hidden="true">{presentation.glyph}</span>{' '}
+                            {presentation.label}
+                          </span>
+                          <span className="mv-num mv-op__amount">
+                            {op.amount.currency} {op.amount.major}
+                          </span>
+                          <span className="mv-op__purpose">
+                            {op.purpose} · {op.beneficiary}
+                          </span>
+                          {op.attention !== 'none' && (
+                            <span
+                              className={`mv-chip mv-chip--sm ${op.attention === 'human' ? 'mv-chip--attention' : 'mv-chip--hold'}`}
+                            >
+                              {op.attention === 'human' ? '✋ decision' : '⚠ ambiguous'}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </Panel>
           </div>
 
@@ -494,6 +693,22 @@ export function Treasury({
                 </>
               )}
             </Panel>
+
+            {operations.kind === 'ok' &&
+              (() => {
+                const selected: OperationReadView | undefined =
+                  operations.data.operations.find((o) => o.id === selectedOperationId) ?? undefined;
+                if (selected === undefined) return null;
+                return (
+                  <OperationInspector
+                    operation={selected}
+                    onInspectEvidence={(operationId) => {
+                      if (selectedMission !== null)
+                        onInspectEvidence(operationId, selectedMission.id);
+                    }}
+                  />
+                );
+              })()}
           </div>
         </div>
       )}

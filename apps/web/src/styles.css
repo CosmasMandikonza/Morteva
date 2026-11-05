@@ -408,7 +408,8 @@ a {
 .mv-mission.is-selected {
   border-color: var(--mv-accent-fill);
   background: var(--mv-accent-soft);
-  box-shadow: inset 3px 0 0 var(--mv-accent-fill);
+  border-left-width: 3px;
+  padding-left: 11px;
 }
 .mv-mission.is-selected .mv-mission__title {
   color: var(--mv-accent-text);
@@ -924,4 +925,270 @@ a {
   margin: 6px 0 0;
   color: var(--mv-ink-2);
   font-size: var(--mv-size-sm);
+}
+
+/* ------------------------------------------------------------ financial position */
+.mv-position {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--mv-line);
+}
+.mv-position:last-of-type {
+  border-bottom: none;
+}
+.mv-position__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mv-position__currency {
+  font-weight: 600;
+  font-size: var(--mv-size-md);
+}
+.mv-position__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.mv-position__figures dt {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  margin: 0 0 2px;
+}
+.mv-position__figures dd {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+}
+.mv-position__spendable {
+  font-size: var(--mv-size-md) !important;
+}
+.mv-position__unavailable {
+  color: var(--mv-danger-text);
+}
+.mv-position__commitments {
+  margin: 0;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+}
+.mv-position__provenance {
+  margin: 0;
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+}
+
+/* ------------------------------------------------------------ operations */
+.mv-ops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-op {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  grid-template-areas: 'state amount chip' 'purpose purpose purpose';
+  align-items: center;
+  gap: 2px 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--mv-ink-1);
+  background: var(--mv-surface-raised);
+  border: 1px solid var(--mv-line);
+  border-radius: 7px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition:
+    border-color var(--mv-motion-fast) ease,
+    background var(--mv-motion-fast) ease;
+}
+.mv-op:hover {
+  border-color: var(--mv-accent-fill);
+}
+.mv-op.is-selected {
+  border-color: var(--mv-accent-fill);
+  background: var(--mv-accent-soft);
+  box-shadow: inset 3px 0 0 var(--mv-accent-fill);
+}
+.mv-op[data-attention='human'] {
+  border-color: var(--mv-danger-text);
+}
+.mv-op__state {
+  grid-area: state;
+  font-size: var(--mv-size-sm);
+  font-weight: 600;
+}
+.mv-op[data-state='STATUS_UNKNOWN'] .mv-op__state {
+  color: var(--mv-hold-text);
+}
+.mv-op[data-state='REQUIRES_HUMAN'] .mv-op__state,
+.mv-op[data-state='REJECTED'] .mv-op__state {
+  color: var(--mv-danger-text);
+}
+.mv-op[data-state='SETTLED'] .mv-op__state,
+.mv-op[data-state='RECONCILED'] .mv-op__state {
+  color: var(--mv-verified-text);
+}
+.mv-op__amount {
+  grid-area: amount;
+  font-size: var(--mv-size-md);
+  justify-self: end;
+}
+.mv-op > .mv-chip {
+  grid-area: chip;
+  justify-self: end;
+}
+.mv-op__purpose {
+  grid-area: purpose;
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+}
+
+/* ------------------------------------------------------------ inspector */
+.mv-inspector {
+  border: 1px solid var(--mv-accent-fill);
+  border-radius: 10px;
+  background: var(--mv-surface-card);
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+.mv-inspector__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-inspector__id,
+.mv-inspector__kind {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+}
+.mv-inspector__amount {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mv-inspector__amount-value {
+  font-size: var(--mv-size-xl);
+  font-weight: 600;
+}
+.mv-inspector__purpose {
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+}
+.mv-inspector__terms {
+  margin: 0;
+}
+.mv-inspector__meaning {
+  border-top: 1px dashed var(--mv-line);
+  padding-top: 10px;
+}
+.mv-inspector__action {
+  margin: 0;
+  color: var(--mv-danger-text);
+  font-size: var(--mv-size-sm);
+}
+
+/* ------------------------------------------------------------ evidence */
+.mv-evidence__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.mv-seg {
+  display: inline-flex;
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.mv-seg__btn {
+  font: inherit;
+  font-size: var(--mv-size-sm);
+  border: none;
+  background: transparent;
+  color: var(--mv-ink-2);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.mv-seg__btn.is-active {
+  background: var(--mv-accent-fill);
+  color: var(--mv-accent-on-fill);
+  font-weight: 600;
+}
+.mv-evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.mv-evidence__event {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  border: 1px solid var(--mv-line);
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: var(--mv-surface-page);
+}
+.mv-evidence__seq {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+}
+.mv-evidence__type {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--mv-size-sm);
+}
+.mv-evidence__payload {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 6px 14px;
+  margin: 8px 0 0;
+}
+.mv-evidence__payload dt {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  margin: 0;
+}
+.mv-evidence__payload dd {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+}
+.mv-evidence__meta {
+  margin: 8px 0 0;
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+}
+
+/* Narrow screens: operation rows stack state/amount/chip so no row exceeds
+   its container (the attention chip is nowrap by design). */
+@media (max-width: 640px) {
+  .mv-op {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'state chip'
+      'amount amount'
+      'purpose purpose';
+  }
+  .mv-op__amount {
+    justify-self: start;
+  }
+  .mv-ops {
+    min-width: 0;
+  }
+  .mv-ops li {
+    min-width: 0;
+  }
 }

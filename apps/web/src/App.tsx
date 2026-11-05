@@ -2,9 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { SystemStatusCard } from './components/SystemStatusCard';
 import { Treasury } from './screens/Treasury';
+import { EvidenceReplay } from './screens/Evidence';
 import { PlannedSurface } from './screens/PlannedSurface';
 import { NAV_ITEMS, type SectionId } from './nav';
-import { ApiError, fetchSession, login, logout, type SessionState } from './lib/api';
+import {
+  ApiError,
+  fetchSession,
+  login,
+  logout,
+  type MissionRow,
+  type SessionState,
+} from './lib/api';
 
 type Theme = 'dark' | 'light';
 
@@ -52,6 +60,12 @@ export function App(): JSX.Element {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
+  const [evidenceOperationFilter, setEvidenceOperationFilter] = useState<string | null>(null);
+  type MissionContext = Pick<MissionRow, 'id' | 'title' | 'status' | 'created_at'>;
+  const [missionTitles, setMissionTitles] = useState<readonly MissionContext[]>([]);
+  const missionsForContext =
+    missionTitles.find((m) => m.id === selectedMissionId) ??
+    (missionTitles.length > 0 && missionTitles[0] !== undefined ? missionTitles[0] : null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -131,6 +145,21 @@ export function App(): JSX.Element {
     setSelectedMissionId(null);
     setSession({ kind: 'signed-out' });
   }, []);
+
+  // Keep a light mission context for surfaces beyond the Treasury
+  // (Evidence Replay) without duplicating the Treasury's data loading.
+  useEffect(() => {
+    if (session.kind !== 'signed-in') {
+      setMissionTitles([]);
+      return;
+    }
+    const controller = new AbortController();
+    import('./lib/api')
+      .then(({ fetchMissions }) => fetchMissions(controller.signal))
+      .then((rows) => setMissionTitles(rows))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [session.kind, session.kind === 'signed-in' ? session.session.actor.id : null]);
 
   const active = NAV_ITEMS.find((item) => item.id === section) ?? NAV_ITEMS[0];
   if (!active) throw new Error('navigation table is empty');
@@ -229,8 +258,20 @@ export function App(): JSX.Element {
             onSelectMission={setSelectedMissionId}
             onLogin={handleLogin}
             onSessionExpired={handleSessionExpired}
+            onInspectEvidence={(operationId, missionId) => {
+              setSelectedMissionId(missionId);
+              setEvidenceOperationFilter(operationId);
+              setSection('evidence');
+            }}
             loginBusy={loginBusy}
             loginError={loginError}
+          />
+        ) : section === 'evidence' ? (
+          <EvidenceReplay
+            session={session}
+            mission={missionsForContext}
+            operationFilter={evidenceOperationFilter}
+            onClearOperationFilter={() => setEvidenceOperationFilter(null)}
           />
         ) : (
           <PlannedSurface item={active} />
