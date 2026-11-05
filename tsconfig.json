@@ -1,10 +1,23 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/domain" },
-    { "path": "packages/providers" },
-    { "path": "packages/ledger" },
-    { "path": "packages/airwallex" },
-    { "path": "apps/api" }
+    {
+      "path": "packages/domain"
+    },
+    {
+      "path": "packages/providers"
+    },
+    {
+      "path": "packages/ledger"
+    },
+    {
+      "path": "packages/planner"
+    },
+    {
+      "path": "packages/airwallex"
+    },
+    {
+      "path": "apps/api"
+    }
   ]
 }

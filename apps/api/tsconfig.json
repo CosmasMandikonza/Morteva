@@ -8,8 +8,17 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../packages/domain" },
-    { "path": "../../packages/providers" },
-    { "path": "../../packages/ledger" }
+    {
+      "path": "../../packages/domain"
+    },
+    {
+      "path": "../../packages/providers"
+    },
+    {
+      "path": "../../packages/ledger"
+    },
+    {
+      "path": "../../packages/planner"
+    }
   ]
 }

@@ -1,0 +1,585 @@
+{
+  "scenarioId": "offshore-hull-inspection-v1",
+  "seed": "moterva-offshore-flagship-2026-11-06",
+  "provenance": "SIMULATED_OPERATION: fully SYNTHETIC reference trace; regenerates deterministically from this seed with the scenario builders (see module README).",
+  "world": {
+    "orgId": "org_fixture_reference",
+    "missionId": "msn_fixture_reference"
+  },
+  "scriptDigest": "8f2b6dd0ebb01f1e7a7ceaef4111d804b952ef82e5630dbdc485f00619057e4c",
+  "envelopes": [
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_60aed8f5cf48",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:00:00.000Z",
+      "ingestedAt": "2026-11-06T09:00:02.000Z",
+      "source": {
+        "sourceId": "ops-console",
+        "sourceType": "mission_control",
+        "keyId": "key_ops_console_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "fc3b1aaf15ee3c8a9c591b68ad0b05245a146f45805e99cb3be9ff1acedff41b"
+      },
+      "observations": [
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "14.2"
+        },
+        {
+          "kind": "wave_height",
+          "unit": "m",
+          "value": "0.80"
+        },
+        {
+          "kind": "visibility",
+          "unit": "category",
+          "value": "good"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 96
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_0693ea152392",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:08:00.000Z",
+      "ingestedAt": "2026-11-06T09:08:02.000Z",
+      "source": {
+        "sourceId": "uav-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_uav_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "b55caa28c01453e605fef3e04c52d61b28a8b8f86773202a2e35232569afbdf5"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 12
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 84
+        },
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "14.9"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_405a404e667c",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:18:00.000Z",
+      "ingestedAt": "2026-11-06T09:18:01.000Z",
+      "source": {
+        "sourceId": "ops-console",
+        "sourceType": "mission_control",
+        "keyId": "key_ops_console_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "afddbece95a41ebb4d429230d4fca138660804bb4a02f1b6f1112adcbbdeca6b"
+      },
+      "observations": [
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "24.6"
+        },
+        {
+          "kind": "wave_height",
+          "unit": "m",
+          "value": "1.48"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_27c71e85cecf",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:20:00.000Z",
+      "ingestedAt": "2026-11-06T09:20:01.000Z",
+      "source": {
+        "sourceId": "uav-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_uav_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "0c87a9ac745321bb563f4a70f3759900b904223ddc1f43664955dec4ba37ba8b"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 58
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "returning"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "degraded"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_70783e375374",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:29:00.000Z",
+      "ingestedAt": "2026-11-06T09:29:03.000Z",
+      "source": {
+        "sourceId": "uav-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_uav_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "d605832750d080513e46f03002d39fa7ebb08b812472e7c2bdedfb96420a5f67"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 33
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "returning"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "degraded"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_eca54bf8529b",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:34:00.000Z",
+      "ingestedAt": "2026-11-06T09:34:02.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "9187e51e118b602ffcf007e4d62b24471d0b54315516f9719824cdf3d21b3162"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "offline"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "off_station"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_7ca4eaade0f9",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:40:00.000Z",
+      "ingestedAt": "2026-11-06T09:40:02.000Z",
+      "source": {
+        "sourceId": "uav-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_uav_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "167815469fd79085a102796309dc0fccf1b2fc5ba9fcaac7eda724dd7588e5ca"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 47
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 22
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_70783e375374",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:29:00.000Z",
+      "ingestedAt": "2026-11-06T09:29:03.000Z",
+      "source": {
+        "sourceId": "uav-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_uav_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "d605832750d080513e46f03002d39fa7ebb08b812472e7c2bdedfb96420a5f67"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 33
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "returning"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "degraded"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_6aa8594a7bbc",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:44:00.000Z",
+      "ingestedAt": "2026-11-06T09:44:05.000Z",
+      "source": {
+        "sourceId": "rogue-recovery",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_rogue_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ac593b4e39447e18bb6f5bc455657da78bf5e8e170403ebf2e2c9bebbeb466d7"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_e9d6dbc5742f",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "uav-seeker-1",
+      "observedAt": "2026-11-06T09:52:00.000Z",
+      "ingestedAt": "2026-11-06T09:52:02.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "dd90b8f825dc148aa85861b2c0ee60b4c78a527ee376c5edcd0518035127c8cb"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 12
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_6d2869e66c59",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:04:00.000Z",
+      "ingestedAt": "2026-11-06T10:04:05.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "24a4370082313d1f371190906315af81f4c80bc604d1c223918b39b6ccb96daa"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 53
+        },
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "26.1"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_659e59cd2d3e",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:18:00.000Z",
+      "ingestedAt": "2026-11-06T10:18:05.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "1559dc8138465054e5d33088221d0e5d171745f6f23bf8cfade21ba134770e26"
+      },
+      "observations": [
+        {
+          "kind": "defect_severity",
+          "unit": "category",
+          "value": "major"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_1df45d2cce77",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:32:00.000Z",
+      "ingestedAt": "2026-11-06T10:32:02.000Z",
+      "source": {
+        "sourceId": "ops-console",
+        "sourceType": "mission_control",
+        "keyId": "key_ops_console_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "77ac44c385a979670c92b9286bf585041922f1620287a6a305cdd3bc70eef793"
+      },
+      "observations": [
+        {
+          "kind": "visibility",
+          "unit": "category",
+          "value": "poor"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 62
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_33e05db10c5c",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:37:00.000Z",
+      "ingestedAt": "2026-11-06T10:37:03.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "6876503e41191dcc625cc29ca080c0b50d238398b22027c2259f437e546ae5a5"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 64
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_8677b031d140",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:38:00.000Z",
+      "ingestedAt": "2026-11-06T10:38:01.000Z",
+      "source": {
+        "sourceId": "vessel-gateway",
+        "sourceType": "vessel_gateway",
+        "keyId": "key_vessel_gw_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "837febcf80392699dc4999dd65ee675e3a5c8e80551f778085bcfa9a9a38156b"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 66
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_7be9c3f11cb5",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:45:00.000Z",
+      "ingestedAt": "2026-11-06T10:45:05.000Z",
+      "source": {
+        "sourceId": "ops-console",
+        "sourceType": "mission_control",
+        "keyId": "key_ops_console_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "59b084ab85ef6be5e10790030cd2885e6ba2583f32aa2b6ca4f7badba093791f"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_d7f865ec57e9",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "vessel-prospect",
+      "observedAt": "2026-11-06T10:46:00.000Z",
+      "ingestedAt": "2026-11-06T10:46:05.000Z",
+      "source": {
+        "sourceId": "ops-console",
+        "sourceType": "mission_control",
+        "keyId": "key_ops_console_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "57566b4b97be23f66faee70f98137bdde239b0c123bc8bdc752307e2441a3724"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 68
+        },
+        {
+          "kind": "visibility",
+          "unit": "category",
+          "value": "poor"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        }
+      ]
+    }
+  ]
+}
