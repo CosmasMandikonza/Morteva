@@ -52,4 +52,9 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   await page.reload();
   await page.getByRole('link', { name: 'Decision Room' }).click();
   await expect(page.getByTestId('physical-incident')).toContainText(result.incident.eventId);
+  // The existing viewer-safe evidence projection must carry the SAME admitted
+  // physical event ID, never a fabricated frontend-only narrative.
+  await page.getByRole('link', { name: 'Evidence Replay' }).click();
+  await expect(page.getByTestId('evidence-list')).toContainText(result.incident.eventId);
+  await expect(page.getByTestId('evidence-list')).toContainText('mission.event.ingested');
 });
