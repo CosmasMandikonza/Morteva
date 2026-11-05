@@ -139,23 +139,6 @@ export function scoreCandidate(
   };
   const nowMs = input.now.getTime();
 
-  // ---- evidence linkage: cited ids must exist and be ACCEPTED.
-  if (safeCandidate.evidenceIds.length === 0 && safeCandidate.kind !== 'no-action') {
-    return verdict('EVIDENCE_NOT_FOUND', 'candidate cites no evidence');
-  }
-  for (const id of safeCandidate.evidenceIds) {
-    const state = evidenceById.get(id);
-    if (state === undefined) {
-      return verdict(
-        'EVIDENCE_NOT_FOUND',
-        `cited evidence ${id} does not exist in this review (hallucination guard)`,
-      );
-    }
-    if (!state.accepted) {
-      return verdict('EVIDENCE_REJECTED', `cited evidence ${id} was rejected in this review`);
-    }
-  }
-
   // ---- operational safety: a paid plan using a UAV cannot proceed on stale,
   // unknown or blocked physical clearance. This gate is a prerequisite, not
   // a probability heuristic: the policy engine never overrides flight safety.
@@ -175,6 +158,23 @@ export function scoreCandidate(
           ? `physical asset ${safeCandidate.requiresAssetId} safety is ${last.state} (${last.reason}); human review or independently authenticated clearance required`
           : `no fresh admitted physical clearance for asset ${safeCandidate.requiresAssetId}`,
       );
+    }
+  }
+
+  // ---- evidence linkage: cited ids must exist and be ACCEPTED.
+  if (safeCandidate.evidenceIds.length === 0 && safeCandidate.kind !== 'no-action') {
+    return verdict('EVIDENCE_NOT_FOUND', 'candidate cites no evidence');
+  }
+  for (const id of safeCandidate.evidenceIds) {
+    const state = evidenceById.get(id);
+    if (state === undefined) {
+      return verdict(
+        'EVIDENCE_NOT_FOUND',
+        `cited evidence ${id} does not exist in this review (hallucination guard)`,
+      );
+    }
+    if (!state.accepted) {
+      return verdict('EVIDENCE_REJECTED', `cited evidence ${id} was rejected in this review`);
     }
   }
 
