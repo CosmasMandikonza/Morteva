@@ -203,4 +203,35 @@ test.describe('authenticated treasury journey', () => {
     await disclosure.locator('summary').click();
     await expect(disclosure.locator('p')).toBeVisible();
   });
+
+  test('at 320px the breadcrumb and provenance banner are vertically visible, not overlapped', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 844 });
+    await signIn(page);
+    await page.evaluate('window.scrollTo(0, 0)');
+    await page.waitForTimeout(300);
+
+    interface Geometry {
+      viewportH: number;
+      scrollY: number;
+      topbar: { top: number; bottom: number } | null;
+      crumb: { top: number; bottom: number } | null;
+      banner: { top: number; bottom: number } | null;
+    }
+    const geometry = await page.evaluate<Geometry>(
+      '(() => { const rect = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; }; return { viewportH: window.innerHeight, scrollY: Math.round(window.scrollY), topbar: rect(".mv-topbar"), crumb: rect(".mv-crumb"), banner: rect(".mv-provenance-banner") }; })()',
+    );
+
+    // Anchored at the top of the page, not mid-scroll.
+    expect(geometry.scrollY).toBe(0);
+    // The breadcrumb sits fully below the sticky top bar.
+    expect(geometry.crumb).not.toBeNull();
+    expect(geometry.crumb!.top).toBeGreaterThanOrEqual(geometry.topbar!.bottom);
+    // The entire banner is inside the viewport and below the top bar —
+    // vertical visibility, not just width.
+    expect(geometry.banner).not.toBeNull();
+    expect(geometry.banner!.top).toBeGreaterThanOrEqual(geometry.topbar!.bottom);
+    expect(geometry.banner!.bottom).toBeLessThanOrEqual(geometry.viewportH);
+  });
 });
