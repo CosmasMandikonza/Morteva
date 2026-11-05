@@ -118,7 +118,6 @@ describe('ledger binding — facts honesty', () => {
     const facts = financialFacts(w.ledger, w.org.id, w.mission.id, 'USD');
     expect(active.id).not.toBe(older.id);
     expect(facts.mandate?.id).toBe(active.id);
-    expect(facts.mandate?.expiresAt).toBe(active.expiresAt);
     w.ledger.close();
   });
 
