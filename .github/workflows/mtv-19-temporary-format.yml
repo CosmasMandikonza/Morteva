@@ -1,0 +1,30 @@
+name: MTV-19 temporary branch formatter
+on:
+  push:
+    branches:
+      - feat/mtv-19-connected-golden-path
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Normalize integration CSS
+        run: npx prettier --write apps/web/src/styles.css
+      - name: Commit formatting only to this draft branch
+        run: |
+          git add apps/web/src/styles.css
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "style(#19): normalize Decision Room CSS"
+            git push origin HEAD:feat/mtv-19-connected-golden-path
+          fi
