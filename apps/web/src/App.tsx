@@ -4,6 +4,7 @@ import { SystemStatusCard } from './components/SystemStatusCard';
 import { Treasury } from './screens/Treasury';
 import { EvidenceReplay } from './screens/Evidence';
 import { PlannedSurface } from './screens/PlannedSurface';
+import { DecisionRoom } from './screens/DecisionRoom';
 import { NAV_ITEMS, type SectionId } from './nav';
 import {
   ApiError,
@@ -272,6 +273,13 @@ export function App(): JSX.Element {
             mission={missionsForContext}
             operationFilter={evidenceOperationFilter}
             onClearOperationFilter={() => setEvidenceOperationFilter(null)}
+          />
+        ) : section === 'decisions' ? (
+          <DecisionRoom
+            session={session}
+            mission={missionsForContext}
+            csrfToken={csrfToken}
+            onSessionExpired={handleSessionExpired}
           />
         ) : (
           <PlannedSurface item={active} />
