@@ -63,9 +63,12 @@ override policy says otherwise. See `contract/mission-event.v1.schema.json`,
 Notable rules:
 
 - **Streams start at sequence 1** and stay contiguous. Admission never trusts a fresh instance's
-  empty state: the target scope is rebuilt from the journal on first use, the sequence is re-checked
-  journal-authoritatively inside the write transaction, and an inconsistent journal (including a
-  duplicated sequence injected by a raw DB writer bypassing ingest) fails closed at replay.
+  empty state: the target scope is rebuilt from the journal on first use, and inside the write
+  transaction BOTH orderings are re-derived from the journal itself — stream sequencing AND the
+  asset-wide physical state (latest offline/monotonic readings across ALL sources) — so a
+  concurrently committed event on an independent source stream (e.g. a gateway declaring the asset
+  offline while telemetry was being validated) cannot be outrun. An inconsistent journal (including
+  a duplicated sequence injected by a raw DB writer bypassing ingest) fails closed at replay.
 - **Offline assets cannot speak.** Once a trusted observation declares `asset_comms: offline`, the
   asset's own telemetry is rejected (`ASSET_OFFLINE`) — scoped to that one (org, mission, asset), so
   the same asset id in another mission is unaffected. Recovery requires a _different_,
@@ -84,7 +87,7 @@ npm ci
 npm run build -w @moterva/api            # tsc -b (builds domain/ledger refs first)
 node apps/api/dist/mission-events/demo/run.js          # human-readable two-scenario trace
 node apps/api/dist/mission-events/demo/run.js --json   # machine-readable report
-npx vitest run test/mission-events -w @moterva/api     # the isolated test suite (82 tests)
+npx vitest run test/mission-events -w @moterva/api     # the isolated test suite (84 tests)
 npx tsx apps/api/src/mission-events/fixtures/generate.ts  # regenerate reference fixtures
 ```
 
@@ -130,11 +133,13 @@ Committed reference traces: `fixtures/*.reference-trace.json` (regenerate with
   lazily rebuilds a scope's validation state from the journal on first admission (and
   `rehydrate(orgId, missionId)` does it explicitly); the rebuild is additive per scope, so
   rehydrating one mission never disturbs another. Key rotation/revocation tooling is future work.
-- **Concurrent multiwriter admission** is safe between instances of THIS module (journal-authoritative
-  sequence check inside `BEGIN IMMEDIATE`; proven by test). A raw writer that bypasses ingest and
-  inserts a duplicate sequence directly into the journal is NOT prevented by the journal's
-  per-eventId uniqueness — that residual is detected fail-closed at replay (stream-continuity
-  check) rather than prevented.
+- **Concurrent multiwriter admission** is safe between instances of THIS module: the
+  journal-authoritative check inside `BEGIN IMMEDIATE` re-derives stream sequencing AND the
+  asset-wide offline/monotonic state from the journal (independent source streams cannot outrun
+  each other's state changes; proven by tests). A raw writer that bypasses ingest and inserts a
+  duplicate sequence directly into the journal is NOT prevented by the journal's per-eventId
+  uniqueness — that residual is detected fail-closed at replay (stream-continuity check) rather
+  than prevented.
 - **Freshness policy** (15 min stale / 30 min expired, 2 min future tolerance) is one global default;
   per-kind policies can be added without contract changes if a domain needs them.
 - The planner (issue #8, Agent A) decides what the evidence MEANS economically; this module supplies

@@ -21,7 +21,7 @@ import { LedgerError } from '@moterva/ledger';
 import type { Clock } from '@moterva/ledger';
 import { createHash } from 'node:crypto';
 import { MissionEventError } from './errors.js';
-import type { SourceRegistry } from './registry.js';
+import type { RegisteredSource, SourceRegistry } from './registry.js';
 import { eventDigest, signatureMatches, sourceSignature } from './digest.js';
 import {
   parseEnvelope,
@@ -129,8 +129,8 @@ export class MissionEventIngestService {
     // Correction B: no admission before the target scope's state is loaded
     // from the journal — a fresh instance must not trust empty state.
     this.ensureHydrated(event.orgId, event.missionId);
-    this.validateAndCheck(callerOrgId, event, envelope.source.signature);
-    return this.journal(event);
+    const registered = this.validateAndCheck(callerOrgId, event, envelope.source.signature);
+    return this.journal(event, registered);
   }
 
   private ensureHydrated(orgId: string, missionId: string): void {
@@ -159,8 +159,16 @@ export class MissionEventIngestService {
     });
   }
 
-  /** Deterministic pre-journal validation pipeline. Exposed for tests. */
-  private validateAndCheck(callerOrgId: string, event: NormalizedEvent, signature: string): void {
+  /**
+   * Deterministic pre-journal validation pipeline (fast path over in-memory
+   * state). Returns the authenticated registered source for the authoritative
+   * re-check inside the admission transaction.
+   */
+  private validateAndCheck(
+    callerOrgId: string,
+    event: NormalizedEvent,
+    signature: string,
+  ): RegisteredSource {
     this.rejectAuthorityTerms(event);
 
     // --- tenant binding -----------------------------------------------------
@@ -316,22 +324,29 @@ export class MissionEventIngestService {
         }
       }
     }
+    return registered;
   }
 
   /**
-   * Journal append with DB-AUTHORITATIVE sequence admission (correction B).
+   * Journal append with DB-AUTHORITATIVE admission (correction B + CTO
+   * follow-up).
    *
    * The in-memory checks above are a fast path; this is the authority. Inside
-   * one BEGIN IMMEDIATE write transaction the last journaled sequence of the
-   * target stream is re-read from the evidence journal and re-enforced
-   * (regression / gap / first-event-must-be-1), then the append happens in the
-   * SAME transaction. Two concurrent service instances therefore cannot both
-   * admit the same stream sequence for different event ids — the second
-   * transaction sees the first's committed row and fails closed. This holds
-   * because every mission-event writer goes through this method; raw writers
-   * bypassing it are still detected at replay by the stream-continuity check.
+   * one BEGIN IMMEDIATE write transaction the journal is re-read and BOTH
+   * orderings are re-enforced against what has ACTUALLY committed:
+   *   1. stream sequencing (regression / gap / first-event-must-be-1), and
+   *   2. asset-wide physical state — the latest offline/monotonic readings
+   *      across ALL sources for this asset — because another instance may
+   *      have committed, say, a gateway "asset offline" event after this
+   *      instance validated against its older in-memory state. Independent
+   *      source streams make sequencing alone insufficient for that.
+   * The append happens in the SAME transaction, so concurrent instances
+   * cannot interleave a state-changing commit between the recheck and the
+   * write. This holds because every mission-event writer goes through this
+   * method; raw writers bypassing it are still detected at replay by the
+   * stream-continuity check.
    */
-  private journal(event: NormalizedEvent): IngestAccepted {
+  private journal(event: NormalizedEvent, registered: RegisteredSource): IngestAccepted {
     const digest = eventDigest(event);
     const receivedAt = this.clock.iso();
     const payload = {
@@ -342,7 +357,7 @@ export class MissionEventIngestService {
     let recorded: { seq: number; recordedAt: string };
     try {
       recorded = this.ledger.db.transaction(() => {
-        this.admitByJournal(event);
+        this.admitByJournal(event, registered);
         const view = this.ledger.evidence.append({
           orgId: event.orgId,
           missionId: event.missionId,
@@ -378,10 +393,18 @@ export class MissionEventIngestService {
   }
 
   /**
-   * Authoritative sequence admission against the journal itself. Runs inside
-   * the write transaction so the read-then-append pair is atomic.
+   * Authoritative admission against the journal itself, inside the write
+   * transaction so the re-read and the append are atomic (a concurrent
+   * instance cannot commit between them). ONE newest-first scan derives, for
+   * this (org, mission):
+   *   - the target stream's last sequence,
+   *   - the asset-wide latest comms state (ANY source — the offline rule is
+   *     not per-stream), and
+   *   - the asset-wide latest value of each monotonic kind in the incoming
+   *     event (ANY source — progress reported through a gateway binds a
+   *     telemetry source too).
    */
-  private admitByJournal(event: NormalizedEvent): void {
+  private admitByJournal(event: NormalizedEvent, registered: RegisteredSource): void {
     const rows = this.ledger.db
       .prepare(
         `SELECT payload_json FROM evidence_events
@@ -389,11 +412,20 @@ export class MissionEventIngestService {
           ORDER BY seq DESC`,
       )
       .all(event.orgId, event.missionId, JOURNAL_EVENT_TYPE) as Record<string, unknown>[];
+
+    const monotonicKinds = new Set(
+      event.observations
+        .filter((o) => observationKindSpec(o.kind)?.monotonic === true)
+        .map((o) => o.kind),
+    );
+    let streamSequence: number | null = null;
+    let assetComms: string | null = null;
+    const monotonicLatest = new Map<string, { value: unknown; eventId: unknown }>();
+
     for (const row of rows) {
-      // Newest-first: the first row matching this (asset, source) stream is
-      // its last admitted sequence. Payload shape and digests were verified at
-      // write time; a corrupt row here surfaces as JOURNAL_TAMPERED (fail
-      // closed) rather than a wrong admission.
+      // Payload shape and digests were verified at write time; a corrupt row
+      // here surfaces as JOURNAL_TAMPERED (fail closed) rather than a wrong
+      // admission.
       let payload: unknown;
       try {
         payload = JSON.parse(String(row.payload_json));
@@ -405,45 +437,105 @@ export class MissionEventIngestService {
       }
       const stored = (
         payload as {
-          event?: { assetId?: unknown; source?: { sourceId?: unknown }; sequence?: unknown };
+          event?: {
+            eventId?: unknown;
+            assetId?: unknown;
+            source?: { sourceId?: unknown };
+            sequence?: unknown;
+            observations?: unknown;
+          };
         }
       ).event;
-      if (
-        stored === undefined ||
-        stored.assetId !== event.assetId ||
-        stored.source?.sourceId !== event.source.sourceId
-      ) {
-        continue;
-      }
-      const last = stored.sequence;
-      if (typeof last !== 'number' || !Number.isSafeInteger(last)) {
+      if (stored === undefined || typeof stored.assetId !== 'string') {
         throw new MissionEventError(
           'JOURNAL_TAMPERED',
-          `stored sequence for asset "${event.assetId}" is not an integer; journal is inconsistent`,
+          'admission check found a journal payload without a normalized event; journal is inconsistent',
         );
       }
-      if (event.sequence <= last) {
+      if (stored.assetId !== event.assetId) continue;
+      if (streamSequence === null && stored.source?.sourceId === event.source.sourceId) {
+        const last = stored.sequence;
+        if (typeof last !== 'number' || !Number.isSafeInteger(last)) {
+          throw new MissionEventError(
+            'JOURNAL_TAMPERED',
+            `stored sequence for asset "${event.assetId}" is not an integer; journal is inconsistent`,
+          );
+        }
+        streamSequence = last;
+      }
+      if (Array.isArray(stored.observations)) {
+        for (const observation of stored.observations) {
+          const o = observation as { kind?: unknown; value?: unknown };
+          if (o.kind === 'asset_comms' && assetComms === null && typeof o.value === 'string') {
+            assetComms = o.value;
+          }
+          if (
+            typeof o.kind === 'string' &&
+            monotonicKinds.has(o.kind) &&
+            !monotonicLatest.has(o.kind)
+          ) {
+            monotonicLatest.set(o.kind, { value: o.value, eventId: stored.eventId });
+          }
+        }
+      }
+      if (
+        streamSequence !== null &&
+        assetComms !== null &&
+        monotonicLatest.size === monotonicKinds.size
+      ) {
+        break; // every authoritative fact is known
+      }
+    }
+
+    // --- sequencing (authoritative) -----------------------------------------
+    if (streamSequence !== null) {
+      if (event.sequence <= streamSequence) {
         throw new MissionEventError(
           'SEQUENCE_REGRESSION',
-          `journal-authoritative check: sequence ${event.sequence} does not exceed journaled ${last} for asset "${event.assetId}"`,
+          `journal-authoritative check: sequence ${event.sequence} does not exceed journaled ${streamSequence} for asset "${event.assetId}"`,
         );
       }
-      if (event.sequence > last + 1) {
+      if (event.sequence > streamSequence + 1) {
         throw new MissionEventError(
           'SEQUENCE_GAP',
-          `journal-authoritative check: sequence ${event.sequence} skips journaled+1 ${last + 1} (lost update); fail closed`,
-          { expectedNext: last + 1 },
+          `journal-authoritative check: sequence ${event.sequence} skips journaled+1 ${streamSequence + 1} (lost update); fail closed`,
+          { expectedNext: streamSequence + 1 },
         );
       }
-      return;
-    }
-    // No journaled row for this stream: it must begin at sequence 1.
-    if (event.sequence !== 1) {
+    } else if (event.sequence !== 1) {
+      // No journaled row for this stream: it must begin at sequence 1.
       throw new MissionEventError(
         'SEQUENCE_GAP',
         `journal-authoritative check: new stream for asset "${event.assetId}" must start at sequence 1, received ${event.sequence}`,
         { expectedNext: 1 },
       );
+    }
+
+    // --- physical state (authoritative, asset-wide across sources) ------------
+    // CTO follow-up: the in-memory check above may have validated against a
+    // state that predates another instance's commit (e.g. a gateway's offline
+    // event on an independent stream). Re-derive from the journal.
+    if (assetComms === 'offline') {
+      const isRecovery =
+        event.source.sourceType !== 'asset_telemetry' &&
+        registered.trustedForRecovery &&
+        event.observations.some((o) => o.kind === 'asset_comms' && o.value === 'online');
+      if (!isRecovery) {
+        throw new MissionEventError(
+          'ASSET_OFFLINE',
+          `journal-authoritative check: asset "${event.assetId}" is offline per the journal; only a trustedForRecovery source carrying asset_comms=online may speak for it`,
+        );
+      }
+    }
+    for (const observation of event.observations) {
+      if (!monotonicKinds.has(observation.kind)) continue;
+      const prior = monotonicLatest.get(observation.kind);
+      if (prior !== undefined && Number(observation.value) < Number(prior.value)) {
+        throw new MissionEventError(
+          'MONOTONIC_VIOLATION',
+          `journal-authoritative check: kind "${observation.kind}" is monotonic non-decreasing; ${String(observation.value)} < journaled ${String(prior.value)} (event ${String(prior.eventId)})`,
+        );
+      }
     }
   }
 
