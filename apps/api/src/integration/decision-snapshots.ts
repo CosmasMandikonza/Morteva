@@ -340,7 +340,23 @@ export function recordSnapshot(
   const ctx = evaluateMission(ledger, orgId, missionId, stageTimeline);
   const { facts } = ctx;
   const baseline =
-    stage === 'incident' ? latestSnapshot(ledger, orgId, missionId, 'baseline') : null;
+    stage === 'incident'
+      ? loadSnapshots(ledger, orgId, missionId)
+          .filter(
+            (snapshot) =>
+              snapshot.payload.stage === 'baseline' &&
+              typeof snapshot.payload.recordedAt === 'string' &&
+              Date.parse(snapshot.payload.recordedAt) <= Date.parse(incidentEvent!.observedAt),
+          )
+          .sort(
+            (left, right) =>
+              Date.parse(String(right.payload.recordedAt)) -
+              Date.parse(String(left.payload.recordedAt)),
+          )[0] ?? null
+      : null;
+  if (stage === 'incident' && baseline === null) {
+    throw new Error('BASELINE_SNAPSHOT_BEFORE_INCIDENT_REQUIRED');
+  }
   const payload = buildSnapshotPayload(ctx, stage, {
     baselineEvaluationId: baseline === null ? null : String(baseline.payload.evaluationId),
   });
@@ -861,6 +877,7 @@ export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Le
           'BASELINE_PHYSICAL_EVENT_REQUIRED',
           'INCIDENT_PHYSICAL_EVENT_REQUIRED',
           'BASELINE_WINDOW_CLOSED',
+          'BASELINE_SNAPSHOT_BEFORE_INCIDENT_REQUIRED',
         ].includes(error.message)
       ) {
         return reply.code(409).send({ error: { code: error.message } });
