@@ -19,6 +19,8 @@ type Theme = 'dark' | 'light';
 
 const CSRF_STORAGE_KEY = 'moterva-csrf';
 
+const MISSION_STORAGE_KEY = 'moterva-selected-mission';
+
 /**
  * The CSRF token ships with the login response; the session cookie survives
  * reloads, so the token must too — otherwise Sign out breaks (403) after a
@@ -60,7 +62,24 @@ export function App(): JSX.Element {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
+  const [selectedMissionId, setSelectedMissionIdState] = useState<string | null>(() => {
+    try {
+      return window.sessionStorage.getItem(MISSION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  // Mission context survives refresh (session-scoped): the operator returns
+  // to the same mission; all data still comes from the server on reload.
+  const setSelectedMissionId = useCallback((id: string | null) => {
+    setSelectedMissionIdState(id);
+    try {
+      if (id === null) window.sessionStorage.removeItem(MISSION_STORAGE_KEY);
+      else window.sessionStorage.setItem(MISSION_STORAGE_KEY, id);
+    } catch {
+      /* storage unavailable — selection simply will not persist */
+    }
+  }, []);
   const [evidenceOperationFilter, setEvidenceOperationFilter] = useState<string | null>(null);
   type MissionContext = Pick<MissionRow, 'id' | 'title' | 'status' | 'created_at'>;
   const [missionTitles, setMissionTitles] = useState<readonly MissionContext[]>([]);
@@ -264,6 +283,7 @@ export function App(): JSX.Element {
               setEvidenceOperationFilter(operationId);
               setSection('evidence');
             }}
+            csrfToken={csrfToken}
             loginBusy={loginBusy}
             loginError={loginError}
           />

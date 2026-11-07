@@ -3,12 +3,17 @@ import type { JSX } from 'react';
 import { Panel } from '../components/Panel';
 import {
   ApiError,
+  fetchMandates,
   fetchPhysicalDecision,
+  mayApprove,
+  mayPropose,
   submitSyntheticStep,
+  type MandateRow,
   type PhysicalDecisionJourney,
   type PhysicalDecisionSummary,
   type SessionState,
 } from '../lib/api';
+import { ApprovePlanSheet, ProposePlanSheet } from '../components/GovernedActions';
 
 function money(minor: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(minor / 100);
@@ -83,10 +88,22 @@ export function DecisionRoom({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'none' | 'propose' | 'approve'>('none');
+  const [mandates, setMandates] = useState<readonly MandateRow[]>([]);
+  const [plan, setPlan] = useState<{ id: string; version: number; digest: string } | null>(null);
+  const [approval, setApproval] = useState<{
+    id: string;
+    status: string;
+    expiresAt: string;
+  } | null>(null);
+  const role = session.kind === 'signed-in' ? session.session.actor.role : null;
 
   useEffect(() => {
     if (session.kind !== 'signed-in' || mission === null) {
       setJourney(null);
+      setPlan(null);
+      setApproval(null);
+      setSheet('none');
       return;
     }
     const controller = new AbortController();
@@ -107,6 +124,23 @@ export function DecisionRoom({
     return () => controller.abort();
   }, [mission?.id, session.kind, onSessionExpired]);
 
+  // Mandates for the approval step: effective = active AND unexpired (clock-checked,
+  // same rule the Treasury applies). Server remains the enforcer at approval time.
+  useEffect(() => {
+    if (session.kind !== 'signed-in' || mission === null) {
+      setMandates([]);
+      return;
+    }
+    const controller = new AbortController();
+    fetchMandates(mission.id, controller.signal)
+      .then((rows) => {
+        if (!controller.signal.aborted) setMandates(rows);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setMandates([]);
+      });
+    return () => controller.abort();
+  }, [mission?.id, session.kind]);
   const runStep = (step: 'baseline' | 'incident'): void => {
     if (session.kind !== 'signed-in' || mission === null || csrfToken === null || busy) return;
     setBusy(true);
@@ -189,6 +223,88 @@ export function DecisionRoom({
           <DecisionCard title="Before · initial plan" decision={journey?.before ?? null} />
           <DecisionCard title="After · updated constraints" decision={journey?.after ?? null} />
         </div>
+        {journey?.after !== null &&
+          journey?.after !== undefined &&
+          journey.after.outcome === 'select' && (
+            <section
+              className="mv-governed"
+              aria-label="Governed follow-through"
+              data-testid="governed-actions"
+            >
+              <h3>From evaluation to governed action</h3>
+              {plan === null ? (
+                <div>
+                  <p className="mv-governed__lead">
+                    The revised evaluation selected an eligible financial action. Recording it as a
+                    plan is a deliberate, reviewed step — the proposer types the exact terms;
+                    nothing is inferred from the evaluation.
+                  </p>
+                  <button
+                    type="button"
+                    className="mv-btn mv-btn--primary"
+                    data-testid="open-propose"
+                    disabled={csrfToken === null}
+                    onClick={() => setSheet('propose')}
+                  >
+                    Propose plan from this evaluation
+                  </button>
+                  {!mayPropose(role) && (
+                    <p className="mv-governed__note">
+                      Your role ({role ?? 'unknown'}) does not carry a propose grant — the server
+                      will refuse the submission (operator or above required).
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <p data-testid="plan-recorded">
+                    Plan recorded:{' '}
+                    <span className="mv-num" title={plan.id}>
+                      {plan.id}
+                    </span>{' '}
+                    v{String(plan.version)} — a proposal only. Nothing is reserved or sent.
+                  </p>
+                  <p className="mv-hud">Terms digest {plan.digest}</p>
+                  {approval === null ? (
+                    <div>
+                      <button
+                        type="button"
+                        className="mv-btn mv-btn--primary"
+                        data-testid="open-approve"
+                        disabled={csrfToken === null}
+                        onClick={() => setSheet('approve')}
+                      >
+                        Review and approve this plan
+                      </button>
+                      {!mayApprove(role) && (
+                        <p className="mv-governed__note">
+                          Approval needs an actor with an approve grant (approver or above). The
+                          server verifies the role and the plan digest at submission.
+                        </p>
+                      )}
+                      {mayApprove(role) && mayPropose(role) && (
+                        <p className="mv-governed__note">
+                          This role carries both grants, but the server enforces separation of
+                          duties: the actor who proposed the plan cannot approve it
+                          (AUTH_SELF_APPROVAL). A different approver must record the approval.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p data-testid="approval-recorded">
+                      Approval recorded:{' '}
+                      <span className="mv-num" title={approval.id}>
+                        {approval.id}
+                      </span>{' '}
+                      status <strong>{approval.status}</strong> · expires {approval.expiresAt}.
+                      Reservation and provider submission remain separate, later controls — inspect
+                      the mission operations in Mission Treasury for their real states.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
         <p className="mv-decision-room__disclaimer" data-testid="decision-provenance">
           {journey?.disclaimer ??
             'Synthetic inspection only. No Airwallex funds or live physical vehicle are involved.'}
@@ -199,6 +315,36 @@ export function DecisionRoom({
         </p>
         <a href="#evidence">Inspect mission evidence in Evidence Replay</a>
       </section>
+      {sheet === 'propose' && journey?.after != null && (
+        <ProposePlanSheet
+          missionId={mission.id}
+          missionTitle={mission.title}
+          decision={journey.after}
+          role={role}
+          onClose={() => setSheet('none')}
+          onProposed={(recorded) => {
+            setSheet('none');
+            setPlan(recorded);
+            setApproval(null);
+          }}
+          csrfToken={csrfToken}
+        />
+      )}
+      {sheet === 'approve' && plan !== null && (
+        <ApprovePlanSheet
+          missionId={mission.id}
+          missionTitle={mission.title}
+          plan={plan}
+          role={role}
+          mandates={mandates}
+          onClose={() => setSheet('none')}
+          onApproved={(recorded) => {
+            setSheet('none');
+            setApproval(recorded);
+          }}
+          csrfToken={csrfToken}
+        />
+      )}
     </Panel>
   );
 }
