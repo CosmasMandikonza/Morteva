@@ -778,7 +778,6 @@ export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Le
     }
   });
 
-
   app.get('/api/missions/:missionId/decision-snapshots', async (request, reply) => {
     const g = guard(request, reply, 'read');
     if ('blocked' in g) return reply;
@@ -812,6 +811,12 @@ export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Le
     if ('blocked' in g) return reply;
     if (!csrfOk(ledger, request, reply)) return reply;
     const missionId = (request.params as { missionId: string }).missionId;
+    if (
+      g.actor.kind === 'service' &&
+      !ledger.authority.hasMissionGrant(g.actor.orgId, missionId, g.actor.id)
+    ) {
+      return reply.code(403).send({ error: { code: 'MISSION_GRANT_MISSING' } });
+    }
     const stage = (request.body as { stage?: unknown } | null)?.stage;
     if (stage !== 'baseline' && stage !== 'incident') {
       return reply.code(400).send({
@@ -850,6 +855,16 @@ export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Le
       ) {
         return reply.code(404).send({ error: { code: 'NOT_FOUND_OR_UNAVAILABLE' } });
       }
+      if (
+        error instanceof Error &&
+        [
+          'BASELINE_PHYSICAL_EVENT_REQUIRED',
+          'INCIDENT_PHYSICAL_EVENT_REQUIRED',
+          'BASELINE_WINDOW_CLOSED',
+        ].includes(error.message)
+      ) {
+        return reply.code(409).send({ error: { code: error.message } });
+      }
       request.log.error({ err: error }, 'decision snapshot record failed');
       if (error instanceof Error && error.message.startsWith('SNAPSHOT_INTEGRITY_VIOLATION')) {
         return reply.code(500).send({ error: { code: 'JOURNAL_INTEGRITY_VIOLATION' } });
@@ -868,6 +883,12 @@ export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Le
         missionId: string;
         evaluationId: string;
       };
+      if (
+        g.actor.kind === 'service' &&
+        !ledger.authority.hasMissionGrant(g.actor.orgId, missionId, g.actor.id)
+      ) {
+        return reply.code(403).send({ error: { code: 'MISSION_GRANT_MISSING' } });
+      }
       try {
         ledger.organizations.getMission(g.actor.orgId, missionId);
         const result = proposePlanFromSnapshot(
