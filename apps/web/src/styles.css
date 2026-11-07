@@ -1285,10 +1285,14 @@ a {
   border: 1px solid var(--mv-line-strong);
   border-radius: 10px;
   padding: 18px 20px 20px;
-  box-shadow: var(--mv-shadow-raised), 0 10px 40px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    var(--mv-shadow-raised),
+    0 10px 40px rgba(0, 0, 0, 0.35);
 }
 [data-theme='light'] .mv-sheet__body {
-  box-shadow: 0 1px 2px rgba(24, 24, 27, 0.06), 0 4px 12px rgba(24, 24, 27, 0.06),
+  box-shadow:
+    0 1px 2px rgba(24, 24, 27, 0.06),
+    0 4px 12px rgba(24, 24, 27, 0.06),
     0 10px 40px rgba(24, 24, 27, 0.12);
 }
 .mv-sheet__head {
