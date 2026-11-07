@@ -768,6 +768,23 @@ const EVIDENCE_PAYLOAD_ALLOWLIST: Readonly<Record<string, readonly FieldRule[]>>
     ['planDigest', HEXISH],
     ['approvalId', ID],
   ],
+  'planner.decision.snapshot': [
+    // Top-level scalars only; the full structured snapshot (decision,
+    // candidates, linkage) is served by the dedicated decision-snapshot
+    // routes with digest verification, not through this projection.
+    ['evaluationId', HEXISH],
+    ['stage', LOWER_WORD],
+    ['snapshotVersion', NON_NEGATIVE_INT],
+    ['recordedAt', ISO_OR_EMPTY],
+  ],
+  'planner.plan.proposed': [
+    ['evaluationId', HEXISH],
+    ['planId', ID],
+    ['planVersion', NON_NEGATIVE_INT],
+    ['planDigest', HEXISH],
+    ['proposedBy', ID],
+    ['grossMinor', NON_NEGATIVE_INT],
+  ],
   'dispatch.attempt': [
     ['dispatchId', ID],
     ['requestId', ID],
