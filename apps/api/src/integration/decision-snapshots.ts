@@ -692,8 +692,93 @@ function proposePlanUnchecked(
   };
 }
 
+/**
+ * Read-only reviewer handoff for a DIFFERENT persisted actor after logout.
+ * Only proposals actually journaled through this decision flow are returned;
+ * neither generic manually authored plans nor forged browser state appears.
+ * Verify both journal payload integrity and the immutable ledger plan digest.
+ */
+export function loadDecisionPlans(ledger: Ledger, orgId: string, missionId: string) {
+  const rows = ledger.db
+    .prepare(
+      `SELECT payload_json, payload_digest FROM evidence_events
+        WHERE org_id = ? AND mission_id = ? AND type = ?
+        ORDER BY seq DESC LIMIT 100`,
+    )
+    .all(orgId, missionId, PLAN_PROPOSED_TYPE) as {
+    payload_json: string;
+    payload_digest: string;
+  }[];
+  return rows.map((row) => {
+    const payload = JSON.parse(row.payload_json) as {
+      evaluationId: string;
+      planId: string;
+      planVersion: number;
+      planDigest: string;
+      proposedBy: string;
+    };
+    if (sha(canonicalJson(payload)) !== row.payload_digest) {
+      throw new Error('PLAN_PROPOSAL_JOURNAL_TAMPERED');
+    }
+    if (
+      typeof payload.evaluationId !== 'string' ||
+      typeof payload.planId !== 'string' ||
+      !Number.isSafeInteger(payload.planVersion) ||
+      payload.planVersion < 1 ||
+      typeof payload.planDigest !== 'string' ||
+      typeof payload.proposedBy !== 'string'
+    ) {
+      throw new Error('PLAN_PROPOSAL_SCHEMA_INVALID');
+    }
+    const plan = ledger.plans.getVersion(orgId, missionId, payload.planId, payload.planVersion);
+    ledger.plans.verifyIntegrity(plan);
+    if (plan.digest !== payload.planDigest) {
+      throw new Error('PLAN_PROPOSAL_DIGEST_MISMATCH');
+    }
+    return {
+      evaluationId: payload.evaluationId,
+      proposedBy: payload.proposedBy,
+      plan: {
+        id: plan.id,
+        version: plan.version,
+        digest: plan.digest,
+        createdAt: plan.createdAt,
+        terms: {
+          amountMinor: plan.terms.amountMinor,
+          currency: plan.terms.currency,
+          beneficiary: plan.terms.beneficiary,
+          purpose: plan.terms.purpose,
+        },
+      },
+      providerVerified: false as const,
+    };
+  });
+}
+
 /** Register the decision→authority routes (DEMO_AUTH scope only). */
 export function registerDecisionAuthorityRoutes(app: FastifyInstance, ledger: Ledger): void {
+  app.get('/api/missions/:missionId/decision-plans', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const missionId = (request.params as { missionId: string }).missionId;
+    try {
+      ledger.organizations.getMission(g.actor.orgId, missionId);
+    } catch {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND' } });
+    }
+    try {
+      return {
+        missionId,
+        plans: loadDecisionPlans(ledger, g.actor.orgId, missionId),
+        authorization: 'PROPOSED_ONLY — approval, reservation and provider settlement are separate',
+      };
+    } catch (error) {
+      request.log.error({ err: error }, 'decision proposal read integrity failure');
+      return reply.code(500).send({ error: { code: 'PLAN_INTEGRITY_VIOLATION' } });
+    }
+  });
+
+
   app.get('/api/missions/:missionId/decision-snapshots', async (request, reply) => {
     const g = guard(request, reply, 'read');
     if ('blocked' in g) return reply;
