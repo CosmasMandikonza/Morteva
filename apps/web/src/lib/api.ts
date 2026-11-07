@@ -1,9 +1,11 @@
 /**
  * Typed client for the REAL MOTERVA API (apps/api/src/routes.ts + app.ts).
- * Read-only: the production UI performs no financial mutations. Financial
- * routes exist only under the server's explicit loopback-only DEMO_AUTH gate;
- * when that gate is off they are simply absent (404) and the UI renders
- * honest unavailable states — never fixture data.
+ * Reads plus the governed onboarding writes (mission + mandate creation) —
+ * every write is role-checked by the SERVER and carries the session's CSRF
+ * token via the X-CSRF-Token header; the UI never relies on hiding buttons
+ * for authorization. Financial routes exist only under the server's explicit
+ * loopback-only DEMO_AUTH gate; when that gate is off they are simply absent
+ * (404) and the UI renders honest unavailable states — never fixture data.
  */
 
 export class ApiError extends Error {
@@ -131,6 +133,54 @@ export function fetchMissions(signal?: AbortSignal): Promise<MissionRow[]> {
   return request<{ missions: MissionRow[] }>('/api/missions', { signal }).then(
     (body) => body.missions,
   );
+}
+
+/** Role of the signed-in actor as the SERVER reports it (never client-guessed). */
+export function actorRole(session: SessionState): string | null {
+  return session.kind === 'signed-in' ? session.session.actor.role : null;
+}
+
+/** Mirrors the server's role matrix (domain/roles) ONLY for UI affordances;
+ *  enforcement is always server-side — a hidden button is not authorization. */
+export function mayManageAuthority(role: string | null): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+export function mayOperate(role: string | null): boolean {
+  return role === 'owner' || role === 'admin' || role === 'approver' || role === 'operator';
+}
+
+function csrfHeaders(csrfToken: string): Record<string, string> {
+  return { 'content-type': 'application/json', 'x-csrf-token': csrfToken };
+}
+
+/** POST /api/missions — requires the server's `operate` grant. */
+export function createMission(title: string, csrfToken: string): Promise<MissionRow> {
+  return request<{ id: string; org_id: string; title: string; status: string; created_at: string }>(
+    '/api/missions',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ title }) },
+  );
+}
+
+export interface CreateMandateInput {
+  readonly missionId: string;
+  readonly currency: string;
+  readonly maxAmountMinor: number;
+  readonly totalBudgetMinor?: number | undefined;
+  readonly permittedOperationKinds: readonly string[];
+  readonly rails?: readonly string[] | undefined;
+  readonly allowedBeneficiaries?: readonly string[] | undefined;
+  readonly allowedPurposes?: readonly string[] | undefined;
+  readonly expiresAt: string;
+}
+
+/** POST /api/mandates — requires the server's `manageAuthority` grant. */
+export function createMandate(input: CreateMandateInput, csrfToken: string): Promise<MandateRow> {
+  return request<{ mandate: MandateRow }>('/api/mandates', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify(input),
+  }).then((body) => body.mandate);
 }
 
 // ---------------------------------------------------------------- mandates
@@ -321,4 +371,65 @@ export function submitSyntheticStep(
       body: JSON.stringify({ step }),
     },
   );
+}
+
+// --------------------------------------------- governed decision actions
+
+export interface CreatePlanInput {
+  readonly missionId: string;
+  readonly terms: {
+    readonly amountMinor: number;
+    readonly currency: string;
+    readonly beneficiary: string;
+    readonly purpose: string;
+    readonly quote?: string | undefined;
+  };
+}
+
+/** POST /api/plans — requires the server's `propose` grant (operator+). */
+export function createPlan(
+  input: CreatePlanInput,
+  csrfToken: string,
+): Promise<{
+  plan: { id: string; version: number; digest: string };
+}> {
+  return request<{ plan: { id: string; version: number; digest: string } }>('/api/plans', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export interface CreateApprovalInput {
+  readonly missionId: string;
+  readonly planId: string;
+  readonly planVersion: number;
+  readonly kind: 'airwallex_transfer' | 'metal_order' | 'internal_hold';
+  readonly mandateId?: string | undefined;
+  readonly mandateVersion?: number | undefined;
+  readonly evidenceDigest?: string | undefined;
+  readonly expiresAt: string;
+}
+
+/** POST /api/approvals — requires the server's `approve` grant (approver+). */
+export function createApproval(
+  input: CreateApprovalInput,
+  csrfToken: string,
+): Promise<{ approval: { id: string; status: string; expiresAt: string } }> {
+  return request<{ approval: { id: string; status: string; expiresAt: string } }>(
+    '/api/approvals',
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function mayPropose(role: string | null): boolean {
+  return mayOperate(role);
+}
+
+export function mayApprove(role: string | null): boolean {
+  return role === 'owner' || role === 'admin' || role === 'approver';
 }

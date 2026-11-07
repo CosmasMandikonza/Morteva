@@ -1262,3 +1262,135 @@ a {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ------------------------------------------------------------ onboarding sheet */
+/* Fixed backdrop + centered card. The backdrop dims and blocks the page;
+   the card is the focus-trapped dialog (focus restored on close). */
+.mv-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--mv-surface-overlay);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px 16px;
+  overflow-y: auto;
+  outline: none;
+}
+.mv-sheet__body {
+  width: 100%;
+  max-width: 640px;
+  background: var(--mv-surface-card);
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 10px;
+  padding: 18px 20px 20px;
+  box-shadow:
+    var(--mv-shadow-raised),
+    0 10px 40px rgba(0, 0, 0, 0.35);
+}
+[data-theme='light'] .mv-sheet__body {
+  box-shadow:
+    0 1px 2px rgba(24, 24, 27, 0.06),
+    0 4px 12px rgba(24, 24, 27, 0.06),
+    0 10px 40px rgba(24, 24, 27, 0.12);
+}
+.mv-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--mv-line);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+.mv-sheet__title {
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+  margin: 0;
+}
+.mv-sheet__form {
+  display: grid;
+  gap: 12px;
+}
+.mv-sheet__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 12px;
+}
+.mv-sheet__review {
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+  border-left: 3px solid var(--mv-accent-fill);
+  padding-left: 10px;
+}
+.mv-sheet__reviewpane {
+  display: grid;
+  gap: 12px;
+}
+.mv-sheet__error {
+  color: var(--mv-danger-text);
+  font-size: var(--mv-size-sm);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mv-sheet__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.mv-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--mv-size-sm);
+  margin-right: 14px;
+}
+.mv-empty__note {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+  margin: 8px 0 0;
+}
+
+/* Long single-word mission names must never widen the page (110+ char labels). */
+.mv-mission__title,
+.mv-hero__title,
+.mv-breadcrumb__here {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* ------------------------------------------- governed follow-through (Decision Room) */
+.mv-governed {
+  border: 1px solid var(--mv-line);
+  border-left: 3px solid var(--mv-accent-fill);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+.mv-governed h3 {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-md);
+  font-weight: 600;
+}
+.mv-governed__lead {
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+  margin: 0 0 10px;
+}
+.mv-governed__note {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+  margin: 8px 0 0;
+}
+.mv-break {
+  word-break: break-all;
+}
+.mv-governed .mv-hud {
+  margin: 0;
+}

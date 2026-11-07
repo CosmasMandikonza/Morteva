@@ -11,10 +11,13 @@ import {
   fetchMandates,
   fetchMissions,
   fetchOperations,
+  mayManageAuthority,
+  mayOperate,
   type MandateRow,
   type MissionRow,
   type SessionState,
 } from '../lib/api';
+import { MandateCreateSheet, MissionCreateSheet } from '../components/OnboardingDialog';
 import { formatDate, money, moneyAmount, parseJsonArray, percent, shortId } from '../lib/format';
 import { mandatePresentation, operationPresentation } from '../status/statusMap';
 
@@ -37,6 +40,7 @@ export function Treasury({
   onLogin,
   onSessionExpired,
   onInspectEvidence,
+  csrfToken,
   loginBusy,
   loginError,
 }: {
@@ -48,6 +52,8 @@ export function Treasury({
   onSessionExpired: () => void;
   /** Carries ONE operation identity into the Evidence Replay surface. */
   onInspectEvidence: (operationId: string, missionId: string) => void;
+  /** Session CSRF token for governed writes (server enforces roles regardless). */
+  csrfToken: string | null;
   loginBusy: boolean;
   loginError: string | null;
 }): JSX.Element {
@@ -56,8 +62,12 @@ export function Treasury({
   const [overview, setOverview] = useState<Load<FinancialOverviewView>>({ kind: 'loading' });
   const [operations, setOperations] = useState<Load<OperationListView>>({ kind: 'loading' });
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'none' | 'mission' | 'mandate'>('none');
 
   const signedIn = session.kind === 'signed-in';
+  const role = signedIn ? session.session.actor.role : null;
+  const canOperateMissions = mayOperate(role);
+  const canManageAuthority = mayManageAuthority(role);
   // Provenance: records are genuine internal ledger rows, but under DEMO_AUTH
   // the ledger itself is locally seeded demonstration data — never presented
   // as externally verified banking information.
@@ -210,6 +220,42 @@ export function Treasury({
 
   return (
     <div className="mv-treasury">
+      {sheet === 'mission' && csrfToken !== null && (
+        <MissionCreateSheet
+          onClose={() => setSheet('none')}
+          onCreated={(missionId) => {
+            setSheet('none');
+            // Read-after-write from the real API, then select the new mission.
+            setMissions({ kind: 'loading' });
+            void fetchMissions()
+              .then((rows) => {
+                setMissions({ kind: 'ok', data: rows });
+                onSelectMission(missionId);
+              })
+              .catch(() => setMissions({ kind: 'error', message: 'Reload after create failed' }));
+          }}
+          csrfToken={csrfToken}
+        />
+      )}
+      {sheet === 'mandate' && selectedMission !== null && csrfToken !== null && (
+        <MandateCreateSheet
+          missionId={selectedMission.id}
+          missionTitle={selectedMission.title}
+          canManageAuthority={canManageAuthority}
+          onClose={() => setSheet('none')}
+          onCreated={() => {
+            setSheet('none');
+            // Read-after-write: refetch the mission's mandates from the API.
+            setMandates({ kind: 'loading' });
+            if (selectedMission.id !== null) {
+              void fetchMandates(selectedMission.id)
+                .then((rows) => setMandates({ kind: 'ok', data: rows }))
+                .catch(() => setMandates({ kind: 'error', message: 'Reload after grant failed' }));
+            }
+          }}
+          csrfToken={csrfToken}
+        />
+      )}
       {/* ------------------------------------------------ session gate */}
       {session.kind === 'unavailable' && (
         <section className="mv-panel mv-panel--unavailable" data-testid="auth-unavailable">
@@ -241,6 +287,18 @@ export function Treasury({
             <Panel
               title="Missions"
               meta={<CountTag n={missionList.length} />}
+              actions={
+                canOperateMissions && csrfToken !== null ? (
+                  <button
+                    type="button"
+                    className="mv-btn mv-btn--ghost"
+                    data-testid="new-mission-btn"
+                    onClick={() => setSheet('mission')}
+                  >
+                    + New mission
+                  </button>
+                ) : undefined
+              }
               testId="missions-panel"
             >
               {missions.kind === 'loading' && <SkeletonRows rows={3} />}
@@ -265,10 +323,24 @@ export function Treasury({
                 />
               )}
               {missions.kind === 'ok' && missionList.length === 0 && (
-                <p className="mv-empty" data-testid="missions-empty">
-                  No missions exist in this ledger yet. Missions are created through the authority
-                  workflow — nothing is invented here.
-                </p>
+                <div className="mv-empty" data-testid="missions-empty">
+                  <p>No missions exist in this organization yet.</p>
+                  {canOperateMissions && csrfToken !== null ? (
+                    <button
+                      type="button"
+                      className="mv-btn mv-btn--primary"
+                      data-testid="create-first-mission"
+                      onClick={() => setSheet('mission')}
+                    >
+                      Create the first mission
+                    </button>
+                  ) : (
+                    <p className="mv-empty__note">
+                      Your role ({role ?? 'unknown'}) cannot create missions — the server requires
+                      an operate grant (operator or above).
+                    </p>
+                  )}
+                </div>
               )}
               {missions.kind === 'ok' && missionList.length > 0 && (
                 <ul className="mv-missions">
@@ -527,10 +599,29 @@ export function Treasury({
                 <ErrorRetry message={mandates.message} onRetry={undefined} />
               )}
               {mandates.kind === 'ok' && mandateList.length === 0 && (
-                <p className="mv-empty" data-testid="mandates-empty">
-                  No mandates for this mission. Spending authority is granted through the authority
-                  workflow; nothing is invented here.
-                </p>
+                <div className="mv-empty" data-testid="mandates-empty">
+                  <p>
+                    No spending authority exists for this mission yet — no payments can be proposed
+                    or reserved without a mandate.
+                  </p>
+                  {csrfToken !== null && (
+                    <button
+                      type="button"
+                      className="mv-btn mv-btn--primary"
+                      data-testid="grant-first-mandate"
+                      onClick={() => setSheet('mandate')}
+                    >
+                      Grant spending authority
+                    </button>
+                  )}
+                  {!canManageAuthority && (
+                    <p className="mv-empty__note" data-testid="mandate-role-note">
+                      Note: your role ({role ?? 'unknown'}) does not manage authority — the server
+                      will refuse the submission (owner/admin required); the wizard lets you see the
+                      exact review and the server&rsquo;s refusal rather than hiding it.
+                    </p>
+                  )}
+                </div>
               )}
               {mandates.kind === 'ok' && effectiveMandates.length > 0 && (
                 <ul className="mv-mandates">

@@ -45,6 +45,14 @@ const operator = ledger.authority.createHumanActor({
   role: 'operator',
   password: E2E_PASSWORD,
 });
+// A viewer for negative-authorization journeys: may read, never write.
+ledger.authority.createHumanActor({
+  orgId: org.id,
+  username: 'viewer',
+  displayName: 'E2E Viewer',
+  role: 'viewer',
+  password: E2E_PASSWORD,
+});
 
 const missionA = ledger.organizations.createMission(org.id, 'Harbor turbine inspection');
 const missionB = ledger.organizations.createMission(org.id, 'Subsea mooring survey');
