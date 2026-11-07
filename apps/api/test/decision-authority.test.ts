@@ -826,6 +826,138 @@ describe('concurrency and time-based failure modes', () => {
   });
 });
 
+describe('CTO integration: stage and changed financial facts are genuine new intents', () => {
+  it('does not label an absent incident as incident, or rewrite a historical baseline', async () => {
+    const freshMission = ledger.organizations.createMission(orgId, 'stage-proof');
+    const baselineStep = await post(
+      `/api/missions/${freshMission.id}/synthetic-step`,
+      'da-operator',
+      { step: 'baseline' },
+    );
+    expect(baselineStep.statusCode).toBe(200);
+    const baseline = await post(
+      `/api/missions/${freshMission.id}/decision-snapshots`,
+      'da-operator',
+      { stage: 'baseline' },
+    );
+    expect(baseline.statusCode).toBe(200);
+    const baselineId = (baseline.json() as {
+      snapshot: { evaluationId: string };
+    }).snapshot.evaluationId;
+
+    // Requesting an incident snapshot cannot invent the missing physical step.
+    const premature = await post(
+      `/api/missions/${freshMission.id}/decision-snapshots`,
+      'da-operator',
+      { stage: 'incident' },
+    );
+    expect(premature.statusCode).toBe(409);
+    expect((premature.json() as { error: { code: string } }).error.code).toBe(
+      'INCIDENT_PHYSICAL_EVENT_REQUIRED',
+    );
+
+    const incidentStep = await post(
+      `/api/missions/${freshMission.id}/synthetic-step`,
+      'da-operator',
+      { step: 'incident' },
+    );
+    expect(incidentStep.statusCode).toBe(200);
+
+    // An already-recorded baseline remains the original snapshot, not a
+    // re-evaluation after the incident's wind restrictions.
+    const replayBaseline = await post(
+      `/api/missions/${freshMission.id}/decision-snapshots`,
+      'da-operator',
+      { stage: 'baseline' },
+    );
+    expect(replayBaseline.statusCode).toBe(200);
+    const historical = replayBaseline.json() as {
+      replayed: boolean;
+      snapshot: { evaluationId: string };
+    };
+    expect(historical.replayed).toBe(true);
+    expect(historical.snapshot.evaluationId).toBe(baselineId);
+
+    const trueIncident = await post(
+      `/api/missions/${freshMission.id}/decision-snapshots`,
+      'da-operator',
+      { stage: 'incident' },
+    );
+    expect(trueIncident.statusCode).toBe(200);
+    const changed = trueIncident.json() as {
+      snapshot: { evaluationId: string; linkage: { baselineEvaluationId: string } };
+    };
+    expect(changed.snapshot.linkage.baselineEvaluationId).toBe(baselineId);
+    expect(changed.snapshot.evaluationId).not.toBe(baselineId);
+  });
+
+  it('financial balance changes re-evaluate even if no physical event or mandate changed', async () => {
+    const before = await recordSnapshot('incident');
+    const beforeId = before.snapshot.evaluationId;
+    const countBefore = (
+      ledger.db.prepare(
+        "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
+      ).get(missionId) as { c: number }
+    ).c;
+    CLOCK.advance(120_000);
+    ledger.accounts.recordBalanceSnapshot({
+      orgId, currency: 'USD', minorUnits: 5_000_000,
+      source: 'manual-seed',
+      observedAt: CLOCK.iso(),
+      expiresAt: new Date(CLOCK.now().getTime() + 24 * 3_600_000).toISOString(),
+    });
+    const updated = await recordSnapshot('incident');
+    expect(updated.replayed).toBe(false);
+    expect(updated.snapshot.evaluationId).not.toBe(beforeId);
+    const countAfter = (
+      ledger.db.prepare(
+        "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
+      ).get(missionId) as { c: number }
+    ).c;
+    expect(countAfter).toBe(countBefore + 1);
+    const repeated = await recordSnapshot('incident');
+    expect(repeated.replayed).toBe(true);
+    expect(repeated.snapshot.evaluationId).toBe(updated.snapshot.evaluationId);
+
+    CLOCK.advance(60_000);
+    ledger.accounts.recordBalanceSnapshot({
+      orgId, currency: 'USD', minorUnits: 8_000_000,
+      source: 'manual-seed',
+      observedAt: CLOCK.iso(),
+      expiresAt: new Date(CLOCK.now().getTime() + 24 * 3_600_000).toISOString(),
+    });
+  });
+
+  it('a different authenticated actor reads verified persisted proposal terms', async () => {
+    const r = await get(`/api/missions/${missionId}/decision-plans`, 'da-approver');
+    expect(r.statusCode).toBe(200);
+    const plans = (r.json() as {
+      plans: {
+        evaluationId: string;
+        plan: {
+          id: string;
+          version: number;
+          digest: string;
+          terms: { amountMinor: number; currency: string; beneficiary: string; purpose: string };
+        };
+        providerVerified: boolean;
+      }[];
+    }).plans;
+    expect(plans.length).toBeGreaterThan(0);
+    for (const { plan, providerVerified } of plans) {
+      const original = ledger.plans.getVersion(orgId, missionId, plan.id, plan.version);
+      expect(plan.digest).toBe(original.digest);
+      expect(plan.terms).toMatchObject({
+        amountMinor: original.terms.amountMinor,
+        currency: original.terms.currency,
+        beneficiary: original.terms.beneficiary,
+        purpose: original.terms.purpose,
+      });
+      expect(providerVerified).toBe(false);
+    }
+  });
+});
+
 describe('tenant isolation for the new routes', () => {
   it("a foreign org cannot read or write another mission's snapshots or proposals", async () => {
     const otherOrg = ledger.organizations.createOrganization('ForeignOrg');
@@ -848,6 +980,8 @@ describe('tenant isolation for the new routes', () => {
       'da-foreign',
     );
     expect(propose.statusCode, `propose body was: ${propose.body}`).toBe(404);
+    const plans = await get(`/api/missions/${missionId}/decision-plans`, 'da-foreign');
+    expect(plans.statusCode).toBe(404);
     void otherMission;
   });
 });
