@@ -266,16 +266,19 @@ describe('A1 — durable, replayable decision snapshots', () => {
 
   it('incident snapshot records explicit before/after linkage; journal state verified', async () => {
     await recordSnapshot('baseline'); // replay the original (side-effect only)
-    // The recorder links to the LATEST recorded baseline row (here: the
-    // stale-telemetry decline from the previous test is the most recent).
+    // A stale baseline snapshot recorded 48 hours into the simulated future
+    // cannot be the before-state of an incident observed at the original time.
+    // Preserve the ORIGINAL historical baseline as the causal predecessor.
     const listed = await get(`/api/missions/${missionId}/decision-snapshots`, 'da-viewer').then(
       (r) => r.json() as { snapshots: { evaluationId: string; stage: string }[] },
     );
-    const latestBaseline = listed.snapshots.find((x) => x.stage === 'baseline')!.evaluationId;
+    const historicalBaseline = listed.snapshots
+      .filter((x) => x.stage === 'baseline')
+      .at(-1)!.evaluationId;
     await syntheticStep('incident');
     const incident = await recordSnapshot('incident');
     expect(incident.replayed).toBe(false);
-    expect(incident.snapshot.linkage.baselineEvaluationId).toBe(latestBaseline);
+    expect(incident.snapshot.linkage.baselineEvaluationId).toBe(historicalBaseline);
     // Journal state: the incident row carries the linkage; digest-verified.
     const rows = ledger.db
       .prepare(
@@ -291,7 +294,7 @@ describe('A1 — durable, replayable decision snapshots', () => {
       linkage: { baselineEvaluationId: string };
     };
     expect(incidentPayload.stage).toBe('incident');
-    expect(incidentPayload.linkage.baselineEvaluationId).toBe(latestBaseline);
+    expect(incidentPayload.linkage.baselineEvaluationId).toBe(historicalBaseline);
   });
 
   it('incident requires a recorded baseline snapshot first', async () => {
