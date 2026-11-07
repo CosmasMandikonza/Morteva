@@ -187,7 +187,12 @@ describe('module boundary conformance (architecture, not behavior)', () => {
     return out;
   }
 
-  it('mission-events NEVER imports financial engine machinery', () => {
+  it('the INGESTION RUNTIME never imports financial engine machinery', () => {
+    // Runtime surface = everything under mission-events EXCEPT the reliability
+    // harness, whose DOCUMENTED purpose (issue #15) is to exercise the public
+    // planner/ledger seams end-to-end — read-only facts plus proposal-gated
+    // flows, never money movement.
+    const runtimeFiles = listFiles(MODULE_ROOT).filter((file) => !file.includes('reliability'));
     const forbidden = [
       'reservations',
       'approvals',
@@ -203,7 +208,7 @@ describe('module boundary conformance (architecture, not behavior)', () => {
       'routes.js',
       'app.js',
     ];
-    for (const file of listFiles(MODULE_ROOT)) {
+    for (const file of runtimeFiles) {
       const source = readFileSync(file, 'utf8');
       for (const term of forbidden) {
         expect(
@@ -213,6 +218,33 @@ describe('module boundary conformance (architecture, not behavior)', () => {
       }
       // Money vocabulary cannot appear as exported authority either.
       expect(source.includes('reserve(')).toBe(false);
+    }
+  });
+
+  it('the reliability harness never touches money-MOVING machinery or HTTP surfaces', () => {
+    // The harness may read ledger facts and drive PROPOSAL-gated public flows
+    // (recordDecisionPlan / approvals.record / reservations.reserve — the
+    // planner's documented read-only + proposal-only boundary), but it must
+    // never reach the dispatch worker/outbox/provider code, the Airwallex
+    // adapter, or HTTP route/app wiring.
+    const forbidden = [
+      'outbox',
+      'DispatchWorker',
+      'registerDispatcher',
+      'provider-receipts',
+      '@moterva/airwallex',
+      '@moterva/providers',
+      'routes.js',
+      'app.js',
+    ];
+    const harnessDir = join(MODULE_ROOT, 'reliability');
+    for (const file of listFiles(harnessDir)) {
+      const source = readFileSync(file, 'utf8');
+      for (const term of forbidden) {
+        expect(source.includes(term), `${file} references forbidden machinery "${term}"`).toBe(
+          false,
+        );
+      }
     }
   });
 
