@@ -31,6 +31,7 @@ import {
   generateCandidates,
   reviewEvidence,
   type FinancialPolicy,
+  type FinancialFacts,
   type MissionEvidenceInput,
 } from '@moterva/planner';
 import { canonicalJson, termsDigest } from '@moterva/domain';
@@ -40,6 +41,7 @@ import { SourceRegistry } from '../mission-events/src/registry.js';
 import { fixtureSourceKey } from '../mission-events/src/rng.js';
 import type { MissionTimelineView } from '../mission-events/src/view.js';
 import { physicalTimelineToPlannerSafety } from './physical-to-planner.js';
+import { stepEventId } from './demo-routes.js';
 
 export const SNAPSHOT_TYPE = 'planner.decision.snapshot';
 export const PLAN_PROPOSED_TYPE = 'planner.plan.proposed';
@@ -162,6 +164,7 @@ function intentKey(
   orgId: string,
   missionId: string,
   authority: string,
+  facts: FinancialFacts,
 ): string {
   const events = [...accepted]
     .map((e) => `${e.eventId}:${e.digest}`)
@@ -179,7 +182,20 @@ function intentKey(
   // and re-recording must be possible, never deadlocked by the old row.
   // Balance movements deliberately do NOT fork the intent; the proposal
   // revalidation catches them (FINANCIAL_STATE_CHANGED).
-  return sha(`${orgId}|${missionId}|${stage}|${events}|${policyCore}|${authority}`).slice(0, 32);
+  // Financial changes can alter the selected action with NO new physical
+  // event or mandate version. Their economic facts are part of the intent.
+  // Deliberately omit wall-clock timestamps so retries of identical economic
+  // state return the original journaled decision.
+  const financialState = canonicalJson({
+    currency: facts.currency,
+    balanceStatus: facts.balanceStatus,
+    spendableMinor: facts.spendableMinor,
+    outstandingCommittedMinor: facts.outstandingCommittedMinor,
+    mandateRemainingBudgetMinor: facts.mandate?.remainingBudgetMinor ?? null,
+  });
+  return sha(
+    `${orgId}|${missionId}|${stage}|${events}|${policyCore}|${authority}|${sha(financialState)}`,
+  ).slice(0, 32);
 }
 
 interface StoredSnapshot {
@@ -295,7 +311,33 @@ export function recordSnapshot(
 ): { snapshot: StoredSnapshot; replayed: boolean } {
   const service = snapshotServiceFor(ledger, orgId, missionId);
   const timeline = service.replay(orgId, missionId);
-  const ctx = evaluateMission(ledger, orgId, missionId, timeline);
+  const baselineId = stepEventId(orgId, missionId, 'baseline');
+  const incidentId = stepEventId(orgId, missionId, 'incident');
+  const baselineEvent = timeline.events.find((event) => event.eventId === baselineId);
+  const incidentEvent = timeline.events.find((event) => event.eventId === incidentId);
+  if (baselineEvent === undefined) {
+    throw new Error('BASELINE_PHYSICAL_EVENT_REQUIRED');
+  }
+  if (stage === 'incident' && incidentEvent === undefined) {
+    throw new Error('INCIDENT_PHYSICAL_EVENT_REQUIRED');
+  }
+  if (stage === 'baseline' && incidentEvent !== undefined) {
+    // Never describe the post-incident world as the historical baseline.
+    // An existing recorded baseline remains replayable after the incident.
+    const prior = latestSnapshot(ledger, orgId, missionId, 'baseline');
+    if (prior !== null) return { snapshot: prior, replayed: true };
+    throw new Error('BASELINE_WINDOW_CLOSED');
+  }
+  const stageTimeline: MissionTimelineView = {
+    ...timeline,
+    // Baseline must evaluate ONLY the first accepted physical step; an
+    // incident must include that same baseline and the actual incident.
+    events:
+      stage === 'baseline'
+        ? [baselineEvent]
+        : [baselineEvent, incidentEvent!],
+  };
+  const ctx = evaluateMission(ledger, orgId, missionId, stageTimeline);
   const { facts } = ctx;
   const baseline =
     stage === 'incident' ? latestSnapshot(ledger, orgId, missionId, 'baseline') : null;
@@ -309,6 +351,7 @@ export function recordSnapshot(
     orgId,
     missionId,
     facts.mandate === null ? 'none' : `${facts.mandate.id}@${String(facts.mandate.version)}`,
+    facts,
   );
   const eventKey = `planner-snapshot:v${String(SNAPSHOT_VERSION)}:${stage}:${key.slice(0, 24)}`;
   try {
