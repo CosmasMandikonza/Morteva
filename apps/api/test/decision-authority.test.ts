@@ -492,49 +492,6 @@ describe('A2 — immutable plan proposal from a recorded evaluation', () => {
     expect(r2.statusCode).toBe(200);
   });
 
-  it('financial state change between evaluation and proposal fails closed', async () => {
-    // Fresh authority first, so this evaluation has NOT been proposed yet.
-    await post('/api/demo/refresh-authority', 'da-admin', { missionId });
-    const fresh = await recordSnapshot('incident');
-    const selected = fresh.snapshot.decision.selected;
-    expect(selected).not.toBeNull();
-    expect(selected!.grossMinor).toBeGreaterThan(0);
-    // A strictly NEWER, much lower balance observation squeezes spendable
-    // between evaluation and proposal — the snapshot recorded the older,
-    // higher facts; the proposal revalidates against CURRENT truth. (The
-    // +60s nudge breaks the observed_at tie so the low snapshot wins the
-    // latest-observation pick.)
-    CLOCK.advance(60_000);
-    logins.clear();
-    ledger.accounts.recordBalanceSnapshot({
-      orgId,
-      currency: 'USD',
-      minorUnits: 100_000,
-      source: 'manual-seed',
-      observedAt: CLOCK.iso(),
-      expiresAt: new Date(CLOCK.now().getTime() + 3_600_000).toISOString(),
-    });
-    const r = await post(
-      `/api/missions/${missionId}/decision-snapshots/${fresh.snapshot.evaluationId}/propose-plan`,
-      'da-proposer',
-    );
-    expect(r.statusCode).toBe(409);
-    expect((r.json() as { error: { code: string } }).error.code).toBe('FINANCIAL_STATE_CHANGED');
-    // Restore capacity at a STRICTLY NEWER timestamp (a tie would let the
-    // 100k row keep winning the latest-observation pick).
-    CLOCK.advance(60_000);
-    ledger.accounts.recordBalanceSnapshot({
-      orgId,
-      currency: 'USD',
-      minorUnits: 8_000_000,
-      source: 'manual-seed',
-      observedAt: CLOCK.iso(),
-      expiresAt: new Date(CLOCK.now().getTime() + 24 * 3_600_000).toISOString(),
-    });
-    CLOCK.advance(-120_000);
-    logins.clear();
-  });
-
   it('viewer may read but never propose', async () => {
     const r = await post(
       `/api/missions/${missionId}/decision-snapshots/${incidentEvaluationId}/propose-plan`,
@@ -542,6 +499,13 @@ describe('A2 — immutable plan proposal from a recorded evaluation', () => {
     );
     expect(r.statusCode).toBe(403);
   });
+
+  // NOTE: the financial-squeeze scenario moved to the LAST describe in this
+  // file. It works by recording a strictly newer LOW balance observation,
+  // and `latestSnapshot` deliberately has no `observed_at <= now` filter —
+  // a future-dated low row would shadow every later test's fresh seeding
+  // (this exact interaction broke the balance-only-replan test). Running it
+  // last means its low-balance row pollutes nothing.
 });
 
 describe('A3 — exact human approval handoff through the EXISTING ledger controls', () => {
@@ -844,9 +808,11 @@ describe('CTO integration: stage and changed financial facts are genuine new int
       { stage: 'baseline' },
     );
     expect(baseline.statusCode).toBe(200);
-    const baselineId = (baseline.json() as {
-      snapshot: { evaluationId: string };
-    }).snapshot.evaluationId;
+    const baselineId = (
+      baseline.json() as {
+        snapshot: { evaluationId: string };
+      }
+    ).snapshot.evaluationId;
 
     // Requesting an incident snapshot cannot invent the missing physical step.
     const premature = await post(
@@ -898,13 +864,17 @@ describe('CTO integration: stage and changed financial facts are genuine new int
     const before = await recordSnapshot('incident');
     const beforeId = before.snapshot.evaluationId;
     const countBefore = (
-      ledger.db.prepare(
-        "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
-      ).get(missionId) as { c: number }
+      ledger.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
+        )
+        .get(missionId) as { c: number }
     ).c;
     CLOCK.advance(120_000);
     ledger.accounts.recordBalanceSnapshot({
-      orgId, currency: 'USD', minorUnits: 5_000_000,
+      orgId,
+      currency: 'USD',
+      minorUnits: 5_000_000,
       source: 'manual-seed',
       observedAt: CLOCK.iso(),
       expiresAt: new Date(CLOCK.now().getTime() + 24 * 3_600_000).toISOString(),
@@ -913,9 +883,11 @@ describe('CTO integration: stage and changed financial facts are genuine new int
     expect(updated.replayed).toBe(false);
     expect(updated.snapshot.evaluationId).not.toBe(beforeId);
     const countAfter = (
-      ledger.db.prepare(
-        "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
-      ).get(missionId) as { c: number }
+      ledger.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM evidence_events WHERE mission_id = ? AND type = 'planner.decision.snapshot'",
+        )
+        .get(missionId) as { c: number }
     ).c;
     expect(countAfter).toBe(countBefore + 1);
     const repeated = await recordSnapshot('incident');
@@ -924,7 +896,9 @@ describe('CTO integration: stage and changed financial facts are genuine new int
 
     CLOCK.advance(60_000);
     ledger.accounts.recordBalanceSnapshot({
-      orgId, currency: 'USD', minorUnits: 8_000_000,
+      orgId,
+      currency: 'USD',
+      minorUnits: 8_000_000,
       source: 'manual-seed',
       observedAt: CLOCK.iso(),
       expiresAt: new Date(CLOCK.now().getTime() + 24 * 3_600_000).toISOString(),
@@ -934,18 +908,20 @@ describe('CTO integration: stage and changed financial facts are genuine new int
   it('a different authenticated actor reads verified persisted proposal terms', async () => {
     const r = await get(`/api/missions/${missionId}/decision-plans`, 'da-approver');
     expect(r.statusCode).toBe(200);
-    const plans = (r.json() as {
-      plans: {
-        evaluationId: string;
-        plan: {
-          id: string;
-          version: number;
-          digest: string;
-          terms: { amountMinor: number; currency: string; beneficiary: string; purpose: string };
-        };
-        providerVerified: boolean;
-      }[];
-    }).plans;
+    const plans = (
+      r.json() as {
+        plans: {
+          evaluationId: string;
+          plan: {
+            id: string;
+            version: number;
+            digest: string;
+            terms: { amountMinor: number; currency: string; beneficiary: string; purpose: string };
+          };
+          providerVerified: boolean;
+        }[];
+      }
+    ).plans;
     expect(plans.length).toBeGreaterThan(0);
     for (const { plan, providerVerified } of plans) {
       const original = ledger.plans.getVersion(orgId, missionId, plan.id, plan.version);
@@ -986,6 +962,100 @@ describe('tenant isolation for the new routes', () => {
     const plans = await get(`/api/missions/${missionId}/decision-plans`, 'da-foreign');
     expect(plans.statusCode).toBe(404);
     void otherMission;
+  });
+});
+
+/**
+ * Financial-state squeeze, fully org-isolated: `latestSnapshot` intentionally
+ * has no `observed_at <= now` filter, so a low balance observation recorded
+ * against the MAIN test org would shadow every later test's fresh seeding
+ * (that exact interaction broke the balance-only-replan test). This describe
+ * runs on its own org/mission — balance rows are org-scoped, so the low row
+ * pollutes nothing and no clock rewinding gymnastics are needed.
+ */
+describe('financial state squeeze between evaluation and proposal (own org)', () => {
+  it('a newer low balance fails the proposal closed with FINANCIAL_STATE_CHANGED', async () => {
+    const sqOrg = ledger.organizations.createOrganization('SqueezeOrg').id;
+    const sqMission = ledger.organizations.createMission(sqOrg, 'squeeze mission').id;
+    ledger.authority.createHumanActor({
+      orgId: sqOrg,
+      username: 'sq-admin',
+      displayName: 'SA',
+      role: 'admin',
+      password: TEST_PASSWORD,
+    });
+    ledger.authority.createHumanActor({
+      orgId: sqOrg,
+      username: 'sq-operator',
+      displayName: 'SO',
+      role: 'operator',
+      password: TEST_PASSWORD,
+    });
+    ledger.authority.createHumanActor({
+      orgId: sqOrg,
+      username: 'sq-proposer',
+      displayName: 'SP',
+      role: 'operator',
+      password: TEST_PASSWORD,
+    });
+    ledger.accounts.ensureTreasuryAccount({
+      orgId: sqOrg,
+      currency: 'USD',
+      label: 'USD',
+      protectedFloorMinor: 0,
+    });
+    const seeded = await post('/api/demo/refresh-authority', 'sq-admin', { missionId: sqMission });
+    expect(seeded.statusCode).toBe(200);
+    const baselineStep = await post(`/api/missions/${sqMission}/synthetic-step`, 'sq-operator', {
+      step: 'baseline',
+    });
+    expect(baselineStep.statusCode).toBe(200);
+    // The baseline SNAPSHOT must be recorded before the incident physical
+    // event exists — stage truth refuses a post-incident "baseline".
+    const baselineSnap = await post(
+      `/api/missions/${sqMission}/decision-snapshots`,
+      'sq-operator',
+      { stage: 'baseline' },
+    );
+    expect(baselineSnap.statusCode).toBe(200);
+    const incidentStep = await post(`/api/missions/${sqMission}/synthetic-step`, 'sq-operator', {
+      step: 'incident',
+    });
+    expect(incidentStep.statusCode).toBe(200);
+    const fresh = await post(`/api/missions/${sqMission}/decision-snapshots`, 'sq-operator', {
+      stage: 'incident',
+    });
+    expect(fresh.statusCode).toBe(200);
+    const selected = (
+      fresh.json() as { snapshot: { decision: { selected: { grossMinor: number } | null } } }
+    ).snapshot.decision.selected;
+    expect(selected).not.toBeNull();
+    expect(selected!.grossMinor).toBeGreaterThan(0);
+
+    // A strictly NEWER, much lower balance observation squeezes spendable
+    // between evaluation and proposal — the snapshot recorded the older,
+    // higher facts; the proposal revalidates against CURRENT truth.
+    CLOCK.advance(60_000);
+    try {
+      logins.clear();
+      ledger.accounts.recordBalanceSnapshot({
+        orgId: sqOrg,
+        currency: 'USD',
+        minorUnits: 100_000,
+        source: 'manual-seed',
+        observedAt: CLOCK.iso(),
+        expiresAt: new Date(CLOCK.now().getTime() + 3_600_000).toISOString(),
+      });
+      const r = await post(
+        `/api/missions/${sqMission}/decision-snapshots/${(fresh.json() as { snapshot: { evaluationId: string } }).snapshot.evaluationId}/propose-plan`,
+        'sq-proposer',
+      );
+      expect(r.statusCode).toBe(409);
+      expect((r.json() as { error: { code: string } }).error.code).toBe('FINANCIAL_STATE_CHANGED');
+    } finally {
+      CLOCK.advance(-60_000);
+      logins.clear();
+    }
   });
 });
 

@@ -332,16 +332,13 @@ export function recordSnapshot(
     ...timeline,
     // Baseline must evaluate ONLY the first accepted physical step; an
     // incident must include that same baseline and the actual incident.
-    events:
-      stage === 'baseline'
-        ? [baselineEvent]
-        : [baselineEvent, incidentEvent!],
+    events: stage === 'baseline' ? [baselineEvent] : [baselineEvent, incidentEvent!],
   };
   const ctx = evaluateMission(ledger, orgId, missionId, stageTimeline);
   const { facts } = ctx;
   const baseline =
     stage === 'incident'
-      ? loadSnapshots(ledger, orgId, missionId)
+      ? (loadSnapshots(ledger, orgId, missionId)
           .filter(
             (snapshot) =>
               snapshot.payload.stage === 'baseline' &&
@@ -352,7 +349,7 @@ export function recordSnapshot(
             (left, right) =>
               Date.parse(String(right.payload.recordedAt)) -
               Date.parse(String(left.payload.recordedAt)),
-          )[0] ?? null
+          )[0] ?? null)
       : null;
   if (stage === 'incident' && baseline === null) {
     throw new Error('BASELINE_SNAPSHOT_BEFORE_INCIDENT_REQUIRED');
