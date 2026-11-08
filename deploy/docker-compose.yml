@@ -63,7 +63,6 @@ services:
         condition: service_healthy
     environment:
       MOTERVA_DOMAIN: ${MOTERVA_DOMAIN:?set MOTERVA_DOMAIN (real DNS name, or localhost for staging TLS)}
-      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
       - '80:80'
       - '443:443'

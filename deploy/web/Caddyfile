@@ -12,9 +12,11 @@
 #    never publicly cacheable (release security suite item 28).
 #  - Strict security headers on everything; Server header suppressed.
 #  - Only this edge publishes ports. The API container stays container-private.
-{
-	email {$ACME_EMAIL}
-}
+#
+# NOTE: no global `email` directive — Caddy creates an anonymous ACME account
+# when none is set, and an empty {$ACME_EMAIL} placeholder would be a parse
+# error. For a production domain, mount a Caddyfile that adds
+# `{ email you@example.org }` if you want Let's Encrypt expiry notices.
 
 {$MOTERVA_DOMAIN} {
 	encode zstd gzip
