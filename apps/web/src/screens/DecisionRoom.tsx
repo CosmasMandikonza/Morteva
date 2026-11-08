@@ -223,9 +223,9 @@ export function DecisionRoom({
               ? `${step} evaluation already recorded — replayed the existing durable snapshot (idempotent).`
               : `${step} evaluation recorded as a durable snapshot (${result.snapshot.evaluationId.slice(0, 14)}…).`,
           );
-          const refreshController = new AbortController();
-          refreshDurableState(mission.id, refreshController.signal);
-          refreshController.abort();
+          // One-shot refresh: a fresh controller aborted right after dispatch
+          // would cancel the GETs before they resolve.
+          refreshDurableState(mission.id, new AbortController().signal);
           finish();
         })
         .catch((reason: unknown) => {
@@ -278,9 +278,7 @@ export function DecisionRoom({
     proposePlanFromEvaluation(mission.id, evaluationId, csrfToken)
       .then(() => {
         setProposeBusy(false);
-        const controller = new AbortController();
-        refreshDurableState(mission.id, controller.signal);
-        controller.abort();
+        refreshDurableState(mission.id, new AbortController().signal);
       })
       .catch((reason: unknown) => {
         setProposeBusy(false);
@@ -588,9 +586,7 @@ export function DecisionRoom({
           onProposed={() => {
             setSheet('none');
             if (mission !== null) {
-              const controller = new AbortController();
-              refreshDurableState(mission.id, controller.signal);
-              controller.abort();
+              refreshDurableState(mission.id, new AbortController().signal);
             }
           }}
           csrfToken={csrfToken}
@@ -608,9 +604,7 @@ export function DecisionRoom({
           onApproved={() => {
             setSheet('none');
             if (mission !== null) {
-              const controller = new AbortController();
-              refreshDurableState(mission.id, controller.signal);
-              controller.abort();
+              refreshDurableState(mission.id, new AbortController().signal);
             }
           }}
           csrfToken={csrfToken}
