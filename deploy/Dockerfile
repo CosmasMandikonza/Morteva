@@ -17,6 +17,10 @@ RUN npm ci && npm run build && npm prune --omit=dev
 FROM node:24-slim
 WORKDIR /repo
 COPY --from=build /repo .
+# Ledger home, pre-owned by the runtime user so an empty named volume
+# inherits correct ownership on first mount (the ledger must be creatable
+# by the non-root process from the very first boot).
+RUN mkdir -p /var/lib/moterva && chown -R node:node /var/lib/moterva
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \
