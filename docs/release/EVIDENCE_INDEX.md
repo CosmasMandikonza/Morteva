@@ -9,6 +9,7 @@ by code and executed evidence at a stated SHA — no claims beyond it.
 - **README.md** — product overview, stack, how to run, honest state.
 - **docs/release/REVIEWER_ACCESS.md** — the reviewer path (local golden path today).
 - **docs/release/ACCEPTANCE_MATRIX.md** — gate-by-gate release readiness with commands and evidence.
+- **docs/release/DEMO_SCRIPT.md** — the under-five-minute demonstration structure and truth checklist.
 
 ## Source of truth for this release audit
 
