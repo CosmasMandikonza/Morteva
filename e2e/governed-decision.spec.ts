@@ -60,6 +60,14 @@ async function grantMandateAs(page: Page, cap: string, missionTitle: string): Pr
   await signOut(page);
 }
 
+/** Fresh logins fall back to the oldest mission; select the target explicitly. */
+async function selectMission(page: Page, title: string): Promise<void> {
+  await page
+    .getByTestId('missions-panel')
+    .getByRole('button', { name: new RegExp(title) })
+    .click();
+}
+
 /** Drive journal+snapshot for one stage on the selected mission, tolerating
  *  already-recorded state (idempotent replays are honest, not failures). */
 async function runStage(page: Page, stage: 'baseline' | 'incident'): Promise<void> {
@@ -85,6 +93,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await createMissionViaSheet(page, 'Durable two-actor mission');
     await grantMandateAs(page, '25000', 'Durable two-actor mission');
     // ---------- ACTOR 1: operator (propose grant, no approve grant)
+    await selectMission(page, 'Durable two-actor mission');
     await signIn(page, 'operator');
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
@@ -165,6 +174,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await createMissionViaSheet(page, 'Ordering guard mission');
     await grantMandateAs(page, '25000', 'Ordering guard mission');
     await signIn(page, 'operator');
+    await selectMission(page, 'Ordering guard mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
     // Fresh mission: incident button disabled until baseline stage reached.
@@ -178,6 +188,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await createMissionViaSheet(page, 'No-action mission');
     await grantMandateAs(page, '25000', 'No-action mission');
     await signIn(page, 'operator');
+    await selectMission(page, 'No-action mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
 
@@ -192,6 +203,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await createMissionViaSheet(page, 'Manual label mission');
     await grantMandateAs(page, '25000', 'Manual label mission');
     await signIn(page, 'operator');
+    await selectMission(page, 'Manual label mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
     await runStage(page, 'incident');
