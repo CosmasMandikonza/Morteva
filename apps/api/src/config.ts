@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { parseIdentityConfig, type IdentityConfig } from './identity/config.js';
 
 /**
  * Minimal .env loader for local development only (development convenience;
@@ -44,6 +45,7 @@ const configSchema = z.object({
     .max(7 * 24 * 3_600_000)
     .default(8 * 3_600_000),
   GIT_SHA: z.string().min(1).optional(),
+  MOTERVA_TRUST_PROXY: z.enum(['0', '1']).default('0'),
 });
 
 /**
@@ -87,6 +89,17 @@ export interface AppConfig {
    * never be active accidentally in a deployed configuration.
    */
   readonly devAuth: boolean;
+  /**
+   * Production identity (MTV-19): OIDC configuration, or null when no
+   * MOTERVA_OIDC_* variable is set (identity simply not deployed — the rest
+   * of the server still boots). Partial configuration fails startup.
+   */
+  readonly identity: IdentityConfig | null;
+  /**
+   * Trust X-Forwarded-* from the TLS termination proxy (Agent E's Caddy edge).
+   * Only enable when the API is NOT directly internet-exposed.
+   */
+  readonly trustProxy: boolean;
   readonly gitSha?: string;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
@@ -102,6 +115,18 @@ export class StartupConfigError extends Error {
 export function loadConfig(env: RawEnv = process.env): AppConfig {
   // Collect every invalid variable so one startup failure lists all problems.
   const issues: string[] = [];
+  let identity: IdentityConfig | null = null;
+  try {
+    identity = parseIdentityConfig(
+      env,
+      (env.NODE_ENV as 'development' | 'test' | 'production') ?? 'development',
+      (newIssues: readonly string[]) => {
+        issues.push(...newIssues);
+      },
+    );
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : String(error));
+  }
   let providerMode: 'offline' | 'simulated' | undefined;
   try {
     providerMode = parseProviderMode(env.MOTERVA_PROVIDER_MODE);
@@ -118,6 +143,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     MOTERVA_LEDGER_PATH: env.MOTERVA_LEDGER_PATH,
     MOTERVA_SESSION_TTL_MS: env.MOTERVA_SESSION_TTL_MS,
     GIT_SHA: env.GIT_SHA,
+    MOTERVA_TRUST_PROXY: env.MOTERVA_TRUST_PROXY,
   });
   if (!parsed.success) {
     issues.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`));
@@ -174,6 +200,8 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     ledgerPath: parsed.data.MOTERVA_LEDGER_PATH,
     sessionTtlMs: parsed.data.MOTERVA_SESSION_TTL_MS,
     devAuth,
+    identity,
+    trustProxy: parsed.data.MOTERVA_TRUST_PROXY === '1',
     gitSha: parsed.data.GIT_SHA,
     warnings,
   };
