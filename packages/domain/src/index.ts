@@ -70,6 +70,8 @@ export type {
   FinancialCurrencyView,
   FinancialOperationView,
   FinancialOverviewView,
+  IdentityLinkView,
+  InvitationView,
   MandateId,
   MandateView,
   MissionEvidenceEventView,

@@ -1,4 +1,5 @@
 export { Ledger, openLedger } from './ledger.js';
+export { ExternalIdentityService, INVITABLE_ROLES } from './services/external-identity.js';
 export { SystemClock, TunableClock } from './clock.js';
 export type { Clock } from './clock.js';
 export { LedgerError, isLedgerError } from './errors.js';
