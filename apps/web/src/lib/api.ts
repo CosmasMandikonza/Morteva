@@ -433,3 +433,170 @@ export function mayPropose(role: string | null): boolean {
 export function mayApprove(role: string | null): boolean {
   return role === 'owner' || role === 'admin' || role === 'approver';
 }
+
+// -------------------------- durable decision snapshots (#44 contract)
+
+export interface RecordedSnapshotDecision {
+  readonly outcome: 'select' | 'decline' | 'escalate';
+  readonly selected: {
+    readonly candidateId: string;
+    readonly grossMinor: number;
+    readonly currency: string;
+    readonly beneficiary: string;
+    readonly purpose: string;
+    readonly probabilityBps: number;
+    readonly expectedNetMinor: number;
+    readonly evidenceIds: readonly string[];
+  } | null;
+}
+
+export interface RecordedSnapshot {
+  readonly evaluationId: string;
+  readonly stage: 'baseline' | 'incident';
+  readonly recordedAt: string;
+  readonly decision: RecordedSnapshotDecision;
+  readonly linkage: {
+    readonly baselineEvaluationId?: string | null;
+    readonly incidentEventId?: string | null;
+  } | null;
+  readonly seq: number;
+}
+
+/** GET /api/missions/:id/decision-snapshots — READ ONLY; never creates. */
+export function fetchDecisionSnapshots(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<{ missionId: string; integrity: string; snapshots: RecordedSnapshot[] }> {
+  return request<{ missionId: string; integrity: string; snapshots: RecordedSnapshot[] }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots`,
+    { signal },
+  );
+}
+
+export interface SnapshotRecordResult {
+  readonly missionId: string;
+  readonly replayed: boolean;
+  readonly snapshot: {
+    readonly evaluationId: string;
+    readonly stage: 'baseline' | 'incident';
+    readonly recordedAt: string;
+    readonly decision: RecordedSnapshotDecision;
+  };
+}
+
+/** POST /api/missions/:id/decision-snapshots — explicit, operate + CSRF, idempotent. */
+export function recordDecisionSnapshot(
+  missionId: string,
+  stage: 'baseline' | 'incident',
+  csrfToken: string,
+): Promise<SnapshotRecordResult> {
+  return request<SnapshotRecordResult>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots`,
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify({ stage }),
+    },
+  );
+}
+
+/** POST /api/missions/:id/decision-snapshots/:evaluationId/propose-plan —
+ *  BODYLESS apart from request metadata: the selected economic terms come
+ *  ONLY from the saved evaluation / server journal. Never send terms here. */
+export function proposePlanFromEvaluation(
+  missionId: string,
+  evaluationId: string,
+  csrfToken: string,
+): Promise<{
+  plan: {
+    id: string;
+    version: number;
+    digest: string;
+    amountMinor: number;
+    currency: string;
+    beneficiary: string;
+  };
+  replayed: boolean;
+  authorization: string;
+  providerVerified: false;
+}> {
+  return request<{
+    plan: {
+      id: string;
+      version: number;
+      digest: string;
+      amountMinor: number;
+      currency: string;
+      beneficiary: string;
+    };
+    replayed: boolean;
+    authorization: string;
+    providerVerified: false;
+  }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots/${encodeURIComponent(
+      evaluationId,
+    )}/propose-plan`,
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: '{}' },
+  );
+}
+
+export interface DecisionPlanProposal {
+  readonly evaluationId: string;
+  readonly proposedBy: string;
+  readonly plan: {
+    readonly id: string;
+    readonly version: number;
+    readonly digest: string;
+    readonly createdAt: string;
+    readonly terms: {
+      readonly amountMinor: number;
+      readonly currency: string;
+      readonly beneficiary: string;
+      readonly purpose: string;
+    };
+  };
+  readonly providerVerified: false;
+}
+
+/** GET /api/missions/:id/decision-plans — read-only reviewer handoff. */
+export function fetchDecisionPlans(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<{ missionId: string; plans: DecisionPlanProposal[]; authorization: string }> {
+  return request<{ missionId: string; plans: DecisionPlanProposal[]; authorization: string }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-plans`,
+    { signal },
+  );
+}
+
+/** Journal-verified approvals for rebuild-after-reload: filter the real
+ *  financial journal for approval.granted events (server truth, no invention). */
+export interface RecordedApproval {
+  readonly approvalId: string;
+  readonly planId: string;
+  readonly planVersion: number;
+  readonly planDigest: string;
+  readonly decidedBy: string;
+  readonly kind: string;
+  readonly expiresAt: string;
+}
+
+export function approvalsFromEvidence(
+  events: readonly { type: string; payload: Record<string, unknown> }[],
+): RecordedApproval[] {
+  return events
+    .filter((e) => e.type === 'approval.granted')
+    .map((e) => {
+      const p = e.payload as Record<string, unknown>;
+      return {
+        approvalId: String(p.approvalId ?? ''),
+        planId: String(p.planId ?? ''),
+        planVersion: Number(p.planVersion ?? 0),
+        planDigest: String(p.planDigest ?? ''),
+        decidedBy: String(p.decidedBy ?? ''),
+        kind: String(p.kind ?? ''),
+        expiresAt: String(p.expiresAt ?? ''),
+      };
+    })
+    .filter((a) => a.approvalId !== '' && a.planId !== '');
+}

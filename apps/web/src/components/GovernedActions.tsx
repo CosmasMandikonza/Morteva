@@ -1,34 +1,27 @@
 import { useState, type FormEvent } from 'react';
 import type { JSX } from 'react';
-import {
-  ApiError,
-  createApproval,
-  createPlan,
-  mayApprove,
-  mayPropose,
-  type MandateRow,
-  type PhysicalDecisionSummary,
-} from '../lib/api';
+import { ApiError, createApproval, createPlan, mayApprove, type MandateRow } from '../lib/api';
 import { formatDate, money } from '../lib/format';
 import { Sheet } from './OnboardingDialog';
 
 /**
- * Governed follow-through for a Decision Room evaluation, using ONLY the
- * real plan/approval contracts. Two steps, deliberately separated:
- *   1) PROPOSE (operator+): record a plan version whose terms the proposer
- *      types and reviews exactly — the decision summary informs the terms,
- *      it never fills them invisibly.
- *   2) APPROVE (approver+): a DIFFERENT actor role records the approval
- *      against the plan id+version with kind, mandate and expiry — shown
- *      with the plan digest so changed economic terms are visible.
- * The server enforces every role boundary; the UI renders refusals as
- * first-class outcomes rather than hiding the affordances.
+ * Governed follow-through for the Decision Room, using ONLY real contracts.
+ * The planner-derived golden path proposes via the server-authoritative,
+ * ID-only decision-snapshot endpoint (see DecisionRoom) — the terms shown
+ * come from the saved evaluation / server journal, never from client input.
+ *
+ * ManualPlanSheet below is the explicitly labeled NON-planner-derived entry:
+ * a human-typed generic plan through POST /api/plans. It is visually and
+ * verbally separated from the planner-derived action so the two can never
+ * be confused.
+ *
+ * The server enforces every role boundary (propose/approve/CSRF/
+ * self-approval); the UI renders refusals as first-class outcomes.
  */
 
-export function ProposePlanSheet({
+export function ManualPlanSheet({
   missionId,
   missionTitle,
-  decision,
   role,
   onClose,
   onProposed,
@@ -36,14 +29,12 @@ export function ProposePlanSheet({
 }: {
   missionId: string;
   missionTitle: string;
-  decision: PhysicalDecisionSummary;
   role: string | null;
   onClose: () => void;
   onProposed: (plan: { id: string; version: number; digest: string }) => void;
   csrfToken: string | null;
 }): JSX.Element {
-  const canPropose = mayPropose(role);
-  const candidate = decision.selected;
+  const canPropose = mayApprove(role) || role === 'operator';
   const [step, setStep] = useState<'form' | 'review'>('form');
   const [amountMajor, setAmountMajor] = useState('');
   const [currency, setCurrency] = useState('USD');
@@ -59,10 +50,6 @@ export function ProposePlanSheet({
         ? Math.round(Number(amountMajor) * 100)
         : null;
   const formValid = amountMinor !== null && beneficiary.trim() !== '' && purpose.trim() !== '';
-  const overSpendable =
-    decision.currentSpendableMinor !== null &&
-    amountMinor !== null &&
-    amountMinor > decision.currentSpendableMinor;
 
   const submit = (): void => {
     if (busy || csrfToken === null || !formValid || amountMinor === null) return;
@@ -96,18 +83,22 @@ export function ProposePlanSheet({
   };
 
   return (
-    <Sheet title={`Propose plan — ${missionTitle}`} onClose={onClose} testId="propose-plan-sheet">
+    <Sheet
+      title="Manual plan entry — NOT planner-derived"
+      onClose={onClose}
+      testId="propose-plan-sheet"
+    >
+      <p className="mv-sheet__error" role="status" data-testid="manual-plan-banner">
+        This sheet records a GENERIC, human-typed plan. It is not derived from the physical
+        evaluation and does not claim the planner&rsquo;s selected terms, evidence or costs. The
+        planner-derived action lives on the Decision Room panel above this entry.
+      </p>
       {!canPropose && (
         <p className="mv-sheet__error" role="alert" data-testid="propose-role-note">
           Your role ({role ?? 'unknown'}) cannot propose plans — the server requires an operate
           grant (operator or above) and will refuse this submission.
         </p>
       )}
-      <p className="mv-sheet__review">
-        Proposal source: evaluation {decision.evaluationId} ({decision.mode}). The evaluation never
-        becomes a payment by itself — a plan must be recorded, approved and dispatched under mandate
-        authority.
-      </p>
       {step === 'form' ? (
         <form
           className="mv-sheet__form"
@@ -116,13 +107,6 @@ export function ProposePlanSheet({
             if (formValid) setStep('review');
           }}
         >
-          {candidate !== null && (
-            <p className="mv-sheet__review">
-              Evaluation selected “{candidate.label}” (gross {money(currency, candidate.grossMinor)}
-              , expected net {money(currency, candidate.expectedNetMinor)} — model assumptions).
-              Enter the exact terms you intend to commit; they are your typed inputs, not copies.
-            </p>
-          )}
           <div className="mv-sheet__grid">
             <label className="mv-field">
               <span className="mv-field__label">Amount ({currency})</span>
@@ -170,16 +154,9 @@ export function ProposePlanSheet({
               required
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
-              placeholder="diagnostic sweep"
+              placeholder="harbor inspection"
             />
           </label>
-          {overSpendable && (
-            <p className="mv-sheet__error" role="status">
-              Amount exceeds the mission&rsquo;s current engine-computed spendable (
-              {money(currency, decision.currentSpendableMinor ?? 0)}). The server will reject or
-              block this at approval/reservation time.
-            </p>
-          )}
           {error !== null && (
             <p className="mv-sheet__error" role="alert" data-testid="governed-error">
               {error.code}: {error.message}
@@ -261,6 +238,7 @@ export function ApprovePlanSheet({
   missionId,
   missionTitle,
   plan,
+  terms,
   role,
   mandates,
   onClose,
@@ -270,6 +248,8 @@ export function ApprovePlanSheet({
   missionId: string;
   missionTitle: string;
   plan: { id: string; version: number; digest: string };
+  /** Persisted terms from the server's decision-plans read (read-only display). */
+  terms?: { amountMinor: number; currency: string; beneficiary: string; purpose: string } | null;
   role: string | null;
   mandates: readonly MandateRow[];
   onClose: () => void;
@@ -338,17 +318,16 @@ export function ApprovePlanSheet({
           approver or above and will refuse this submission.
         </p>
       )}
-      <p className="mv-sheet__review" data-testid="self-approval-note">
-        This session recorded the plan. The server enforces separation of duties — it will refuse
-        self-approval (AUTH_SELF_APPROVAL); a different approver records the approval. Handing the
-        plan to another actor needs a plans read API (Agent A dependency).
-      </p>
       {effective.length === 0 && (
         <p className="mv-sheet__error" role="alert">
           This mission has no effective (active and unexpired) mandate to approve against. Grant
           spending authority in Mission Treasury first.
         </p>
       )}
+      <p className="mv-sheet__review" data-testid="self-approval-note">
+        The server enforces separation of duties — it refuses self-approval (AUTH_SELF_APPROVAL);
+        the actor who proposed the plan cannot approve it.
+      </p>
       {step === 'form' ? (
         <form
           className="mv-sheet__form"
@@ -426,6 +405,20 @@ export function ApprovePlanSheet({
                 v{String(plan.version)}
               </dd>
             </div>
+            {terms !== null && terms !== undefined && (
+              <>
+                <div>
+                  <dt>Amount (server-recorded terms)</dt>
+                  <dd className="mv-num">{money(terms.currency, terms.amountMinor)}</dd>
+                </div>
+                <div>
+                  <dt>Beneficiary / purpose</dt>
+                  <dd>
+                    {terms.beneficiary} · {terms.purpose}
+                  </dd>
+                </div>
+              </>
+            )}
             <div>
               <dt>Plan digest (economic terms fingerprint)</dt>
               <dd className="mv-num mv-break">{plan.digest}</dd>

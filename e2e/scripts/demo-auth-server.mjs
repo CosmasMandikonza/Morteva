@@ -377,7 +377,7 @@ const child = spawn(process.execPath, [join(root, 'apps/api/dist/index.js')], {
     NODE_ENV: 'development',
     MOTERVA_DEV_AUTH: '1',
     MOTERVA_LEDGER_PATH: dbPath,
-    PORT: '8787',
+    PORT: process.env.PORT ?? '8787',
   },
   stdio: 'inherit',
 });

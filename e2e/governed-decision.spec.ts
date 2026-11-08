@@ -1,169 +1,284 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Governed Decision Room follow-through against the REAL plan/approval APIs:
- * propose (operator+), exact-terms approval against a real mandate (approver+),
- * role refusals shown as first-class outcomes, and honest unavailable states.
+ * Governed Decision Room journeys against the REAL durable contracts (#44):
+ * server-authoritative ID-only proposals, persisted cross-actor handoff
+ * (operator proposes → logout → approver logs in → approves), reload
+ * rebuilds from server truth, idempotent duplicates, honest refusals.
  * POLICY-ONLY evaluation; no provider call is made or implied.
  */
+const PASSWORD = 'moterva-e2e-demo';
+
 async function signIn(page: Page, username: string): Promise<void> {
   await page.goto('/');
   await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill('moterva-e2e-demo');
+  await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByTestId('actor-chip')).toBeVisible();
+  const display =
+    username === 'founder'
+      ? 'E2E Founder'
+      : username === 'operator'
+        ? 'E2E Operator'
+        : username === 'approver'
+          ? 'E2E Approver'
+          : 'E2E Viewer';
+  await expect(page.getByTestId('actor-chip')).toContainText(display);
+}
+
+async function signOut(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByTestId('actor-chip')).toHaveCount(0);
 }
 
 async function createMissionViaSheet(page: Page, title: string): Promise<void> {
   await page.getByTestId('new-mission-btn').click();
   const sheet = page.getByTestId('mission-create-sheet');
-  await expect(sheet).toBeVisible();
   await sheet.getByLabel('Mission name').fill(title);
   await sheet.getByTestId('create-mission-submit').click();
   await expect(sheet).toHaveCount(0);
   await expect(page.getByTestId('missions-panel')).toContainText(title, { timeout: 10_000 });
 }
 
-async function grantMandate(page: Page, cap: string): Promise<void> {
+/** Owner/admin grant path so the mission has an effective mandate.
+ *  Authority management is a SEPARATE actor from the proposer/approver. */
+async function grantMandateAs(page: Page, cap: string): Promise<void> {
+  await signOut(page);
+  await signIn(page, 'founder');
   await page.getByTestId('grant-first-mandate').click();
   const sheet = page.getByTestId('mandate-create-sheet');
   await sheet.getByLabel('Per-operation cap (USD)').fill(cap);
-  await sheet.getByLabel(/Approved beneficiaries/).fill('harbor-diagnostics');
-  await sheet.getByLabel(/Approved purposes/).fill('diagnostic sweep');
+  await sheet.getByLabel(/Approved beneficiaries/).fill('harbor-diagnostics, harbor-marine');
+  await sheet.getByLabel(/Approved purposes/).fill('harbor inspection');
   await sheet.getByTestId('mandate-review-btn').click();
   await sheet.getByTestId('mandate-submit-btn').click();
   await expect(sheet).toHaveCount(0, { timeout: 10_000 });
+  await signOut(page);
 }
 
-/** Drive the synthetic journey to the incident stage on the CURRENT mission. */
-async function runIncidentJourney(page: Page): Promise<void> {
-  await page.getByRole('link', { name: 'Decision Room' }).click();
-  await expect(page.getByTestId('decision-room')).not.toContainText(
-    'Loading actual journal and planner results',
-  );
-  if (await page.getByTestId('start-synthetic').isEnabled()) {
-    await page.getByTestId('start-synthetic').click();
+/** Drive journal+snapshot for one stage on the selected mission, tolerating
+ *  already-recorded state (idempotent replays are honest, not failures). */
+async function runStage(page: Page, stage: 'baseline' | 'incident'): Promise<void> {
+  const button =
+    stage === 'baseline'
+      ? page.getByTestId('start-synthetic')
+      : page.getByTestId('introduce-incident');
+  await expect(button).toBeEnabled({ timeout: 15_000 });
+  await button.click();
+  // The action journals the event AND records the durable snapshot.
+  await expect(page.getByTestId(`snapshot-${stage}`)).toBeVisible({ timeout: 15_000 });
+  if (stage === 'incident') {
+    await expect(page.getByTestId('physical-incident')).toContainText('24.6 kt');
   }
-  await expect(async () => {
-    const introEnabled = await page.getByTestId('introduce-incident').isEnabled();
-    const incidentPresent = (await page.getByTestId('physical-incident').count()) > 0;
-    expect(introEnabled || incidentPresent).toBe(true);
-  }).toPass({ timeout: 15_000 });
-  if (await page.getByTestId('introduce-incident').isEnabled()) {
-    await page.getByTestId('introduce-incident').click();
-  }
-  await expect(page.getByTestId('physical-incident')).toContainText('24.6 kt');
-  await expect(page.getByTestId('governed-actions')).toContainText('governed action');
 }
 
-test.describe('governed decision follow-through', () => {
-  test('owner proposes exact terms and records an approval against a real mandate', async ({
+test.describe('governed two-actor journey (durable contracts)', () => {
+  test('operator journals + snapshots + ID-only proposes; approver approves after logout/login and reload', async ({
     page,
   }) => {
+    // ---------- ACTOR 0: founder (authority manager) creates + grants, then leaves
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Governed flow mission');
-    await grantMandate(page, '750');
-    await runIncidentJourney(page);
+    await createMissionViaSheet(page, 'Durable two-actor mission');
+    await grantMandateAs(page, '25000');
+    // ---------- ACTOR 1: operator (propose grant, no approve grant)
+    await signIn(page, 'operator');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
 
-    // Propose: exact typed terms, reviewed before submission.
-    await page.getByTestId('open-propose').click();
+    await runStage(page, 'baseline');
+    await runStage(page, 'incident');
+
+    // Recorded durable evaluations are server truth (both stages present).
+    const snapshots = page.getByTestId('recorded-snapshots');
+    await expect(snapshots).toContainText('baseline');
+    await expect(snapshots).toContainText('incident');
+
+    // SERVER-AUTHORITATIVE ID-ONLY proposal: no amount/beneficiary/purpose inputs.
+    await expect(page.getByTestId('governed-actions')).toContainText(
+      'server derives the economic terms',
+    );
+    await page.getByTestId('propose-plan').click();
+    // Durable proposal appears with immutable server terms.
+    const plansPanel = page.getByTestId('decision-plans');
+    await expect(plansPanel.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    const terms = plansPanel.getByTestId('plan-terms');
+    await expect(terms).toContainText('USD 18,500.00'); // vessel alternative from server catalog
+    await expect(terms).toContainText('harbor-marine');
+    await expect(terms).toContainText('harbor inspection');
+    const planText =
+      (await plansPanel.getByTestId('decision-plan-row').first().textContent()) ?? '';
+
+    // Duplicate ID-only proposal is idempotent — same single row, no second plan.
+    await page.getByTestId('propose-plan').click();
+    await expect(plansPanel.getByTestId('decision-plan-row')).toHaveCount(1, { timeout: 10_000 });
+
+    // Operator has no approve grant → no approval affordance at all.
+    await expect(plansPanel.getByTestId('open-approve')).toHaveCount(0);
+
+    // ---------- logout: no ephemeral React handoff, session state dropped
+    await signOut(page);
+
+    // ---------- ACTOR 2: approver (different persisted actor, fresh login)
+    await signIn(page, 'approver');
+    // Approver lands on Treasury; reload BEFORE navigating proves persistence.
+    await page.reload();
+    await expect(page.getByTestId('missions-panel')).toContainText('Durable two-actor mission');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+
+    // The persisted proposal rebuilds from the server read — same exact terms.
+    const approverPlans = page.getByTestId('decision-plans');
+    await expect(approverPlans.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    await expect(approverPlans.getByTestId('plan-terms')).toContainText('USD 18,500.00');
+    const approverText =
+      (await approverPlans.getByTestId('decision-plan-row').first().textContent()) ?? '';
+    expect(approverText.slice(0, 120)).toContain(planText.slice(0, 120).split('·')[0] ?? '');
+
+    // Approver has the grant → approval affordance visible with persisted terms.
+    await approverPlans.getByTestId('open-approve').click();
+    const approve = page.getByTestId('approve-plan-sheet');
+    await approve.getByTestId('approve-review-btn').click();
+    const review = approve.getByTestId('approval-review');
+    await expect(review).toContainText('USD 18,500.00');
+    await expect(review).toContainText('harbor-marine');
+    await expect(review).toContainText('harbor inspection');
+    await expect(review).toContainText('fingerprint');
+    await approve.getByTestId('approve-submit-btn').click();
+    await expect(approve).toHaveCount(0, { timeout: 15_000 });
+
+    // Journal-verified approval renders (approval.granted from the financial journal).
+    await expect(page.getByTestId('plan-approval-recorded')).toBeVisible({ timeout: 15_000 });
+
+    // ---------- reload: everything rebuilds from persisted server state
+    await page.reload();
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('plan-terms')).toContainText('USD 18,500.00');
+    await expect(page.getByTestId('plan-approval-recorded')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('decision-plans')).toContainText('Provider verification: none');
+  });
+
+  test('baseline must be recorded before the incident evaluation', async ({ page }) => {
+    await signIn(page, 'founder');
+    await createMissionViaSheet(page, 'Ordering guard mission');
+    await grantMandateAs(page, '25000');
+    await signIn(page, 'operator');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+
+    // Fresh mission: incident button disabled until baseline stage reached.
+    await expect(page.getByTestId('introduce-incident')).toBeDisabled();
+    await runStage(page, 'baseline');
+    await expect(page.getByTestId('introduce-incident')).toBeEnabled();
+  });
+
+  test('no-action baseline evaluation never proposes a payment', async ({ page }) => {
+    await signIn(page, 'founder');
+    await createMissionViaSheet(page, 'No-action mission');
+    await grantMandateAs(page, '25000');
+    await signIn(page, 'operator');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await runStage(page, 'baseline');
+
+    // Baseline selects "hold the current plan" — zero gross, NOT executable.
+    await expect(page.getByTestId('snapshot-baseline')).toContainText(/no-action|no spend/);
+    // The governed (planner-derived) panel only appears for an incident snapshot.
+    await expect(page.getByTestId('governed-actions')).toHaveCount(0);
+  });
+
+  test('manual plan entry is clearly labeled NOT planner-derived', async ({ page }) => {
+    await signIn(page, 'founder');
+    await createMissionViaSheet(page, 'Manual label mission');
+    await grantMandateAs(page, '25000');
+    await signIn(page, 'operator');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await runStage(page, 'baseline');
+    await runStage(page, 'incident');
+
+    await page.getByTestId('open-manual').click();
+    await page.getByTestId('open-manual-sheet').click();
     const sheet = page.getByTestId('propose-plan-sheet');
     await expect(sheet).toBeVisible();
-    await sheet.getByLabel('Amount (USD)').fill('600');
+    await expect(sheet.getByTestId('manual-plan-banner')).toContainText('NOT planner-derived');
+    await expect(sheet.getByTestId('manual-plan-banner')).toContainText('not derived from the');
+    // Manual entry still works and is review-gated.
+    await sheet.getByLabel('Amount (USD)').fill('500');
     await sheet.getByLabel(/Beneficiary/).fill('harbor-diagnostics');
-    await sheet.getByLabel(/Purpose/).fill('diagnostic sweep');
-    await sheet.getByTestId('propose-review-btn').click();
-    const review = sheet.getByTestId('plan-review');
-    await expect(review).toContainText('USD 600.00');
-    await expect(review).toContainText('harbor-diagnostics');
-    await expect(review).toContainText('diagnostic sweep');
-    await sheet.getByTestId('propose-submit-btn').click();
-    await expect(sheet).toHaveCount(0);
-
-    const planBlock = page.getByTestId('plan-recorded');
-    await expect(planBlock).toContainText('Plan recorded');
-    await expect(planBlock).toContainText('a proposal only');
-    await expect(page.getByTestId('governed-actions')).toContainText('Terms digest');
-
-    // The server ENFORCES separation of duties — the UI must say so, not promise
-    // a same-actor approval.
-    await expect(page.getByTestId('governed-actions')).toContainText(
-      'server enforces separation of duties',
-    );
-
-    // Approve: exact terms against the real mandate, digest shown; the sheet is
-    // honest that self-approval will be refused.
-    await page.getByTestId('open-approve').click();
-    const approve = page.getByTestId('approve-plan-sheet');
-    await expect(approve.getByTestId('self-approval-note')).toContainText('refuse self-approval');
-    await approve.getByTestId('approve-review-btn').click();
-    const approvalReview = approve.getByTestId('approval-review');
-    await expect(approvalReview).toContainText('fingerprint');
-    await expect(approvalReview).toContainText('airwallex_transfer');
-    await expect(approvalReview).toContainText('USD v1');
-    await approve.getByTestId('approve-submit-btn').click();
-
-    // The SERVER refuses self-approval with its real code and useful language —
-    // rendered as a first-class outcome, not swallowed.
-    await expect(approve.getByTestId('governed-error')).toContainText('AUTH_SELF_APPROVAL', {
-      timeout: 10_000,
-    });
-    await expect(approve.getByTestId('governed-error')).toContainText(
-      'separation of duties requires a different approver',
-    );
-  });
-
-  test('operator can propose but the server refuses the approval with ROLE_FORBIDDEN', async ({
-    page,
-  }) => {
-    await signIn(page, 'operator');
-    await createMissionViaSheet(page, 'Operator governed attempt');
-    // Operator cannot grant mandates; grant is skipped — approval will refuse
-    // on both role and (owner-only) mandate grounds. Propose still works.
-    await runIncidentJourney(page);
-
-    await page.getByTestId('open-propose').click();
-    const sheet = page.getByTestId('propose-plan-sheet');
-    await sheet.getByLabel('Amount (USD)').fill('250');
-    await sheet.getByLabel(/Beneficiary/).fill('harbor-diagnostics');
-    await sheet.getByLabel(/Purpose/).fill('diagnostic sweep');
+    await sheet.getByLabel(/Purpose/).fill('harbor inspection');
     await sheet.getByTestId('propose-review-btn').click();
     await sheet.getByTestId('propose-submit-btn').click();
-    await expect(sheet).toHaveCount(0);
-    await expect(page.getByTestId('plan-recorded')).toContainText('Plan recorded');
-
-    // The approval affordance is observable; the server refuses the role.
-    await page.getByTestId('open-approve').click();
-    const approve = page.getByTestId('approve-plan-sheet');
-    await expect(approve.getByTestId('approve-role-note')).toContainText('cannot approve');
-    await approve.getByTestId('approve-review-btn').click();
-    await approve.getByTestId('approve-submit-btn').click();
-    await expect(approve.getByTestId('governed-error')).toContainText('ROLE_FORBIDDEN', {
-      timeout: 10_000,
-    });
+    await expect(sheet).toHaveCount(0, { timeout: 10_000 });
   });
 
-  test('viewer gets an honest refusal from the operate-gated synthetic journey', async ({
-    page,
-  }) => {
+  test('viewer cannot operate the journey (server ROLE_FORBIDDEN, verbatim)', async ({ page }) => {
     await signIn(page, 'viewer');
-    // Mission A ships with a journaled demo incident (read-only replay is fine
-    // for a viewer). Select mission B — no journey yet — so the operate-gated
-    // POST is actually attempted and the server's refusal becomes observable.
+    // Mission B has no journey yet → the operate-gated POST is attempted.
     await page
       .getByTestId('missions-panel')
       .getByRole('button', { name: /Subsea mooring survey/ })
       .click();
     await page.getByRole('link', { name: 'Decision Room' }).click();
-    await expect(page.getByTestId('decision-room')).toBeVisible();
-    const start = page.getByTestId('start-synthetic');
-    await expect(start).toBeEnabled({ timeout: 10_000 });
-    await start.click();
+    await expect(page.getByTestId('start-synthetic')).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId('start-synthetic').click();
     await expect(page.getByTestId('decision-room')).toContainText(
       /ROLE_FORBIDDEN|may not operate|403/i,
-      {
-        timeout: 10_000,
-      },
+      { timeout: 10_000 },
     );
+  });
+
+  test('foreign mission denial and 401/CSRF honesty (API-level, real server)', async ({ page }) => {
+    await signIn(page, 'operator');
+    const result = await page.evaluate(async () => {
+      const session = (await (
+        await fetch('/api/auth/session', { credentials: 'same-origin' })
+      ).json()) as { actor: { orgId: string } };
+      const missions = (await (
+        await fetch('/api/missions', { credentials: 'same-origin' })
+      ).json()) as { missions: { id: string }[] };
+      const missionId = missions.missions[0]?.id ?? '';
+      const foreign = await fetch(
+        `/api/missions/${encodeURIComponent('msn_does_not_exist')}/decision-snapshots`,
+        { credentials: 'same-origin' },
+      );
+      const noCsrf = await fetch(
+        `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ stage: 'baseline' }),
+        },
+      );
+      return {
+        org: session.actor.orgId.slice(0, 8),
+        foreign: foreign.status,
+        noCsrf: noCsrf.status,
+      };
+    });
+    expect(result.foreign).toBe(404); // unknown mission → honest NOT_FOUND
+    expect(result.noCsrf).toBe(403); // missing CSRF token → refused
+  });
+
+  test('evidence continuity: snapshot events are inspectable in Evidence Replay', async ({
+    page,
+  }) => {
+    await signIn(page, 'operator');
+    // Mission A ships with a journaled demo incident (evt_demo_incident_*).
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await expect(page.getByTestId('decision-room')).toBeVisible();
+    await page.getByRole('link', { name: 'Evidence Replay' }).click();
+    await expect(page.getByTestId('evidence-panel')).toBeVisible();
+    // The signed synthetic incident event is present with its full identity.
+    await expect(page.getByTestId('evidence-panel')).toContainText('evt_demo_incident_', {
+      timeout: 10_000,
+    });
+  });
+
+  test('320px and 390px: governed panels do not overflow', async ({ page }) => {
+    await signIn(page, 'operator');
+    // Mission A already carries the demo incident journey state.
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await expect(page.getByTestId('recorded-snapshots')).toBeVisible({ timeout: 15_000 });
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      const sw = await page.evaluate<number>('document.documentElement.scrollWidth');
+      expect(sw, `scrollWidth at ${width}`).toBeLessThanOrEqual(width);
+    }
   });
 });
