@@ -40,10 +40,15 @@ async function createMissionViaSheet(page: Page, title: string): Promise<void> {
 }
 
 /** Owner/admin grant path so the mission has an effective mandate.
- *  Authority management is a SEPARATE actor from the proposer/approver. */
-async function grantMandateAs(page: Page, cap: string): Promise<void> {
+ *  Authority management is a SEPARATE actor from the proposer/approver.
+ *  Logout clears mission selection, so re-select the target mission by title. */
+async function grantMandateAs(page: Page, cap: string, missionTitle: string): Promise<void> {
   await signOut(page);
   await signIn(page, 'founder');
+  await page
+    .getByTestId('missions-panel')
+    .getByRole('button', { name: new RegExp(missionTitle) })
+    .click();
   await page.getByTestId('grant-first-mandate').click();
   const sheet = page.getByTestId('mandate-create-sheet');
   await sheet.getByLabel('Per-operation cap (USD)').fill(cap);
@@ -78,7 +83,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     // ---------- ACTOR 0: founder (authority manager) creates + grants, then leaves
     await signIn(page, 'founder');
     await createMissionViaSheet(page, 'Durable two-actor mission');
-    await grantMandateAs(page, '25000');
+    await grantMandateAs(page, '25000', 'Durable two-actor mission');
     // ---------- ACTOR 1: operator (propose grant, no approve grant)
     await signIn(page, 'operator');
     await page.getByRole('link', { name: 'Decision Room' }).click();
@@ -158,7 +163,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   test('baseline must be recorded before the incident evaluation', async ({ page }) => {
     await signIn(page, 'founder');
     await createMissionViaSheet(page, 'Ordering guard mission');
-    await grantMandateAs(page, '25000');
+    await grantMandateAs(page, '25000', 'Ordering guard mission');
     await signIn(page, 'operator');
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
@@ -171,7 +176,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   test('no-action baseline evaluation never proposes a payment', async ({ page }) => {
     await signIn(page, 'founder');
     await createMissionViaSheet(page, 'No-action mission');
-    await grantMandateAs(page, '25000');
+    await grantMandateAs(page, '25000', 'No-action mission');
     await signIn(page, 'operator');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
@@ -185,7 +190,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   test('manual plan entry is clearly labeled NOT planner-derived', async ({ page }) => {
     await signIn(page, 'founder');
     await createMissionViaSheet(page, 'Manual label mission');
-    await grantMandateAs(page, '25000');
+    await grantMandateAs(page, '25000', 'Manual label mission');
     await signIn(page, 'operator');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
