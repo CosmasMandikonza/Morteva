@@ -132,7 +132,10 @@ ledger.mandates.issue({
   totalBudgetMinor: 2_000_000,
   permittedOperationKinds: ['internal_hold'],
   byActorId: owner.id,
-  expiresAt: new Date(now.getTime() + 200).toISOString(), // lapsed by clock when rendered
+  // Lapsed-by-clock fixture: read the clock IMMEDIATELY before issuance so a
+  // slow/loaded machine cannot burn the 200ms fuse before the ledger validates
+  // (the expiry is still in the past by the time the UI renders it).
+  expiresAt: new Date(ledger.clock.now().getTime() + 200).toISOString(),
 });
 
 const evidence = ledger.evidence.append({
