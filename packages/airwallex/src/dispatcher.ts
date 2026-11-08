@@ -50,6 +50,18 @@ import { TransportUnavailableError } from './transport.js';
 import type { AirwallexAdapterConfig } from './config.js';
 import { providerRequestIdFor } from './provider-request-id.js';
 import { minimizeError, minimizeTransfer } from './minimize.js';
+import { verifyWebhookSignature } from './webhook-signature.js';
+
+/** Thrown when a webhook fails signature verification while a secret is configured. */
+export class AirwallexWebhookSignatureError extends Error {
+  constructor(
+    readonly verdict:
+      'signature-mismatch' | 'stale-timestamp' | 'future-timestamp' | 'malformed-input',
+  ) {
+    super(`webhook signature verification failed: ${verdict}`);
+    this.name = 'AirwallexWebhookSignatureError';
+  }
+}
 
 /** Strips anything credential-shaped from a payload we constructed ourselves. */
 export function redactProviderPayload(value: unknown): string {
@@ -122,6 +134,12 @@ export interface AirwallexDispatcherDeps {
     requestId?: string;
     payload: unknown;
   }) => void;
+  /**
+   * Webhook signing secret (server-only). When configured, ingestion REQUIRES
+   * a valid raw-bytes HMAC-SHA256 signature with a fresh timestamp (audit
+   * 2026-11-08); unverified events are refused before the sink.
+   */
+  readonly webhookSecret?: string;
   readonly clock: { now(): Date; iso(): string };
   /** Server-side beneficiary mapping per org (sandbox configuration, never client-supplied). */
   readonly beneficiaryIdForOrg: (orgId: string) => string | undefined;
@@ -565,6 +583,14 @@ export class AirwallexDispatcher implements RailDispatcher {
    * only triggers an independent reconciliation. Stale/out-of-order events
    * therefore cannot regress anything — reconciliation reads the provider's
    * CURRENT state, and the ledger's state machine rejects regressions anyway.
+   *
+   * Signature enforcement (audit 2026-11-08): when the dispatcher is wired
+   * with `webhookSecret`, the caller MUST present the RAW request bytes plus
+   * the provider signature/timestamp header values; anything that does not
+   * verify (mismatch, stale replay window, future timestamp, malformed) is
+   * refused BEFORE the sink or any reconciliation. Without a configured
+   * secret the ingestion is signature-blind (development-only wiring; the
+   * production HTTP route must always configure the secret).
    */
   async ingestTransferWebhook(input: {
     readonly orgId: string;
@@ -573,7 +599,35 @@ export class AirwallexDispatcher implements RailDispatcher {
     readonly transferId?: string;
     readonly requestId?: string;
     readonly payload?: unknown;
+    /** RAW request bytes exactly as received (required when webhookSecret is configured). */
+    readonly rawBody?: Buffer | string;
+    /** Provider signature header value (required when webhookSecret is configured). */
+    readonly signature?: string;
+    /** Provider timestamp header value, unix seconds (required when webhookSecret is configured). */
+    readonly timestamp?: string | number;
   }): Promise<{ deduped: boolean; reconciled: boolean }> {
+    if (this.deps.webhookSecret !== undefined) {
+      const verdict = verifyWebhookSignature({
+        rawBody: input.rawBody ?? null,
+        signature: input.signature,
+        timestamp: input.timestamp,
+        secret: this.deps.webhookSecret,
+        nowSeconds: Math.floor(this.deps.clock.now().getTime() / 1000),
+      });
+      if (verdict !== 'valid') {
+        this.append({
+          orgId: input.orgId,
+          operationId: null,
+          requestId: input.requestId ?? `webhook:${input.eventId}`,
+          transferId: input.transferId ?? null,
+          kind: 'ambiguous-failure',
+          httpStatus: null,
+          providerStatus: `WEBHOOK_SIGNATURE_${verdict.toUpperCase()}`,
+          payload: { note: 'webhook refused before the sink or reconciliation', verdict },
+        });
+        throw new AirwallexWebhookSignatureError(verdict);
+      }
+    }
     let deduped = false;
     if (this.deps.webhookSink !== undefined) {
       try {
