@@ -23,7 +23,8 @@ function arg(name, fallback) {
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const repoRoot = new URL('../../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+// deploy/scripts/ -> repo root is two levels up.
+const repoRoot = new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const ledgerPath = resolve(
   arg('ledger', process.env.MOTERVA_LEDGER_PATH ?? '/var/lib/moterva/ledger.sqlite'),
 );
