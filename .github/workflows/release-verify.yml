@@ -70,12 +70,12 @@ jobs:
           MOTERVA_DOMAIN=localhost
           MOTERVA_LOG_LEVEL=info
           EOF
-          docker compose --env-file deploy/env/ci.env up -d --no-build
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env up -d --no-build
           for i in $(seq 1 60); do
             if curl -kfsS https://localhost/healthz >/dev/null 2>&1; then echo "stack healthy after ${i} polls"; exit 0; fi
             sleep 2
           done
-          echo "stack failed to become healthy"; docker compose logs; exit 1
+          echo "stack failed to become healthy"; docker compose -f deploy/docker-compose.yml logs; exit 1
 
       - name: Assert the public surface (provenance, honesty, fail-closed, headers)
         run: |
@@ -109,13 +109,13 @@ jobs:
 
       - name: Ledger backup through the running container
         run: |
-          docker compose exec api node deploy/scripts/backup-ledger.mjs \
+          docker compose -f deploy/docker-compose.yml exec api node deploy/scripts/backup-ledger.mjs \
             --ledger /var/lib/moterva/ledger.sqlite --out /var/lib/moterva/backups
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose logs
+        run: docker compose -f deploy/docker-compose.yml logs
 
       - name: Tear down
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: docker compose -f deploy/docker-compose.yml down -v --remove-orphans

@@ -16,7 +16,7 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
