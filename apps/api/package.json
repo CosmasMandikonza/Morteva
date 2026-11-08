@@ -16,16 +16,18 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
     "@fastify/cors": "^11.0.0",
+    "@moterva/airwallex": "0.1.0",
     "@moterva/domain": "0.1.0",
     "@moterva/ledger": "0.1.0",
+    "@moterva/planner": "0.1.0",
     "@moterva/providers": "0.1.0",
     "fastify": "^5.2.0",
-    "zod": "^4.6.7",
-    "@moterva/airwallex": "0.1.0",
-    "@moterva/planner": "0.1.0"
+    "openid-client": "6.8.9",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "oidc-provider": "9.13.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^5.1.0"
