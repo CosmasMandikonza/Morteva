@@ -1394,3 +1394,11 @@ a {
 .mv-governed .mv-hud {
   margin: 0;
 }
+
+/* Long identifiers inside governed panels must never widen narrow viewports. */
+.mv-governed__list .mv-num,
+.mv-governed .mv-hud,
+.mv-governed [data-testid='plan-approval-recorded'] .mv-num {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

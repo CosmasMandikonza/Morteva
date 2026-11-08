@@ -48,6 +48,7 @@ async function grantMandateAs(page: Page, cap: string, missionTitle: string): Pr
   await page
     .getByTestId('missions-panel')
     .getByRole('button', { name: new RegExp(missionTitle) })
+    .first()
     .click();
   await page.getByTestId('grant-first-mandate').click();
   const sheet = page.getByTestId('mandate-create-sheet');
@@ -65,6 +66,7 @@ async function selectMission(page: Page, title: string): Promise<void> {
   await page
     .getByTestId('missions-panel')
     .getByRole('button', { name: new RegExp(title) })
+    .first()
     .click();
 }
 
@@ -212,8 +214,10 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await page.getByTestId('open-manual-sheet').click();
     const sheet = page.getByTestId('propose-plan-sheet');
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByTestId('manual-plan-banner')).toContainText('NOT planner-derived');
-    await expect(sheet.getByTestId('manual-plan-banner')).toContainText('not derived from the');
+    await expect(sheet).toContainText('Manual plan entry — NOT planner-derived');
+    await expect(sheet.getByTestId('manual-plan-banner')).toContainText(
+      'not derived from the physical evaluation',
+    );
     // Manual entry still works and is review-gated.
     await sheet.getByLabel('Amount (USD)').fill('500');
     await sheet.getByLabel(/Beneficiary/).fill('harbor-diagnostics');
@@ -279,7 +283,7 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     // Mission A ships with a journaled demo incident (evt_demo_incident_*).
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
-    await page.getByRole('link', { name: 'Evidence Replay' }).click();
+    await page.getByRole('navigation').getByRole('link', { name: 'Evidence Replay' }).click();
     await expect(page.getByTestId('evidence-panel')).toBeVisible();
     // The signed synthetic incident event is present with its full identity.
     await expect(page.getByTestId('evidence-panel')).toContainText('evt_demo_incident_', {
