@@ -137,6 +137,8 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     // Approver lands on Treasury; reload BEFORE navigating proves persistence.
     await page.reload();
     await expect(page.getByTestId('missions-panel')).toContainText('Durable two-actor mission');
+    // Fresh session falls back to the oldest mission — select the target.
+    await selectMission(page, 'Durable two-actor mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
     // The persisted proposal rebuilds from the server read — same exact terms.
