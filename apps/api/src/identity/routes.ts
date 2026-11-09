@@ -80,11 +80,9 @@ export function registerProductionIdentityRoutes(
 
   app.get('/api/auth/oidc/login', async (request, reply) => {
     if (loginLimiter.isBlocked(`login:${request.ip}`)) {
-      return void reply
-        .code(429)
-        .send({
-          error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
-        });
+      return void reply.code(429).send({
+        error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
+      });
     }
     const orgId = (request.query as { orgId?: string } | null)?.orgId;
     if (typeof orgId === 'string' && orgId !== '') {
@@ -111,11 +109,9 @@ export function registerProductionIdentityRoutes(
    */
   app.post('/api/auth/invitations/accept', async (request, reply) => {
     if (loginLimiter.isBlocked(`invite:${request.ip}`)) {
-      return void reply
-        .code(429)
-        .send({
-          error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
-        });
+      return void reply.code(429).send({
+        error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
+      });
     }
     const body = (request.body ?? {}) as { invitationId?: unknown; secret?: unknown };
     const invitationId = typeof body.invitationId === 'string' ? body.invitationId : '';
@@ -127,9 +123,13 @@ export function registerProductionIdentityRoutes(
     }
     try {
       const invitation = ledger.identity.preverifyInvitation(invitationId, secret);
+      loginLimiter.recordSuccess(`invite:${request.ip}`);
       return startFlow(reply, { invitationId: invitation.id });
     } catch (error) {
       if (isLedgerError(error)) {
+        // Failed secret guesses feed the per-IP limiter: 10 failures earn a
+        // 60s cooldown (recordSuccess clears it on a valid accept).
+        loginLimiter.recordFailure(`invite:${request.ip}`);
         return void reply.code(mapInvitationStatus(error.code)).send({
           error: { code: error.code, message: 'invitation cannot be accepted' },
         });
@@ -143,11 +143,9 @@ export function registerProductionIdentityRoutes(
 
   app.get('/api/auth/oidc/callback', async (request, reply) => {
     if (loginLimiter.isBlocked(`callback:${request.ip}`)) {
-      return void reply
-        .code(429)
-        .send({
-          error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
-        });
+      return void reply.code(429).send({
+        error: { code: 'RATE_LIMITED', message: 'too many attempts; wait before retrying' },
+      });
     }
     const query = request.query as Record<string, string | string[] | undefined>;
     const state = typeof query['state'] === 'string' ? query['state'] : '';
@@ -185,11 +183,9 @@ export function registerProductionIdentityRoutes(
         // the invitation row; secret was checked at the accept endpoint).
         const invitation = ledger.identity.findInvitationById(flow.invitationId);
         if (invitation === null) {
-          return void reply
-            .code(409)
-            .send({
-              error: { code: 'INVITATION_NOT_FOUND', message: 'invitation no longer exists' },
-            });
+          return void reply.code(409).send({
+            error: { code: 'INVITATION_NOT_FOUND', message: 'invitation no longer exists' },
+          });
         }
         const { actor } = ledger.identity.redeemPreverifiedInvitation({
           orgId: invitation.orgId,
@@ -212,11 +208,9 @@ export function registerProductionIdentityRoutes(
       }
       if (flow.orgId !== null) {
         if (!linkedOrgs.includes(flow.orgId)) {
-          return void reply
-            .code(403)
-            .send({
-              error: { code: 'IDENTITY_NOT_LINKED', message: 'not a member of that organization' },
-            });
+          return void reply.code(403).send({
+            error: { code: 'IDENTITY_NOT_LINKED', message: 'not a member of that organization' },
+          });
         }
         return finishSignInForActor(
           reply,
@@ -340,11 +334,9 @@ export function registerProductionIdentityRoutes(
     const id = (request.params as { id: string }).id;
     const revoked = ledger.identity.revokeInvitation(g.actor.orgId, id, g.actor.id);
     if (!revoked) {
-      return void reply
-        .code(404)
-        .send({
-          error: { code: 'INVITATION_NOT_FOUND', message: 'no active invitation with that id' },
-        });
+      return void reply.code(404).send({
+        error: { code: 'INVITATION_NOT_FOUND', message: 'no active invitation with that id' },
+      });
     }
     return { ok: true };
   });

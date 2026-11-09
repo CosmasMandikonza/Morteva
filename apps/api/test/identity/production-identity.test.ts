@@ -464,6 +464,39 @@ describe('adversarial identity cases', () => {
     ).toBe(opsBefore);
   });
 
+  it('repeated FAILED invitation guesses earn a 429 cooldown and consume nothing', async () => {
+    const created = await post(OWNER, '/api/invitations', {
+      role: 'viewer',
+      email: 'ratelimit@idp.test',
+    });
+    expect(created.statusCode).toBe(200);
+    const { invitation, secret } = created.json() as { invitation: { id: string }; secret: string };
+    for (let i = 0; i < 10; i += 1) {
+      const bad = await app.inject({
+        method: 'POST',
+        url: '/api/auth/invitations/accept',
+        payload: { invitationId: invitation.id, secret: `wrong-guess-${i}-aaaaaaaaaaaaaa` },
+      });
+      expect(bad.statusCode).toBe(403);
+    }
+    // The 11th attempt — even with the CORRECT secret — is rate-limited.
+    const limited = await app.inject({
+      method: 'POST',
+      url: '/api/auth/invitations/accept',
+      payload: { invitationId: invitation.id, secret },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect((limited.json() as { error: { code: string } }).error.code).toBe('RATE_LIMITED');
+    // No refused attempt consumed the invitation.
+    expect(
+      (
+        ledger.db
+          .prepare('SELECT redeemed_at FROM invitations WHERE id = ?')
+          .get(invitation.id) as { redeemed_at: string | null }
+      ).redeemed_at,
+    ).toBeNull();
+  });
+
   it('an approver identity cannot mint owner/admin authority through any public route', async () => {
     const approver = await oidcSignIn('approver-sub', orgId);
     for (const role of ['owner', 'admin'] as const) {
