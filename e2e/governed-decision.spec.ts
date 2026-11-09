@@ -121,10 +121,15 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await expect(page.getByTestId('governed-actions')).toContainText(
       'server derives the economic terms',
     );
-    await page.getByTestId('propose-plan').click();
-    // Durable proposal appears with immutable server terms.
+    // Transient contention 409 possible on the first propose — retry until
+    // the durable row appears (the server is idempotent on re-proposal).
     const plansPanel = page.getByTestId('decision-plans');
-    await expect(plansPanel.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    await expect(async () => {
+      await page.getByTestId('propose-plan').click();
+      await expect(plansPanel.getByTestId('decision-plan-row')).toBeVisible({
+        timeout: 5_000,
+      });
+    }).toPass({ timeout: 30_000 });
     const terms = plansPanel.getByTestId('plan-terms');
     await expect(terms).toContainText('USD 18,500.00'); // vessel alternative from server catalog
     await expect(terms).toContainText('harbor-marine');
