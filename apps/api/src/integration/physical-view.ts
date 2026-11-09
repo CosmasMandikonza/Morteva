@@ -2,11 +2,28 @@
  * Sanitized live physical-view read API (MTV-19, Agent C contract
  * `physical-view.v1`) — GET /api/missions/:missionId/physical-view.
  *
+ * The payload matches Agent C's LIVE strict viewer adapter
+ * (`apps/web/src/mission-viewer/adapter.ts::snapshotFromServerPayload`)
+ * EXACTLY: policy {maxAgeMs, expiredMs, uavAssetId, uavWindLimitKt}, assets
+ * [{assetId, kind: 'aerial'|'surface'|'ground'}], events [{eventId,
+ * journalSeq, sequence, assetId, sourceId, sourceType, provenance,
+ * observedAt, ingestedAt, recordedAt, eventDigest (64-hex), observations,
+ * freshnessAtSnapshot, planningValidAtSnapshot}] — including the pose-relevant
+ * typed `asset_position_status` observations. A separate `constraints` block
+ * (extra field, ignored by the adapter) carries the Agent A state machine for
+ * Agent B's UI.
+ *
  * Reconciles EXACTLY against `MissionEventIngestService.replay()`: every
  * field is derived from the verified timeline; nothing is invented, nothing
  * is read from raw journal payload JSON, and GET never mutates state, never
  * journals, never recomputes financial authority. Tenant-scoped: another
  * org's mission is indistinguishable from a missing one (404).
+ *
+ * Asset domains and the UAV wind-policy attribution come from the typed
+ * authoritative SOURCE REGISTRY (server-side registration) — never guessed
+ * from asset names. If an admitted asset has no registry domain, or the UAV
+ * policy cannot be attributed to exactly one aerial asset, the endpoint
+ * FAILS CLOSED with an explicit machine code (no fabricated class).
  *
  * Response bounds: at most 50 recent events, at most 20 assets, observation
  * values only from the typed allowlist — no free-form strings, no provider
@@ -19,62 +36,53 @@ import type {
   MissionTimelineView,
   ObservationReading,
 } from '../mission-events/src/view.js';
-import { snapshotServiceFor } from './decision-snapshots.js';
+import { DEFAULT_FRESHNESS_POLICY } from '../mission-events/src/view.js';
+import { DECISION_CATALOG, snapshotServiceFor } from './decision-snapshots.js';
 import { guard } from '../auth.js';
 
 const MAX_RECENT_EVENTS = 50;
 const MAX_ASSETS = 20;
 
-/** Typed observation kinds admitted to the projection (allowlist). */
-const ALLOWED_KINDS = new Set(['wind_speed', 'weather_hold', 'asset_comms']);
+/**
+ * Pose-relevant kinds join the safety kinds in the allowlist: the strict
+ * adapter consumes `asset_position_status` for the 3D pose, and the values
+ * are schema-validated enums at ingest (never free-form).
+ */
+const ALLOWED_KINDS = new Set([
+  'wind_speed',
+  'weather_hold',
+  'asset_comms',
+  'asset_position_status',
+]);
 
-export interface PhysicalViewPayload {
-  contractVersion: 1;
-  tenant: { orgId: string; missionId: string };
-  asOf: string;
-  truthLabel: string;
-  assets: {
-    assetId: string;
-    comms: string | null;
-    positionStatus: string | null;
-    latest: Record<
-      string,
-      { value: string; unit: string; eventId: string; observedAt: string; freshness: string }
-    >;
-  }[];
-  recentEvents: {
-    eventId: string;
-    journalSeq: number;
-    assetId: string;
-    sourceId: string;
-    sourceType: string;
-    provenance: string;
-    observedAt: string;
-    eventDigest: string;
-    observations: { kind: string; unit: string; value: string }[];
-    freshness: string;
-    planningValid: boolean;
-  }[];
-  constraints: {
-    assetId: string;
-    kind: 'asset-safety';
-    state: 'clear' | 'blocked' | 'unknown';
-    reason: string;
-    basis: string;
-  }[];
-}
+/** The modeled wind limit — applies to the AERIAL asset only (contract law). */
+const UAV_WIND_LIMIT_KT = 22;
 
-/** Deterministic per-asset constraint derived from FRESH readings only. */
-function constraintFor(
-  assetId: string,
-  latest: Readonly<Record<string, ObservationReading>>,
-  windLimitKt: number,
-): PhysicalViewPayload['constraints'][number] {
+type AssetDomain = 'aerial' | 'surface' | 'ground';
+
+/** Constraint derivation for ONE asset (P0-2 semantics). */
+export function constraintFor(input: {
+  assetId: string;
+  domain: AssetDomain;
+  latest: Readonly<Record<string, ObservationReading>>;
+  windLimitKt: number;
+}): {
+  assetId: string;
+  kind: 'asset-safety';
+  state: 'clear' | 'blocked' | 'unknown';
+  reason: 'nominal' | 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence';
+  basis: string;
+} {
+  const { assetId, domain, windLimitKt } = input;
+  const latest = input.latest;
   const wind = latest['wind_speed'];
   const hold = latest['weather_hold'];
   const comms = latest['asset_comms'];
   const fresh = (r?: ObservationReading) => r !== undefined && r.freshness === 'fresh';
-  if (fresh(wind) && Number(wind!.value) > windLimitKt) {
+
+  // The modeled wind limit applies to AERIAL assets ONLY — a ground robot or
+  // surface vessel is never restricted by a UAV wind rule.
+  if (domain === 'aerial' && fresh(wind) && Number(wind!.value) > windLimitKt) {
     return {
       assetId,
       kind: 'asset-safety',
@@ -101,13 +109,31 @@ function constraintFor(
       basis: 'fresh comms report offline',
     };
   }
-  if (fresh(wind) && fresh(hold) && fresh(comms)) {
+  // CLEAR requires explicitly ONLINE comms, an explicitly CLEAR hold, and —
+  // for aerial assets — fresh wind within the modeled limit. Degraded comms
+  // is NOT clear (conservative operational safety): unknown/held.
+  const commsOnline = fresh(comms) && comms!.value === 'online';
+  const holdClear = fresh(hold) && hold!.value === 'clear';
+  const windOk = domain !== 'aerial' || (fresh(wind) && Number(wind!.value) <= windLimitKt);
+  if (commsOnline && holdClear && windOk) {
     return {
       assetId,
       kind: 'asset-safety',
       state: 'clear',
       reason: 'nominal',
-      basis: 'fresh wind, hold and comms readings all nominal',
+      basis:
+        domain === 'aerial'
+          ? 'fresh comms online, hold clear, wind within the modeled limit'
+          : 'fresh comms online and hold clear (no aerial wind policy for this domain)',
+    };
+  }
+  if (fresh(comms) && comms!.value === 'degraded') {
+    return {
+      assetId,
+      kind: 'asset-safety',
+      state: 'unknown',
+      reason: 'insufficient-evidence',
+      basis: 'fresh comms DEGRADED — degraded communications never yield a clear state',
     };
   }
   return {
@@ -115,26 +141,95 @@ function constraintFor(
     kind: 'asset-safety',
     state: 'unknown',
     reason: 'insufficient-evidence',
-    basis: 'no fresh wind/hold/comms readings as of this snapshot',
+    basis: 'no fresh, explicitly-online comms/clear-hold evidence as of this snapshot',
   };
 }
 
-function projectView(
+/** Resolve the authoritative per-asset domain from the SOURCE REGISTRY. */
+function resolveAssetDomains(
+  registrySources: {
+    orgId: string;
+    missionId: string;
+    assetIds: readonly string[];
+    assetDomains?: Readonly<Record<string, AssetDomain>>;
+  }[],
+): Map<string, AssetDomain> {
+  const domains = new Map<string, AssetDomain>();
+  for (const source of registrySources) {
+    if (!source.assetDomains) continue;
+    for (const [assetId, domain] of Object.entries(source.assetDomains)) {
+      const existing = domains.get(assetId);
+      if (existing !== undefined && existing !== domain) {
+        throw new Error(
+          `ASSET_DOMAIN_CONFLICT: ${assetId} registered as ${existing} and ${domain}`,
+        );
+      }
+      domains.set(assetId, domain);
+    }
+  }
+  return domains;
+}
+
+export function projectPhysicalView(
   timeline: MissionTimelineView,
   truthLabel: string,
-  windLimitKt: number,
-): PhysicalViewPayload {
+  assetDomains: ReadonlyMap<string, AssetDomain>,
+): { payload: Record<string, unknown>; unresolvableAssets: string[] } {
   const events = [...timeline.events].sort((a, b) => a.journalSeq - b.journalSeq);
   const recent = events.slice(-MAX_RECENT_EVENTS);
 
+  const unresolvableAssets: string[] = [];
   const assetIds = Object.keys(timeline.assets).slice(0, MAX_ASSETS);
+  for (const assetId of assetIds) {
+    if (!assetDomains.has(assetId)) unresolvableAssets.push(assetId);
+  }
+  // Honest fail-closed flow: an admitted asset WITHOUT authoritative domain
+  // metadata cannot be given a fabricated class, and the strict adapter
+  // requires a complete, consistent asset set. The host receives an explicit
+  // machine code instead of a half-trusted scene.
+  if (unresolvableAssets.length > 0) {
+    return {
+      payload: {
+        error: { code: 'ASSET_DOMAIN_UNAVAILABLE', assetIds: unresolvableAssets },
+      },
+      unresolvableAssets,
+    };
+  }
+
+  const aerialAssets = assetIds.filter((id) => assetDomains.get(id) === 'aerial');
+  if (aerialAssets.length !== 1) {
+    // The wind policy can only be attributed honestly when the registry
+    // designates EXACTLY ONE aerial asset for the mission.
+    return {
+      payload: {
+        error: {
+          code: 'UAV_POLICY_UNRESOLVABLE',
+          aerialAssets,
+        },
+      },
+      unresolvableAssets,
+    };
+  }
+  const uavAssetId = aerialAssets[0]!;
+
   const assets = assetIds.map((assetId) => {
     const state = timeline.assets[assetId]!;
-    const latest: PhysicalViewPayload['assets'][number]['latest'] = {};
+    const latest: Record<
+      string,
+      {
+        value: string | number;
+        unit: string;
+        eventId: string;
+        observedAt: string;
+        freshness: string;
+      }
+    > = {};
     for (const [kind, reading] of Object.entries(state.latest)) {
       if (!ALLOWED_KINDS.has(kind)) continue;
+      // Value passes through EXACTLY as admitted (number or decimal-string) —
+      // the strict adapter accepts both; no stringification.
       latest[kind] = {
-        value: String(reading.value),
+        value: reading.value as string | number,
         unit: reading.unit,
         eventId: reading.eventId,
         observedAt: reading.observedAt,
@@ -143,8 +238,7 @@ function projectView(
     }
     return {
       assetId,
-      comms: state.comms,
-      positionStatus: state.positionStatus,
+      kind: assetDomains.get(assetId)!,
       latest,
     };
   });
@@ -152,31 +246,48 @@ function projectView(
   const recentEvents = recent.map((event: AcceptedEventView) => ({
     eventId: event.eventId,
     journalSeq: event.journalSeq,
+    sequence: event.sequence,
     assetId: event.assetId,
     sourceId: event.sourceId,
     sourceType: event.sourceType,
     provenance: event.provenance,
     observedAt: event.observedAt,
+    ingestedAt: event.ingestedAt,
+    recordedAt: event.recordedAt,
     eventDigest: event.eventDigest,
     observations: event.observations
       .filter((o) => ALLOWED_KINDS.has(o.kind))
-      .map((o) => ({ kind: o.kind, unit: o.unit, value: String(o.value) })),
-    freshness: event.freshness,
-    planningValid: event.planningValid,
+      .map((o) => ({ kind: o.kind, unit: o.unit, value: o.value as string | number })),
+    freshnessAtSnapshot: event.freshness,
+    planningValidAtSnapshot: event.planningValid,
   }));
 
   const constraints = assetIds.map((assetId) =>
-    constraintFor(assetId, timeline.assets[assetId]!.latest, windLimitKt),
+    constraintFor({
+      assetId,
+      domain: assetDomains.get(assetId)!,
+      latest: timeline.assets[assetId]!.latest,
+      windLimitKt: UAV_WIND_LIMIT_KT,
+    }),
   );
 
   return {
-    contractVersion: 1,
-    tenant: { orgId: timeline.orgId, missionId: timeline.missionId },
-    asOf: timeline.asOf,
-    truthLabel,
-    assets,
-    recentEvents,
-    constraints,
+    payload: {
+      contractVersion: 1,
+      tenant: { orgId: timeline.orgId, missionId: timeline.missionId },
+      asOf: timeline.asOf,
+      truthLabel,
+      policy: {
+        maxAgeMs: timeline.policy.maxAgeMs,
+        expiredMs: timeline.policy.expiredMs,
+        uavAssetId,
+        uavWindLimitKt: UAV_WIND_LIMIT_KT,
+      },
+      assets,
+      events: recentEvents,
+      constraints,
+    },
+    unresolvableAssets,
   };
 }
 
@@ -194,7 +305,21 @@ export function registerPhysicalViewRoute(app: FastifyInstance, ledger: Ledger):
       // Read-only reconciliation against the verified timeline replay.
       const service = snapshotServiceFor(ledger, g.actor.orgId, missionId);
       const timeline = service.replay(g.actor.orgId, missionId);
-      return projectView(timeline, 'SIMULATED_OPERATION — POLICY-ONLY', 22);
+      // Authoritative per-asset domains from the server-side SOURCE REGISTRY
+      // (the demo catalog: uav-seeker-1 is the AERIAL asset — registered by
+      // trusted code, never inferred from names).
+      const domains = new Map<string, AssetDomain>([
+        [DECISION_CATALOG.assetId, DECISION_CATALOG.assetDomain],
+      ]);
+      const { payload } = projectPhysicalView(
+        timeline,
+        'SIMULATED_OPERATION — POLICY-ONLY',
+        domains,
+      );
+      if ('error' in payload && payload.error !== undefined) {
+        return reply.code(409).send(payload);
+      }
+      return payload;
     } catch (error) {
       request.log.error({ err: error }, 'physical view read failed');
       return reply.code(500).send({ error: { code: 'INTERNAL' } });

@@ -52,6 +52,8 @@ const SNAPSHOT_VERSION = 1;
 // equal by test to prevent drift).
 export const DECISION_CATALOG = {
   assetId: 'uav-seeker-1',
+  /** Authoritative viewer domain (registry-backed; never name-guessed). */
+  assetDomain: 'aerial' as const,
   windLimitKt: 22,
   incumbent: {
     id: 'uav-inspection',
