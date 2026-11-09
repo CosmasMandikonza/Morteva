@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { Panel } from '../components/Panel';
 import {
-  ApiError,
   approvalsFromEvidence,
   fetchDecisionPlans,
   fetchMandates,
