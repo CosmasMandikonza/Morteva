@@ -11,7 +11,7 @@
  * (Set-Cookie).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHash, randomUUID, type KeyObject } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,8 +56,8 @@ async function startFakeIdp(): Promise<FakeWorld> {
   };
   function generateRsa(): KeyObject {
     // node:crypto generateKeyPairSync returns a pair; keep the private part.
-    const pair = require('node:crypto').generateKeyPairSync('rsa', { modulusLength: 2048 });
-    return pair.privateKey as KeyObject;
+    const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    return pair.privateKey;
   }
   keys.push(newKey());
 

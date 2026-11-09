@@ -130,7 +130,7 @@ describe('email/subject identity collisions', () => {
     const link = ledger.identity.listIdentityLinks(orgA).find((l) => l.subject === 'changed-sub');
     expect(link?.emailAtLink).toBe('renamed@example.com'); // recorded for humans
     // Authorization still resolves by subject, not by either email:
-    expect(ledger.identity.findActorIdByIdentity(orgA, ISSUER, 'changed-sub')).not.toBeNull();
+    expect(ledger.identity.findActorIdByIdentity(orgA, ISSUER, 'changed-sub')).toBe(actor.id);
   });
 });
 

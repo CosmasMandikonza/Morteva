@@ -16,7 +16,6 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { openLedger, TunableClock, type Ledger } from '@moterva/ledger';
-import { TEST_PASSWORD as LEDGER_TEST_PASSWORD } from '../../../../packages/ledger/test/helpers.js';
 import { startTestIdp, idpSignIn, type TestIdpHandle } from './test-idp.js';
 
 const DIR = mkdtempSync(join(tmpdir(), 'identity-reliability-'));
@@ -62,29 +61,8 @@ function build(): FastifyInstance {
   );
 }
 
-async function login(username: string): Promise<Login> {
-  const r = await app.inject({
-    method: 'POST',
-    url: '/api/auth/login',
-    payload: { username, password: LEDGER_TEST_PASSWORD },
-  });
-  expect(r.statusCode).toBe(200);
-  const setCookie = r.headers['set-cookie'] as unknown;
-  const first = Array.isArray(setCookie) ? (setCookie[0] as string) : String(setCookie);
-  return { cookie: first.split(';')[0]!, csrf: (r.json() as { csrfToken: string }).csrfToken };
-}
-
 async function get(who: Login, url: string) {
   return app.inject({ method: 'GET', url, headers: { cookie: who.cookie } });
-}
-
-async function post(who: Login, url: string, payload?: Record<string, unknown>) {
-  return app.inject({
-    method: 'POST',
-    url,
-    headers: { cookie: who.cookie, 'x-csrf-token': who.csrf },
-    ...(payload === undefined ? {} : { payload }),
-  });
 }
 
 async function completeCallback(callbackUrl: string): Promise<Login> {

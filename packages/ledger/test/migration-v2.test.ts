@@ -61,8 +61,8 @@ describe('v1 → v2 upgrade on an existing ledger', () => {
     // Upgrade in place with the full migration set (v2 authority, v3 receipts).
     const upgraded = openLedger(path);
     const report = upgraded.migrate();
-    expect(report.applied.map((m) => m.version)).toEqual([2, 3]);
-    expect(upgraded.schemaVersion()).toBe(3);
+    expect(report.applied.map((m) => m.version)).toEqual([2, 3, 4]);
+    expect(upgraded.schemaVersion()).toBe(4);
     expect(upgraded.migrate().applied).toEqual([]);
 
     // Historical rows survive verbatim.
@@ -91,7 +91,7 @@ describe('v1 → v2 upgrade on an existing ledger', () => {
     // Restart survival after upgrade.
     upgraded.close();
     const reopened = openLedger(path);
-    expect(reopened.schemaVersion()).toBe(3);
+    expect(reopened.schemaVersion()).toBe(4);
     expect(reopened.reservations.getOperation('org_v1', 'op_v1').requestId).toBe('legacy-1');
     reopened.close();
   });
@@ -128,8 +128,8 @@ describe('v1 → v2 upgrade on an existing ledger', () => {
     const path = tempDbPath('mtv05-fresh-');
     const db = openSqliteDatabase(path);
     const report = migrate(db);
-    expect(report.applied.map((m) => m.version)).toEqual([1, 2, 3]);
-    expect(currentSchemaVersion(db)).toBe(3);
+    expect(report.applied.map((m) => m.version)).toEqual([1, 2, 3, 4]);
+    expect(currentSchemaVersion(db)).toBe(4);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     db.close();
   });

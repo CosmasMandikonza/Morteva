@@ -197,7 +197,9 @@ const incidentTimer = setInterval(() => {
         { kind: 'weather_hold', unit: 'state', value: 'active' },
       ]);
     }
-  } catch {}
+  } catch {
+    // cleanup best-effort: the temp state dir is disposable
+  }
 }, 100);
 
 // One PENDING invitation for the reviewer accept journey (secret delivered
@@ -290,10 +292,14 @@ const preview = spawn(
 const cleanup = () => {
   try {
     ledger.close();
-  } catch {}
+  } catch {
+    // cleanup best-effort: the temp state dir is disposable
+  }
   try {
     rmSync(stateDir, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    // cleanup best-effort: the temp state dir is disposable
+  }
 };
 const shutdown = () => {
   api.kill();

@@ -42,7 +42,6 @@ function state(): StateFile {
 const IDP_LOGIN = 'input[name="login"]';
 const IDP_PASSWORD = 'input[name="password"]';
 const IDP_SIGNIN = 'button:has-text("Sign-in")';
-const IDP_CONFIRM = 'button:has-text("Continue")';
 
 /** Completes the IdP's dev-interaction forms in the live browser. */
 async function idpBrowserSignIn(page: Page, subject: string): Promise<void> {
@@ -62,12 +61,12 @@ async function idpBrowserSignIn(page: Page, subject: string): Promise<void> {
 }
 
 async function csrfToken(page: Page): Promise<string> {
-  const token = await page.evaluate(() => {
-    const match = document.cookie.match(/(?:^|;\s*)moterva_csrf=([^;]+)/);
-    return match?.[1] ?? '';
-  });
-  if (token === '') throw new Error('no moterva_csrf cookie');
-  return token;
+  const cookie = await page
+    .context()
+    .cookies()
+    .then((all) => all.find((c) => c.name === 'moterva_csrf'));
+  if (cookie === undefined || cookie.value === '') throw new Error('no moterva_csrf cookie');
+  return cookie.value;
 }
 
 async function apiFetch(
@@ -224,7 +223,7 @@ test.describe('browser OIDC identity journeys', () => {
     expect(acceptLocation).toBeTruthy();
     // Follow the IdP sign-in in the REAL browser, then the callback lands us
     // signed-in with the INVITED role.
-    await page.goto(acceptLocation, { waitUntil: 'domcontentloaded' });
+    await page.goto(acceptLocation!, { waitUntil: 'domcontentloaded' });
     await idpBrowserSignIn(page, 'reviewer-sub');
     const session = await page.evaluate(async () => {
       const r = await fetch('/api/auth/session', { credentials: 'include' });

@@ -19,7 +19,6 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { openLedger, TunableClock, type Ledger } from '@moterva/ledger';
-import { TEST_PASSWORD as LEDGER_TEST_PASSWORD } from '../../../../packages/ledger/test/helpers.js';
 import { startTestIdp, idpSignIn, type TestIdpHandle } from './test-idp.js';
 
 const DIR = mkdtempSync(join(tmpdir(), 'prod-identity-'));
@@ -42,26 +41,6 @@ let app: FastifyInstance;
 interface Login {
   readonly cookie: string;
   readonly csrf: string;
-}
-const logins = new Map<string, Login>();
-
-async function login(username: string): Promise<Login> {
-  const cached = logins.get(username);
-  if (cached !== undefined) return cached;
-  const r = await app.inject({
-    method: 'POST',
-    url: '/api/auth/login',
-    payload: { username, password: LEDGER_TEST_PASSWORD },
-  });
-  if (r.statusCode !== 200) throw new Error(`login ${username}: ${r.statusCode} ${r.body}`);
-  const setCookie = r.headers['set-cookie'] as unknown;
-  const first = Array.isArray(setCookie) ? (setCookie[0] as string) : String(setCookie);
-  const info = {
-    cookie: first.split(';')[0]!,
-    csrf: (r.json() as { csrfToken: string }).csrfToken,
-  };
-  logins.set(username, info);
-  return info;
 }
 
 async function post(who: Login, url: string, payload?: Record<string, unknown>) {

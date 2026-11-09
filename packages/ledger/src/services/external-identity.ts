@@ -646,7 +646,6 @@ export class ExternalIdentityService {
       const existing = this.db
         .prepare('SELECT * FROM actors WHERE org_id = ? AND username = ?')
         .get(orgId, username) as Record<string, unknown> | undefined;
-      let actor: ActorView;
       if (existing === undefined) {
         const id = newId('act');
         this.db
@@ -686,7 +685,7 @@ export class ExternalIdentityService {
       const actorRow = this.db
         .prepare('SELECT * FROM actors WHERE org_id = ? AND username = ?')
         .get(orgId, username) as Record<string, unknown>;
-      actor = this.mapActorRow(actorRow);
+      const actor = this.mapActorRow(actorRow);
       const already = this.findActorIdByIdentity(orgId, input.provider, input.subject);
       if (already === null) {
         this.linkIdentity({
