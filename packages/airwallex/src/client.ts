@@ -19,7 +19,7 @@
 import type { AirwallexAdapterConfig } from './config.js';
 import type { AirwallexTransport, TransportRequest, TransportResponse } from './transport.js';
 import { TransportUnavailableError } from './transport.js';
-import { majorUnitsToMoney, minorToMajorUnits } from './money.js';
+import { majorUnitsToMoney, transferAmountMinorToMajor } from './money.js';
 import type { Money } from '@moterva/domain';
 
 export interface AirwallexBalance {
@@ -219,7 +219,7 @@ export class AirwallexClient {
       request_id: input.requestId,
       beneficiary_id: input.beneficiaryId,
       transfer_currency: input.currency,
-      transfer_amount: minorToMajorUnits(input.currency, input.amountMinor),
+      transfer_amount: transferAmountMinorToMajor(input.currency, input.amountMinor),
       reason: input.reason,
       reference: input.requestId,
     };

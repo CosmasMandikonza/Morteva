@@ -29,6 +29,21 @@ export function minorToMajorUnits(currency: string, minorUnits: number): number 
   return value;
 }
 
+/**
+ * TRANSFER-amount variant (issue #5 audit, task D2): a transfer must be a
+ * positive integer number of minor units — zero/negative/fractional amounts
+ * are rejected BEFORE any provider call. (Plain `minorToMajorUnits` remains
+ * the general converter used for balance reads, where zero is legitimate.)
+ */
+export function transferAmountMinorToMajor(currency: string, minorUnits: number): number {
+  if (!Number.isInteger(minorUnits) || minorUnits <= 0) {
+    throw new Error(
+      `transfer amount ${String(minorUnits)} minor ${currency} is not a positive integer; refusing to create a transfer`,
+    );
+  }
+  return minorToMajorUnits(currency, minorUnits);
+}
+
 /** Airwallex major-unit value → exact minor units. Fails closed on drift. */
 export function majorUnitsToMinor(currency: string, value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {

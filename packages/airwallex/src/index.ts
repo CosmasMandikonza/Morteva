@@ -11,7 +11,12 @@ export type { AirwallexAdapterConfig, AirwallexEnv } from './config.js';
 export { normalizeTransferStatus, isTerminalStatus } from './status.js';
 export type { AirwallexNormalizedStatus } from './status.js';
 
-export { majorUnitsToMinor, majorUnitsToMoney, minorToMajorUnits } from './money.js';
+export {
+  majorUnitsToMinor,
+  majorUnitsToMoney,
+  minorToMajorUnits,
+  transferAmountMinorToMajor,
+} from './money.js';
 
 export { HttpTransport } from './http-transport.js';
 export type { HttpTransportOptions } from './http-transport.js';
@@ -28,6 +33,8 @@ export type { AirwallexBalance, AirwallexTransferRecord } from './client.js';
 
 export {
   AirwallexDispatcher,
+  AirwallexWebhookRequiredError,
+  AirwallexWebhookSignatureError,
   asSettlementScope,
   buildOfflineFixtureDispatcher,
   buildSandboxDispatcher,
@@ -37,6 +44,9 @@ export type { AirwallexDispatcherDeps, ReconcileScope, SettlementScope } from '.
 
 export type { AirwallexTransport, TransportRequest, TransportResponse } from './transport.js';
 export { TransportUnavailableError } from './transport.js';
+
+export { verifyWebhookSignature } from './webhook-signature.js';
+export type { WebhookSignatureVerdict } from './webhook-signature.js';
 
 export { airwallexAdapterStatus } from './adapter-status.js';
 export type { AirwallexAdapterStatusInput } from './adapter-status.js';
