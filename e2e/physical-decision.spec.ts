@@ -24,7 +24,16 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   if (await page.getByTestId('start-synthetic').isEnabled()) {
     await page.getByTestId('start-synthetic').click();
   }
-  await expect(page.getByTestId('decision-room')).toContainText('Before · initial plan');
+  // "Before · initial plan" is a static card heading — it cannot prove the
+  // baseline POST resolved. Wait for the journey to settle: either the
+  // baseline landed (introduce becomes enabled) or the incident was already
+  // journaled on a retry (incident section present). Otherwise the
+  // isEnabled() probe below races the baseline request and skips the click.
+  await expect(async () => {
+    const introEnabled = await page.getByTestId('introduce-incident').isEnabled();
+    const incidentPresent = (await page.getByTestId('physical-incident').count()) > 0;
+    expect(introEnabled || incidentPresent, 'journey settled after baseline').toBe(true);
+  }).toPass({ timeout: 15_000 });
   if (await page.getByTestId('introduce-incident').isEnabled()) {
     await page.getByTestId('introduce-incident').click();
   }
