@@ -4,6 +4,7 @@ import type { MissionEvidenceEventView } from '@moterva/domain';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { fetchMissionEvidence, type MissionRow, type SessionState } from '../lib/api';
 import { formatDate, shortId } from '../lib/format';
+import { CopyButton, HaloSegmented, SidePanel } from '../components/ui';
 
 type MissionContext = Pick<MissionRow, 'id' | 'title' | 'status' | 'created_at'>;
 
@@ -13,10 +14,10 @@ type EvidenceLoad =
   | { kind: 'ok'; events: readonly MissionEvidenceEventView[] };
 
 /**
- * Evidence Replay — real append-only journal (#37) for the selected mission,
- * newest first (seq descending = replay order). The operator can filter by
- * topic and — when arriving from an operation inspector — see exactly the
- * events for THAT operation identity, never an invented causal link.
+ * Evidence Replay (MTV-20) — causal investigation layout: chronological
+ * evidence rail (left/primary) with a selected-event detail inspector
+ * (Side Panel on desktop). Selecting an event never triggers any write; it
+ * only drives the detail view. One mission/event identity throughout.
  */
 export function Evidence({
   session,
@@ -31,6 +32,7 @@ export function Evidence({
 }): JSX.Element {
   const [load, setLoad] = useState<EvidenceLoad>({ kind: 'loading' });
   const [topic, setTopic] = useState<'all' | 'financial' | 'operational'>('all');
+  const [selected, setSelected] = useState<MissionEvidenceEventView | null>(null);
   const signedIn = session.kind === 'signed-in';
 
   useEffect(() => {
@@ -56,6 +58,15 @@ export function Evidence({
     return () => controller.abort();
   }, [signedIn, mission, topic]);
 
+  // Keep the selection pointing at the same identity across refetches.
+  useEffect(() => {
+    if (load.kind !== 'ok') return;
+    if (selected === null) return;
+    const fresh = load.events.find((e) => e.id === selected.id);
+    if (fresh === undefined) setSelected(null);
+    else if (fresh !== selected) setSelected(fresh);
+  }, [load, selected]);
+
   const events = load.kind === 'ok' ? load.events : [];
   const filtered = useMemo(() => {
     if (operationFilter === null) return events;
@@ -80,6 +91,8 @@ export function Evidence({
     );
   }
 
+  const selectedPayload = selected?.payload as Record<string, unknown> | null;
+
   return (
     <Panel
       title="Evidence Replay"
@@ -91,20 +104,16 @@ export function Evidence({
       testId="evidence-panel"
     >
       <div className="mv-evidence__bar">
-        <div className="mv-seg" role="tablist" aria-label="Evidence topic">
-          {(['all', 'financial', 'operational'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={topic === t}
-              className={`mv-seg__btn ${topic === t ? 'is-active' : ''}`}
-              onClick={() => setTopic(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        <HaloSegmented
+          ariaLabel="Evidence topic"
+          options={[
+            { id: 'all', label: 'All' },
+            { id: 'financial', label: 'Financial' },
+            { id: 'operational', label: 'Operational' },
+          ]}
+          value={topic}
+          onChange={setTopic}
+        />
         {operationFilter !== null && (
           <button
             type="button"
@@ -134,37 +143,49 @@ export function Evidence({
         <ol className="mv-evidence" data-testid="evidence-list">
           {filtered.map((event) => {
             const payload = event.payload as Record<string, unknown> | null;
+            const isSel = selected?.id === event.id;
             return (
-              <li className="mv-evidence__event" key={event.id} data-seq={event.seq}>
-                <span className="mv-evidence__seq mv-num">#{String(event.seq)}</span>
-                <div className="mv-evidence__body">
-                  <p className="mv-evidence__type">
-                    <span className="mv-evidence__topic mv-hud">{event.topic}</span>{' '}
-                    {event.type ?? 'journal event'}
-                  </p>
-                  {payload !== null && (
-                    <dl className="mv-evidence__payload">
-                      {Object.entries(payload)
-                        .slice(0, 6)
-                        .map(([key, value]) => (
-                          <div key={key}>
-                            <dt>{key}</dt>
-                            <dd className="mv-num">
-                              {typeof value === 'string'
-                                ? value.length > 40
-                                  ? shortId(value)
-                                  : value
-                                : String(value)}
-                            </dd>
-                          </div>
-                        ))}
-                    </dl>
-                  )}
-                  <p className="mv-evidence__meta">
-                    {formatDate(event.recordedAt)} · digest{' '}
-                    <span className="mv-num">{shortId(event.payloadDigest)}</span>
-                  </p>
-                </div>
+              <li
+                className={`mv-evidence__event${isSel ? ' is-selected' : ''}`}
+                key={event.id}
+                data-seq={event.seq}
+              >
+                <button
+                  type="button"
+                  className="mv-evidence__select"
+                  aria-pressed={isSel}
+                  onClick={() => setSelected(isSel ? null : event)}
+                >
+                  <span className="mv-evidence__seq mv-num">#{String(event.seq)}</span>
+                  <div className="mv-evidence__body">
+                    <p className="mv-evidence__type">
+                      <span className="mv-evidence__topic mv-hud">{event.topic}</span>{' '}
+                      {event.type ?? 'journal event'}
+                    </p>
+                    {payload !== null && (
+                      <dl className="mv-evidence__payload">
+                        {Object.entries(payload)
+                          .slice(0, 4)
+                          .map(([key, value]) => (
+                            <div key={key}>
+                              <dt>{key}</dt>
+                              <dd className="mv-num">
+                                {typeof value === 'string'
+                                  ? value.length > 40
+                                    ? shortId(value)
+                                    : value
+                                  : String(value)}
+                              </dd>
+                            </div>
+                          ))}
+                      </dl>
+                    )}
+                    <p className="mv-evidence__meta">
+                      {formatDate(event.recordedAt)} · digest{' '}
+                      <span className="mv-num">{shortId(event.payloadDigest)}</span>
+                    </p>
+                  </div>
+                </button>
               </li>
             );
           })}
@@ -174,6 +195,75 @@ export function Evidence({
         Append-only internal journal, newest first. Payloads are the API&rsquo;s allowlisted
         projection — physical-world observations are labeled by topic and are never provider truth.
       </p>
+
+      {selected !== null && (
+        <SidePanel
+          title={`Event #${String(selected.seq)} — ${selected.type ?? 'journal event'}`}
+          testId="evidence-detail"
+          onClose={() => setSelected(null)}
+        >
+          <dl className="mv-mandate__meta">
+            <div>
+              <dt>Journal seq</dt>
+              <dd className="mv-num">#{String(selected.seq)}</dd>
+            </div>
+            <div>
+              <dt>Type</dt>
+              <dd>{selected.type ?? 'journal event'}</dd>
+            </div>
+            <div>
+              <dt>Topic</dt>
+              <dd>
+                <HaloSegmented
+                  ariaLabel="Selected event topic (read-only display)"
+                  options={[{ id: selected.topic, label: selected.topic }]}
+                  value={selected.topic}
+                  onChange={() => undefined}
+                />
+              </dd>
+            </div>
+            <div>
+              <dt>Recorded</dt>
+              <dd>{formatDate(selected.recordedAt)}</dd>
+            </div>
+            <div>
+              <dt>Payload digest</dt>
+              <dd>
+                <span className="mv-num mv-break" title={selected.payloadDigest}>
+                  {selected.payloadDigest}
+                </span>
+                <CopyButton value={selected.payloadDigest} label="digest" />
+              </dd>
+            </div>
+            <div>
+              <dt>Event key</dt>
+              <dd className="mv-num mv-break">{selected.eventKey ?? '—'}</dd>
+            </div>
+          </dl>
+          <h4 className="mv-droom__secttitle">Full payload (allowlisted projection)</h4>
+          {selectedPayload === null ? (
+            <p className="mv-governed__note">No allowlisted payload projection for this event.</p>
+          ) : (
+            <dl className="mv-mandate__meta">
+              {Object.entries(selectedPayload).map(([key, value]) => (
+                <div key={key}>
+                  <dt>{key}</dt>
+                  <dd className="mv-num mv-break">
+                    {typeof value === 'string' || typeof value === 'number'
+                      ? String(value)
+                      : JSON.stringify(value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="mv-governed__note">
+            Replay is read-only by construction: inspecting history never repeats a provider
+            operation and never creates a new financial decision. Linked plan/approval identities
+            above carry through the Decision Room and Authority surfaces.
+          </p>
+        </SidePanel>
+      )}
     </Panel>
   );
 }

@@ -2132,3 +2132,33 @@ a {
   font-size: var(--mv-size-sm);
   color: var(--mv-ink-3);
 }
+
+/* ---- Evidence Replay selection (MTV-20) ---- */
+.mv-evidence__select {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition:
+    background var(--mv-motion-fast) ease,
+    border-color var(--mv-motion-fast) ease;
+}
+.mv-evidence__select:hover {
+  background: var(--mv-surface-sunken);
+}
+.mv-evidence__select:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: -3px;
+}
+.mv-evidence__event.is-selected {
+  background: var(--mv-accent-soft);
+}
+.mv-evidence__event.is-selected .mv-evidence__select {
+  border-left-color: var(--mv-accent-fill);
+}
