@@ -233,6 +233,91 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
           'ADVERSARIAL: banking vocabulary riding in an event id — the physical channel refuses ' +
           'it outright (unauthorized physical input can never change financial authority).',
       }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 5,
+        observedMin: 51,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
+        expect: rejected('FUTURE_EVENT'),
+        beat:
+          'ADVERSARIAL: gateway clock 10 minutes fast — a future-dated observation beyond the ' +
+          '2-minute skew tolerance is refused (skewed clock cannot forge current evidence).',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 5,
+        observedMin: 49,
+        observations: obs(
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+          { kind: 'inspection_progress', unit: 'percent', value: 31 },
+        ),
+        expect: accepted,
+        beat:
+          'Bounded skew: the same source within the 2-minute tolerance is admitted ' +
+          '(observed 49 min, clock anchored at its ingest time).',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 7,
+        observedMin: 21,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 28 },
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+        ),
+        expect: rejected('STALE_EVENT'),
+        beat:
+          'ADVERSARIAL: an old pre-offline observation delivered AFTER the recovery — late ' +
+          'telemetry cannot masquerade as current evidence or rewrite the recovered state.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 6,
+        observedMin: 53,
+        observations: obs(
+          { kind: 'aisle_access', unit: 'state', value: 'clear' },
+          { kind: 'charger_status', unit: 'state', value: 'free' },
+        ),
+        expect: accepted,
+        beat: 'Crew clears aisle C3 and frees the dock — recovery work confirmed by the supervisor.',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 8,
+        observedMin: 54,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 33 },
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+          { kind: 'battery_soc', unit: 'percent', value: 64 },
+        ),
+        expect: accepted,
+        beat: 'Robot resumes; both sources now report — newest authoritative reading wins.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 7,
+        observedMin: 55,
+        observations: obs(
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+          { kind: 'asset_position_status', unit: 'state', value: 'transit' },
+          { kind: 'aisle_access', unit: 'state', value: 'clear' },
+          { kind: 'charger_status', unit: 'state', value: 'docked_charging' },
+          { kind: 'inspection_progress', unit: 'percent', value: 45 },
+          { kind: 'battery_soc', unit: 'percent', value: 71 },
+        ),
+        expect: accepted,
+        beat: 'POST-RECOVERY STEADY STATE: all ground facts healthy, 45% complete.',
+        economicEffect:
+          'End state for the planner: comms online + healthy ground facts journaled — but the ' +
+          'bridge CANNOT emit ground clearance (no supported rule; Agent A contract request), so ' +
+          'the verdict stays unknown/insufficient-evidence. Any robot-gated spend remains refused ' +
+          'by the existing ASSET_SAFETY gate; a human decides, and nothing is paid here.',
+      }),
     ];
 
     return {
