@@ -2162,3 +2162,57 @@ a {
 .mv-evidence__event.is-selected .mv-evidence__select {
   border-left-color: var(--mv-accent-fill);
 }
+
+/* ---- MTV-20 motion system ---- */
+/* Row entrances for the evidence rail and operations feed: a single soft
+   translate/fade, staggered by row (max 8), honoring the reduced-motion
+   contract. Money values never animate anywhere. */
+@keyframes mv-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.mv-evidence__event,
+.mv-ops__exceptions + * .mv-op,
+.mv-auth__list > li {
+  animation: mv-row-enter var(--mv-motion-fast) var(--mv-motion-standard) both;
+}
+.mv-evidence__event:nth-child(n + 2) {
+  animation-delay: 40ms;
+}
+.mv-evidence__event:nth-child(n + 3) {
+  animation-delay: 80ms;
+}
+.mv-evidence__event:nth-child(n + 4) {
+  animation-delay: 120ms;
+}
+.mv-evidence__event:nth-child(n + 5) {
+  animation-delay: 160ms;
+}
+
+/* THE reduced-motion contract (ADR 0004): every duration collapses and
+   staggered entrances render instantly in their final state. */
+@media (prefers-reduced-motion: reduce) {
+  .mv-evidence__event,
+  .mv-ops__exceptions + * .mv-op,
+  .mv-auth__list > li {
+    animation: none;
+  }
+  .mv-badge__live {
+    animation: none;
+    opacity: 1;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
