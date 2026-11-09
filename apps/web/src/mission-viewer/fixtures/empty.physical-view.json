@@ -1,0 +1,29 @@
+{
+  "description": "No admitted evidence — status unknown by design (S0)",
+  "contractVersion": 1,
+  "tenant": {
+    "orgId": "org_755c28b1-e9df-4962-997a-ebbd8bb115c8",
+    "missionId": "msn_5ecff410-0164-4652-9a2e-79b0af51e470"
+  },
+  "asOf": "2026-11-06T09:00:00.000Z",
+  "truthLabel": "SIMULATED_OPERATION",
+  "policy": {
+    "maxAgeMs": 900000,
+    "expiredMs": 1800000,
+    "uavAssetId": "uav-seeker-1",
+    "uavWindLimitKt": 22
+  },
+  "assets": [
+    {
+      "assetId": "uav-seeker-1",
+      "kind": "aerial",
+      "label": "Inspection UAV"
+    },
+    {
+      "assetId": "vessel-prospect",
+      "kind": "surface",
+      "label": "Moored vessel"
+    }
+  ],
+  "events": []
+}
