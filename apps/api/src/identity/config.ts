@@ -23,6 +23,7 @@ export const OIDC_ENV_VARS = {
   scopes: 'MOTERVA_OIDC_SCOPES',
   idTokenAlg: 'MOTERVA_OIDC_ID_TOKEN_ALG',
   flowTtlMs: 'MOTERVA_OIDC_FLOW_TTL_MS',
+  httpTimeoutMs: 'MOTERVA_OIDC_HTTP_TIMEOUT_MS',
   allowInsecure: 'MOTERVA_OIDC_ALLOW_INSECURE_TRANSPORT',
 } as const;
 
@@ -44,11 +45,14 @@ export interface IdentityConfig {
   readonly insecureTransport: boolean;
   /** Allowed clock skew for ID-token time checks (seconds). */
   readonly clockToleranceSec: number;
+  /** Client HTTP deadline for IdP calls (discovery + token exchange). */
+  readonly httpTimeoutMs: number;
 }
 
 export const DEFAULT_OIDC_SCOPES = 'openid profile email';
 export const DEFAULT_ID_TOKEN_ALG = 'RS256';
 export const DEFAULT_FLOW_TTL_MS = 10 * 60_000;
+export const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
 
 function isPlaceholder(value: string): boolean {
   const normalized = value.trim().toLowerCase();
@@ -74,6 +78,7 @@ export function parseIdentityConfig(
     scopes: (env[OIDC_ENV_VARS.scopes] ?? '').trim(),
     idTokenAlg: (env[OIDC_ENV_VARS.idTokenAlg] ?? '').trim(),
     flowTtlMs: (env[OIDC_ENV_VARS.flowTtlMs] ?? '').trim(),
+    httpTimeoutMs: (env[OIDC_ENV_VARS.httpTimeoutMs] ?? '').trim(),
     allowInsecure: (env[OIDC_ENV_VARS.allowInsecure] ?? '').trim(),
   };
   const anySet = Object.values(raw).some((v) => v !== '');
@@ -174,6 +179,14 @@ export function parseIdentityConfig(
     );
   }
 
+  const httpTimeoutMs =
+    raw.httpTimeoutMs === '' ? DEFAULT_HTTP_TIMEOUT_MS : Number(raw.httpTimeoutMs);
+  if (!Number.isSafeInteger(httpTimeoutMs) || httpTimeoutMs < 1_000 || httpTimeoutMs > 30_000) {
+    issues.push(
+      `${OIDC_ENV_VARS.httpTimeoutMs}: must be an integer between 1000 and 30000 milliseconds.`,
+    );
+  }
+
   const scopes = raw.scopes === '' ? DEFAULT_OIDC_SCOPES : raw.scopes;
   if (!/\bopenid\b/.test(scopes)) {
     issues.push(`${OIDC_ENV_VARS.scopes}: must include the "openid" scope.`);
@@ -192,6 +205,7 @@ export function parseIdentityConfig(
     idTokenAlg: raw.idTokenAlg === '' ? DEFAULT_ID_TOKEN_ALG : raw.idTokenAlg,
     flowTtlMs,
     insecureTransport: allowInsecure,
+    httpTimeoutMs,
     clockToleranceSec: 60,
   };
 }

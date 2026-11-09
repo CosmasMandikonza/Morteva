@@ -70,8 +70,10 @@ export interface OidcClient {
 }
 
 /** Discovery timeout so a dead IdP fails the login attempt fast and clean. */
-const DISCOVERY_TIMEOUT_MS = 5_000;
-const TOKEN_TIMEOUT_MS = 10_000;
+// Deadlines come from the validated identity configuration.
+function timeouts(identity: IdentityConfig): { discovery: number; token: number } {
+  return { discovery: Math.min(identity.httpTimeoutMs, 5_000), token: identity.httpTimeoutMs };
+}
 
 export async function createOidcClient(identity: IdentityConfig): Promise<OidcClient> {
   const server = new URL(identity.issuer);
@@ -95,7 +97,7 @@ export async function createOidcClient(identity: IdentityConfig): Promise<OidcCl
           ...(identity.insecureTransport ? { execute: [oidc.allowInsecureRequests] } : {}),
         },
       ),
-      DISCOVERY_TIMEOUT_MS,
+      timeouts(identity).discovery,
       'OIDC_ISSUER_UNAVAILABLE',
     );
   } catch (error) {
@@ -155,7 +157,7 @@ export async function createOidcClient(identity: IdentityConfig): Promise<OidcCl
             pkceCodeVerifier: input.codeVerifier,
             idTokenExpected: true,
           }),
-          TOKEN_TIMEOUT_MS,
+          timeouts(identity).token,
           'OIDC_UNAVAILABLE',
         );
       } catch (error) {
