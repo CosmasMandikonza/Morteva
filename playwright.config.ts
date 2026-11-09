@@ -34,5 +34,13 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
+    {
+      // Identity stack (one supervising script: API :8788 + local test IdP
+      // :18995 + SPA preview :4174 pointed at THAT API via MOTERVA_API_URL).
+      command: 'node e2e/scripts/identity-server.mjs',
+      url: 'http://127.0.0.1:4174/',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
   ],
 });
