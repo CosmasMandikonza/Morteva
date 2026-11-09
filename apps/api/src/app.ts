@@ -23,6 +23,7 @@ import { registerProductionIdentityRoutes } from './identity/routes.js';
 import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
 import { registerAuthCapabilitiesRoute } from './identity/capabilities.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
+import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import {
   registerDecisionAuthorityRoutes,
   registerDemoAuthorityRefreshRoute,
@@ -80,6 +81,8 @@ export function buildApp(
       // Durable decision snapshots + guarded proposal bridge (#19) + the
       // reviewer plan read — role-gated, CSRF-protected, safe in production.
       registerDecisionAuthorityRoutes(scope, ledger);
+      // Sanitized live physical timeline (Agent C physical-view.v1 contract).
+      registerPhysicalViewRoute(scope, ledger);
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.
