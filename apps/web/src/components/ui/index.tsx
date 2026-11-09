@@ -43,12 +43,17 @@ export function HaloTabs<T extends string>({
   const listRef = useRef<HTMLDivElement>(null);
   const onKeyDown = (event: React.KeyboardEvent): void => {
     const idx = tabs.findIndex((t) => t.id === value);
-    let next = idx;
-    if (event.key === 'ArrowRight') next = (idx + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = tabs.length - 1;
-    else return;
+    const next =
+      event.key === 'ArrowRight'
+        ? (idx + 1) % tabs.length
+        : event.key === 'ArrowLeft'
+          ? (idx - 1 + tabs.length) % tabs.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? tabs.length - 1
+              : idx;
+    if (next === idx) return;
     event.preventDefault();
     onChange(tabs[next]!.id);
     listRef.current
