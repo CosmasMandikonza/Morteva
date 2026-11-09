@@ -16,7 +16,7 @@ import type { LedgerStatusView } from '@moterva/domain';
 import type { Ledger } from '@moterva/ledger';
 import type { AppConfig } from './config.js';
 import { systemStatusView, type AirwallexRailFacts } from './routes/system-status.js';
-import type { MetalAdapterStatusInput } from '@moterva/metal';
+import type { MetalAdapterStatusInput } from '@moterva/metal/status';
 import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';

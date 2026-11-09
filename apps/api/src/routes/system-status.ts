@@ -6,7 +6,7 @@ import type {
 } from '@moterva/domain';
 import { offlineProviderStatus } from '@moterva/providers';
 import { airwallexAdapterStatus } from '@moterva/airwallex';
-import { metalAdapterStatus, type MetalAdapterStatusInput } from '@moterva/metal';
+import { metalAdapterStatus, type MetalAdapterStatusInput } from '@moterva/metal/status';
 import type { AppConfig } from '../config.js';
 import { API_VERSION, SERVICE_NAME } from '../version.js';
 

@@ -10,7 +10,7 @@
 import { resolve } from 'node:path';
 import { openLedger, type Ledger } from '@moterva/ledger';
 import { buildSandboxDispatcher, HttpTransport, loadAirwallexConfig } from '@moterva/airwallex';
-import { loadMetalConfig } from '@moterva/metal';
+import { loadMetalConfig } from '@moterva/metal/status';
 import { buildApp } from './app.js';
 import { StartupConfigError, loadConfig, loadDotEnvForDev } from './config.js';
 
