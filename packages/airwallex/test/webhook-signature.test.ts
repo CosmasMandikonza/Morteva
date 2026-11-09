@@ -17,7 +17,11 @@ const WEBHOOK_HMAC_FIXTURE = 'webhook-signing-secret-fixture';
 const NOW = 1_800_000_000; // fixed "now" (unix seconds)
 const BODY = '{"id":"evt-1","name":"transfer.updated","data":{"object":{"status":"PAID"}}}';
 
-function sign(body: string, secret = WEBHOOK_HMAC_FIXTURE, encoding: 'hex' | 'base64' = 'hex'): string {
+function sign(
+  body: string,
+  secret = WEBHOOK_HMAC_FIXTURE,
+  encoding: 'hex' | 'base64' = 'hex',
+): string {
   const digest = createHmac('sha256', secret).update(body);
   return encoding === 'hex' ? digest.digest('hex') : digest.digest('base64');
 }
@@ -121,9 +125,27 @@ describe('airwallex webhook signature verification (raw-bytes HMAC-SHA256)', () 
 
   it('fails closed on malformed inputs (missing signature/secret/timestamp/body)', () => {
     for (const input of [
-      { rawBody: BODY, signature: undefined, timestamp: NOW, secret: WEBHOOK_HMAC_FIXTURE, nowSeconds: NOW },
-      { rawBody: BODY, signature: '', timestamp: NOW, secret: WEBHOOK_HMAC_FIXTURE, nowSeconds: NOW },
-      { rawBody: BODY, signature: sign(BODY), timestamp: 'abc', secret: WEBHOOK_HMAC_FIXTURE, nowSeconds: NOW },
+      {
+        rawBody: BODY,
+        signature: undefined,
+        timestamp: NOW,
+        secret: WEBHOOK_HMAC_FIXTURE,
+        nowSeconds: NOW,
+      },
+      {
+        rawBody: BODY,
+        signature: '',
+        timestamp: NOW,
+        secret: WEBHOOK_HMAC_FIXTURE,
+        nowSeconds: NOW,
+      },
+      {
+        rawBody: BODY,
+        signature: sign(BODY),
+        timestamp: 'abc',
+        secret: WEBHOOK_HMAC_FIXTURE,
+        nowSeconds: NOW,
+      },
       { rawBody: BODY, signature: sign(BODY), timestamp: NOW, secret: '', nowSeconds: NOW },
     ]) {
       expect(verifyWebhookSignature(input)).toBe('malformed-input');
