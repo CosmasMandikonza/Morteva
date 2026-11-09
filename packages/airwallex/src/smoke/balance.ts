@@ -52,6 +52,7 @@ try {
     );
   }
   ledger.providerReceipts.append({
+    provider: 'airwallex',
     orgId: org.id,
     operationId: null,
     requestId: 'smoke-balance-read',

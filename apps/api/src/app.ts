@@ -20,7 +20,11 @@ import type { MetalAdapterStatusInput } from '@moterva/metal/status';
 import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
+import { registerProductionIdentityRoutes } from './identity/routes.js';
+import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
+import { registerAuthCapabilitiesRoute } from './identity/capabilities.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
+import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import {
   registerDecisionAuthorityRoutes,
   registerDemoAuthorityRefreshRoute,
@@ -32,6 +36,13 @@ export function buildApp(
   ledger?: Ledger,
   airwallexFacts?: () => AirwallexRailFacts,
   metalStatus?: () => MetalAdapterStatusInput,
+  /**
+   * Test seam ONLY: a pre-built OIDC client (e.g. pointed at the local test
+   * IdP) so hermetic suites can exercise production posture without live
+   * discovery. Production boots ALWAYS discover the configured issuer —
+   * config validation and the identity===null gate still apply regardless.
+   */
+  identityClient?: OidcClient,
 ): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -52,22 +63,40 @@ export function buildApp(
     systemStatusView(config, ledgerStatus?.(), airwallexFacts?.(), metalStatus),
   );
 
-  if (ledger !== undefined && config.devAuth) {
-    // Fail closed: there is NO production human IdP yet. Financial endpoints
-    // are a loopback-only DEMO_AUTH workflow, not a production authentication
-    // surface. A migrated dev session must never authorize deployed routes.
-    // One encapsulated scope: cookie parsing, the session decorator/hook and
-    // the routes share context, so every guarded route sees request.session.
+  // Anonymous auth-mode discovery (identity/v1): a signed-out browser learns
+  // which login affordance to render. Public by design; minimal projection.
+  registerAuthCapabilitiesRoute(app, config);
+
+  if (ledger !== undefined && (config.devAuth || config.identity !== null)) {
+    // Authenticated scope: mounted for DEMO_AUTH (loopback-only development,
+    // unchanged) OR for a fully configured production identity provider —
+    // never for an anonymous deployment. One encapsulated scope: cookie
+    // parsing, the session decorator/hook and the routes share context, so
+    // every guarded route sees request.session.
     void app.register(async (scope) => {
       await scope.register(cookie);
       attachSession(scope, ledger);
+      // Financial + mission routes (read + governed mutations). The demo
+      // login/dev-bootstrap endpoints inside remain devAuth-gated; logout and
+      // session inspection work for any active authentication method.
       registerAuthAndFinancialRoutes(scope, config, ledger);
-      // Controlled local-only physical-to-money demo; never mounted in production.
-      registerDemoDecisionRoutes(scope, ledger);
-      // Durable decision snapshots + guarded proposal bridge (#19 A1/A2);
-      // demo-time authority refresh (#19 A5). Same DEMO_AUTH-only scope.
+      // Durable decision snapshots + guarded proposal bridge (#19) + the
+      // reviewer plan read — role-gated, CSRF-protected, safe in production.
       registerDecisionAuthorityRoutes(scope, ledger);
-      registerDemoAuthorityRefreshRoute(scope, ledger);
+      // Sanitized live physical timeline (Agent C physical-view.v1 contract).
+      registerPhysicalViewRoute(scope, ledger);
+      if (config.identity !== null) {
+        // Production identity: OIDC (code flow + PKCE), invitation accept,
+        // invitation management. Registered ONLY with complete config.
+        const client = identityClient ?? (await createOidcClient(config.identity));
+        registerProductionIdentityRoutes(scope, config, ledger, client);
+      }
+      if (config.devAuth) {
+        // Controlled local-only physical-to-money demo; never mounted outside
+        // the DEMO_AUTH gate (unchanged from #19).
+        registerDemoDecisionRoutes(scope, ledger);
+        registerDemoAuthorityRefreshRoute(scope, ledger);
+      }
     });
   }
 

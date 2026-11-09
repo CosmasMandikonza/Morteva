@@ -37,7 +37,12 @@ describe('airwallex money boundary — rejection matrix (D2)', () => {
 
   it('rejects currency codes the domain does not support (no silent exponent guess)', () => {
     expect(() => minorToMajorUnits('XYZ', 100)).toThrow(/not in the supported table/);
-    expect(() => majorUnitsToMinor('USDZ', 100)).toThrow(/not in the supported table/);
+    expect(() => majorUnitsToMinor('QQQ', 100)).toThrow(/not in the supported table/);
+    // USDZ was added DELIBERATELY to the supported table (MTV-19 token ledger,
+    // exponent 2) for the metal rail; the Airwallex boundary is unchanged —
+    // a USDZ-denominated authorization is refused by the metal/airwallex rail
+    // isolation long before any Airwallex money conversion could run.
+    expect(minorToMajorUnits('USDZ', 100)).toBe(1); // exponent 2, exact
   });
 
   it('keeps zero-, two- and three-decimal currencies exact (JPY/KWD/USD documented exponents)', () => {

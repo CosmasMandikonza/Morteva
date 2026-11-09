@@ -114,6 +114,9 @@ export function registerAuthAndFinancialRoutes(
         orgId: actor.orgId,
       },
       expiresAt: request.session.expiresAt,
+      // Which sign-in method is configured: production identity (OIDC) or the
+      // loopback-only demo bridge (identity/v1 frontend contract).
+      authMode: config.identity !== null ? 'oidc' : config.devAuth ? 'demo' : 'none',
       demoAuth: config.devAuth,
     };
   });
