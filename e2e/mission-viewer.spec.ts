@@ -592,9 +592,6 @@ test('C36 (case 36): no raw journal payloads or secrets enter the browser', asyn
 
 type ValidateResult = { ok: boolean; reason?: string };
 
- mutationSource);
-}
-
 function validateMutated(
   page: Page,
   mutation: (payload: Record<string, unknown>) => void,
