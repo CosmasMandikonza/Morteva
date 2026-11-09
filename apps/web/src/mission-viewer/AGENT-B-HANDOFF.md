@@ -35,27 +35,32 @@ should do the same):
 const { MissionPhysicalViewer } = await import('../mission-viewer/index.js');
 ```
 
-## 2. Required timeline fields and their source
+## 2. The mount in DecisionRoom (shipped — this PR)
 
-The viewer consumes **physical-view contract v1**
-(`apps/api/src/mission-events/contract/physical-view.v1.md`, types exported from the module):
-`tenant`, `asOf`, `truthLabel`, `policy {maxAgeMs, expiredMs, uavAssetId, uavWindLimitKt}`,
-`assets[] {assetId, kind, label?}`, and journal-ordered `events[]` with
-`eventId, journalSeq, sequence, assetId, sourceId, sourceType, provenance, observedAt,
-ingestedAt, recordedAt, eventDigest, observations[], freshnessAtSnapshot, planningValidAtSnapshot`.
+The Decision Room now mounts the viewer through the THREE-FREE availability
+cards (`availability-cards.tsx`): while Agent A's read endpoint is not
+deployed, the product renders `MissionViewerUnavailableCard` with the
+precise reason — **no demo fixture is substituted in the product shell** and
+no 3D bundle is downloaded for a state with no scene. When the endpoint
+ships:
 
-**Status: the connected demo API does not yet expose this snapshot.** The demo journey
-(`/api/missions/:id/physical-decision`) carries only decision summaries + the incident id. Two
-supported paths until then:
+1. Fetch the endpoint JSON in `lib/api.ts` (your file) and pass it through
+   `snapshotFromServerPayload(json)` — strict validation, fails closed with
+   `PhysicalViewShapeError` (catch → `availability="unavailable"`).
+2. Mount `MissionPhysicalViewerLazy` (`lazy.tsx` — dynamic chunk: three.js
+   - GLBs load only when a ready snapshot exists). Theme is auto-tracked
+     from the shell's `data-theme` via `useDocumentTheme`; an explicit
+     `theme` prop still wins.
+3. Selection: seed `selectedEventId` from `journey.incident.eventId`;
+   reset on mission change. All other props per §3/§6 below (unchanged).
 
-1. **Demo mode now:** embed the committed journal-derived fixture
-   (`src/mission-viewer/fixtures/primary.physical-view.json`) behind your demo flag — it is the
-   real replay output of the real ingest pipeline for the flagship incident (regenerate with
-   `npx tsx apps/api/src/mission-events/fixtures/generate-viewer-fixture.ts`).
-2. **Production path (Agent A, 20 lines):** a minimal authenticated, tenant-scoped, sanitized read
-   — my formal request is `apps/api/src/mission-events/contract/planner-endpoint-request.v1.md`.
-   It returns exactly the fields above from `MissionEventIngestService.replay()` (no raw journal
-   payloads exist on that view, so nothing new is exposed).
+Strict-shape reference: `adapter.ts`; the committed fixtures pass it and
+the adversarial suite mutates them (contract version, digests, freshness
+ladder, tenant closure…) to prove fail-closed behavior.
+
+The standalone harness (`mission-viewer.html`) remains the reviewer preview
+surface for the full 3D scene — clearly labeled PREVIEW, never mounted in
+the product while live data is absent.
 
 ## 3. Selection callback contract
 
