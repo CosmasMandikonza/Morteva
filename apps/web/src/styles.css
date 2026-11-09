@@ -1402,3 +1402,19 @@ a {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+/* Very narrow viewports: the topbar action row wraps instead of pushing the
+   page wide, and long meta tags break inside their pill. */
+@media (max-width: 360px) {
+  .mv-topbar__ops {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-left: 0;
+  }
+  .mv-panel__meta .mv-tag {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+}
