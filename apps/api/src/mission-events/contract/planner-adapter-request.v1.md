@@ -1,8 +1,23 @@
 # Planner adapter request v1 — Agent A (packages/planner + integration)
 
-**From Agent C (mission-events, issue #9/15 lane). This is a typed contract REQUEST — no planner
-or integration code was modified.** Everything below is grounded in measured behavior from the
-reliability matrix (`reliability/results/summary.md`, cases PE-24 / FI-12), not speculation.
+**From Agent C (mission-events, issue #9/15 lane); updated by Agent D (MTV-07 second-domain work,
+2026-11-09). This is a typed contract REQUEST — `packages/planner` is still untouched.** Everything
+below is grounded in measured behavior from the reliability matrix (`reliability/results/summary.md`,
+cases PE-24 / FI-12) plus the MTV-07 ground-domain tests, not speculation.
+
+**Status after MTV-07 (2026-11-09):**
+- **Extension 2 (per-asset-kind policy input) is IMPLEMENTED** in the bridge —
+  `apps/api/src/integration/physical-to-planner.ts` now accepts the optional
+  `assetKinds?: Readonly<Record<string, 'aerial' | 'ground'>>` field exactly as requested below.
+  Aerial/undeclared semantics are byte-for-byte unchanged; declared-ground assets never consume
+  wind/hold for their verdict and are never `clear` (blocked on comms-offline, otherwise
+  unknown/insufficient-evidence). Proven by `apps/api/test/integration/ground-domain.test.ts`.
+- **Extension 1 (planner type change) is IMPLEMENTED AS AN ISOLATED PROPOSAL** at
+  `apps/api/src/integration/ground-safety-proposal.ts` with a full matrix test
+  (`ground-safety-proposal.test.ts`) — including the fail-closed proof that TODAY's
+  `reviewEvidence` whitelist refuses the new reasons. Agent A's acceptance is the type change in
+  `packages/planner/src/contracts.ts` (+ the `evidence.ts` whitelist) after which the bridge can
+  emit ground constraints and the proposal function becomes the mapping of record.
 
 ## What works today (verified, keep as-is)
 
