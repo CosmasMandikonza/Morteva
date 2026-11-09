@@ -2259,3 +2259,31 @@ a {
   color: var(--mv-verified-text);
   border-color: transparent;
 }
+
+/* ---- MTV-20 a11y hardening ---- */
+/* Practical touch targets: compact controls get minimum 44x44 hit areas on
+   coarse pointers, without changing the visual density on desktop. */
+@media (pointer: coarse) {
+  .mv-btn,
+  .mv-copybtn,
+  .mv-seg__btn,
+  .mv-halotabs__tab,
+  .mv-segmented__opt,
+  .mv-evidence__select {
+    min-height: 44px;
+  }
+  .mv-copybtn {
+    padding: 10px 12px;
+  }
+}
+/* Sheet focus outline: the dialog container hides outline (focus is programmatic);
+   make sure the FIRST input inside still shows a visible ring when tabbed. */
+.mv-sheet:focus-visible .mv-sheet__form,
+.mv-sidepanel__card:focus-visible .mv-sidepanel__body {
+  outline: none;
+}
+.mv-input:focus-visible,
+.mv-select:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: var(--mv-focus-offset);
+}
