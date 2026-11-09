@@ -79,7 +79,7 @@ function serviceFor(ledger: Ledger, orgId: string, missionId: string) {
   return { source, service: new MissionEventIngestService(ledger, ledger.clock, registry) };
 }
 
-function stepEventId(orgId: string, missionId: string, step: 'baseline' | 'incident') {
+export function stepEventId(orgId: string, missionId: string, step: 'baseline' | 'incident') {
   return (
     'evt_demo_' +
     step +
