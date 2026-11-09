@@ -270,6 +270,19 @@ export class MetalDispatcher implements RailDispatcher {
         note: 'USDZ token configuration missing',
       });
     }
+    // Conflicting fiat/token authorization (D4): a metal_order denominated in
+    // ANYTHING other than the configured token symbol would move USDZ while
+    // the ledger authorized a different currency — a fiat-USD mandate must
+    // never fund a tokenized payment (defense in depth behind the ledger's
+    // own currency isolation; refused BEFORE any signature).
+    if (
+      this.deps.config.usdzSymbol !== null &&
+      command.currency.trim().toUpperCase() !== this.deps.config.usdzSymbol.toUpperCase()
+    ) {
+      return this.definitiveDispatchRejection(command, 'CURRENCY_NOT_TOKEN', {
+        note: `operation currency ${command.currency} is not the configured token ${this.deps.config.usdzSymbol}: a fiat-denominated authorization can never fund a tokenized transfer`,
+      });
+    }
 
     const tokenAddress = this.deps.config.usdzTokenAddress.toLowerCase();
     const amountBaseUnits = BigInt(command.amountMinor); // internal minor exponent = token decimals
