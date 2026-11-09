@@ -95,8 +95,8 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await createMissionViaSheet(page, 'Durable two-actor mission');
     await grantMandateAs(page, '25000', 'Durable two-actor mission');
     // ---------- ACTOR 1: operator (propose grant, no approve grant)
-    await selectMission(page, 'Durable two-actor mission');
     await signIn(page, 'operator');
+    await selectMission(page, 'Durable two-actor mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
     await runStage(page, 'baseline');
