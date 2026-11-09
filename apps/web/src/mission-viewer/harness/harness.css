@@ -1,0 +1,83 @@
+/* Harness page chrome — mpvh-* prefix, token-driven. */
+.mpvh {
+  min-height: 100vh;
+  background: var(--mv-surface-page);
+  color: var(--mv-ink-1);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: var(--mv-font-ui);
+}
+
+.mpvh__head h1 {
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-xl);
+  margin: 0 0 4px;
+  letter-spacing: var(--mv-track-display);
+}
+
+.mpvh__truth {
+  margin: 0;
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-sm);
+  color: var(--mv-accent-text);
+}
+
+.mpvh__note {
+  margin: 4px 0 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  max-width: 860px;
+}
+
+.mpvh__fixtures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mpvh__fixtures a {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-2);
+  text-decoration: none;
+  border: 1px solid var(--mv-line);
+  border-radius: 6px;
+  padding: 3px 10px;
+}
+
+.mpvh__fixtures a[aria-current='page'] {
+  color: var(--mv-interactive);
+  border-color: var(--mv-focus-ring);
+}
+
+.mpvh__panel {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--mv-surface-card);
+}
+
+.mpvh__panel h2 {
+  font-size: var(--mv-size-md);
+  margin: 0 0 6px;
+}
+
+.mpvh__panel pre {
+  margin: 0;
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-2);
+  white-space: pre-wrap;
+}
+
+.mpvh__foot {
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+}
+
+.mpvh__foot p {
+  margin: 0;
+}

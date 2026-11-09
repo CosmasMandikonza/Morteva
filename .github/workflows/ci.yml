@@ -85,18 +85,22 @@ jobs:
       - name: Install (npm ci)
         run: npm ci
 
-      - name: Build all workspaces with the design-lab entry enabled
+      - name: Build all workspaces with the design-lab and mission-viewer entries enabled
         # Full root build (packages + api + web) because the Playwright
         # webServer starts the compiled API alongside vite preview.
         run: npm run build
         env:
           VITE_DESIGN_LAB: '1'
+          VITE_MISSION_VIEWER: '1'
 
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
       - name: Design-lab interaction tests (lab build)
         run: npx playwright test e2e/design-lab.spec.ts
+
+      - name: Mission-viewer adversarial suite (gated harness build)
+        run: npx playwright test e2e/mission-viewer.spec.ts --workers=2
 
       - name: Upload Playwright report on failure
         if: failure()
