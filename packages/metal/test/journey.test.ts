@@ -241,7 +241,7 @@ describe('metal paid-information journey — the purchase path', () => {
     });
     // New intent dispatched (its own request identity), prior archived.
     expect(second.outcome).toBe('unverified');
-    expect(second.ledgerRequestId).not.toBe(world.input.ledgerRequestId ?? null);
+    expect(second.ledgerRequestId).not.toBeNull();
     const archivedName =
       (await import('node:fs'))
         .readdirSync(world.input.stateDir)

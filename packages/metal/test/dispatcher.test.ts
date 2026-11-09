@@ -4,6 +4,7 @@
  * no live RPC is contacted and nothing here is evidence of a real transaction.
  */
 import { describe, expect, it } from 'vitest';
+import type { ProviderSubmissionStatus } from '@moterva/providers';
 import { keccak256 } from 'viem';
 import {
   buildOfflineFixtureDispatcher,
@@ -84,9 +85,11 @@ describe('metal dispatch — acceptance and identity', () => {
   it('broadcasts an authorized purchase and returns submitted, never confirmed', async () => {
     const { chain, store, dispatcher } = makeDispatcher();
     const result = await dispatcher.dispatch(dispatchCommand());
-    expect(result.status).toBe('submitted');
+    // Type-level law: a submission result cannot even BE 'confirmed'
+    // (ProviderSubmissionStatus excludes it) — asserted here for the record.
+    const submission: ProviderSubmissionStatus = result.status;
+    expect<ProviderSubmissionStatus>(submission).toBe('submitted');
     expect(result.providerState).toBe('BROADCAST_ACCEPTED');
-    expect(result.status === 'confirmed').toBe(false);
     // One signed transaction recorded, in order: SIGNED before broadcast.
     const dispatchReceipts = store
       .listByRequestId('req-0001', 'org_test')

@@ -21,7 +21,6 @@ import {
 } from 'viem';
 import type { TransactionSerializedEIP1559 } from 'viem';
 import { FixtureJsonRpcTransport, JsonRpcRejectionError } from '../src/chain-transport.js';
-import type { FixtureRpcStep } from '../src/chain-transport.js';
 import { TRANSFER_EVENT_TOPIC } from '../src/erc20.js';
 import type { MetalReceiptStore } from '../src/dispatcher.js';
 
@@ -185,11 +184,7 @@ export class SimulatedChain {
       this.unavailableNext.count > 0
     ) {
       this.unavailableNext = { ...this.unavailableNext, count: this.unavailableNext.count - 1 };
-      const lanes = this.transport.lanes as Record<string, FixtureRpcStep[]>;
-      lanes[method] = [
-        ...(lanes[method] ?? []),
-        { kind: 'unavailable', message: `simulated ${method} outage` },
-      ];
+      this.transport.queue(method, { kind: 'unavailable', message: `simulated ${method} outage` });
       throw new Error(`simulated ${method} outage`);
     }
     switch (method) {

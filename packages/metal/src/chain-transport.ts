@@ -176,6 +176,17 @@ export class FixtureJsonRpcTransport implements JsonRpcTransport {
 
   constructor(private readonly script: FixtureRpcScript) {}
 
+  /**
+   * Queues a scripted step at the FRONT of a method's lane (test surface:
+   * lets a dynamic simulated chain inject the next forced answer for one
+   * method, e.g. a transport outage, ahead of the dynamic handler).
+   */
+  queue(method: string, step: FixtureRpcStep): void {
+    const lane = this.script.lanes[method] ?? [];
+    lane.unshift(step);
+    this.script.lanes[method] = lane;
+  }
+
   async call<T = unknown>(call: JsonRpcCall): Promise<T> {
     this.performedCalls.push({ method: call.method, params: call.params });
     const lane = this.script.lanes[call.method];
