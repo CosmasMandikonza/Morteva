@@ -16,6 +16,7 @@ import type { LedgerStatusView } from '@moterva/domain';
 import type { Ledger } from '@moterva/ledger';
 import type { AppConfig } from './config.js';
 import { systemStatusView, type AirwallexRailFacts } from './routes/system-status.js';
+import type { MetalAdapterStatusInput } from '@moterva/metal/status';
 import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
@@ -30,6 +31,7 @@ export function buildApp(
   ledgerStatus?: () => LedgerStatusView,
   ledger?: Ledger,
   airwallexFacts?: () => AirwallexRailFacts,
+  metalStatus?: () => MetalAdapterStatusInput,
 ): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -47,7 +49,7 @@ export function buildApp(
   app.get('/healthz', async () => healthView(config));
 
   app.get('/api/system/status', async () =>
-    systemStatusView(config, ledgerStatus?.(), airwallexFacts?.()),
+    systemStatusView(config, ledgerStatus?.(), airwallexFacts?.(), metalStatus),
   );
 
   if (ledger !== undefined && config.devAuth) {

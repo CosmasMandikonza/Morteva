@@ -70,6 +70,9 @@ function makeWorld(
     ledger.providerReceipts,
     clock,
     () => BEN,
+    // Offline-fixture escape hatch (explicit; barred on the live builder):
+    // the webhook-observes-only test exercises sink/evidence behavior.
+    { allowUnverifiedWebhooks: true },
   );
   return { dispatcher, ledger, orgId: org.id, fixture, ns, clock, path };
 }
