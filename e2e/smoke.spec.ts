@@ -75,7 +75,9 @@ test.describe('app shell smoke', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Authority & Execution' }),
     ).toBeVisible();
-    await expect(page.getByTestId('planned-status')).toContainText('#7');
+    // MTV-20: the Authority surface is now a real screen — signed out it
+    // asks for authentication instead of showing the old planned placeholder.
+    await expect(page.getByTestId('authority-surface')).toContainText('Sign in');
   });
 
   test('theme toggle switches the semantic tokens', async ({ page }) => {
