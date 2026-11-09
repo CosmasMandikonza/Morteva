@@ -95,6 +95,61 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         expect: accepted,
         beat: 'Normal running: picking at rate, link healthy.',
       }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 2,
+        observedMin: 10,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 24 },
+          { kind: 'battery_soc', unit: 'percent', value: 84 },
+        ),
+        expect: accepted,
+        beat: 'Normal running continues.',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 3,
+        observedMin: 16,
+        observations: obs(
+          { kind: 'aisle_access', unit: 'state', value: 'obstructed' },
+          { kind: 'asset_position_status', unit: 'state', value: 'transit' },
+          { kind: 'battery_soc', unit: 'percent', value: 77 },
+        ),
+        expect: accepted,
+        beat: 'INTERRUPTION (physical): spilled coolant obstructs aisle C3; robot halts transit.',
+        economicEffect:
+          'MEANINGFUL CHANGE #1: the ground fact is journaled; the current contracts cannot clear ' +
+          'or price a ground obstruction — the honest bridge verdict for this asset stays unknown ' +
+          '(Agent A contract request), and no spend is implied.',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 4,
+        observedMin: 20,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 27 },
+          { kind: 'battery_soc', unit: 'percent', value: 68 },
+          { kind: 'asset_comms', unit: 'state', value: 'degraded' },
+        ),
+        expect: accepted,
+        beat: 'Link degrades while the robot shelters behind racking.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 2,
+        observedMin: 24,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'offline' }),
+        expect: accepted,
+        beat: 'INTERRUPTION (comms): WMS loses the heartbeat — the one ground-interrupting ' +
+          'condition the current contracts support end-to-end.',
+        economicEffect:
+          'MEANINGFUL CHANGE #2: bridge verdict for this ground asset becomes blocked/' +
+          'comms-offline — the planner must refuse any candidate that requires the robot.',
+      }),
     ];
 
     return {
