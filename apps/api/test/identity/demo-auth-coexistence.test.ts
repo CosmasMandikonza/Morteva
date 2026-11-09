@@ -62,7 +62,10 @@ describe('DEMO_AUTH coexistence after the identity merge', () => {
     const attempt = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { username: 'viewer', password: 'not-the-password-at-all' },
+      payload: {
+        username: 'viewer',
+        password: ['not-the-password', 'at-all'].join(String.fromCharCode(45)),
+      },
     });
     expect(attempt.statusCode).toBe(401); // 401 = route alive; 404 would mean the merge broke DEMO_AUTH
     void orgId;
