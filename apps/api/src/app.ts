@@ -41,8 +41,8 @@ export function buildApp(
    * discovery. Production boots ALWAYS discover the configured issuer —
    * config validation and the identity===null gate still apply regardless.
    */
-  identityClient?: OidcClient,
   metalStatus?: () => MetalAdapterStatusInput,
+  identityClient?: OidcClient,
 ): FastifyInstance {
   const app = Fastify({
     logger: {
