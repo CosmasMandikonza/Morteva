@@ -600,3 +600,24 @@ export function approvalsFromEvidence(
     })
     .filter((a) => a.approvalId !== '' && a.planId !== '');
 }
+
+// ---------------------------------------------------------------------------
+// MTV-09/12 physical mission viewer (Agent C module) — the ONE authenticated
+// read the Decision Room performs for it. The response is validated by the
+// viewer module's strict adapter (snapshotFromServerPayload) BEFORE any scene
+// renders; a shape deviation is an honest unavailable state, never a
+// partially-trusted scene.
+// ---------------------------------------------------------------------------
+
+/** Raw physical-view payload (physical-view.v1 wire, Agent A implementation). */
+export type PhysicalViewPayload = Record<string, unknown>;
+
+export async function fetchPhysicalView(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<PhysicalViewPayload> {
+  return request<PhysicalViewPayload>(
+    `/api/missions/${encodeURIComponent(missionId)}/physical-view`,
+    { signal },
+  );
+}
