@@ -78,6 +78,6 @@ the running scene — not estimated.
 ## Verification commands
 
 ```bash
-node research/mtv-09/glb-inspect.mjs apps/web/src/mission-viewer/assets/*.glb
+node scripts/mtv-09-glb-inspect.mjs apps/web/src/mission-viewer/assets/*.glb
 sha256sum apps/web/src/mission-viewer/assets/*.glb   # must match the table above
 ```
