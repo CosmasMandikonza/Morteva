@@ -164,7 +164,10 @@ describe('airwallex webhook signature verification (raw-bytes HMAC-SHA256)', () 
       login: [
         ok({ token: 'fixture-token', expires_at: new Date(Date.now() + 900_000).toISOString() }),
       ],
+      createTransfer: [],
       listTransfers: [ok({ items: [], has_more: false })],
+      getTransfer: [],
+      balances: [],
     });
     const clock = {
       now: () => new Date(NOW * 1000),
