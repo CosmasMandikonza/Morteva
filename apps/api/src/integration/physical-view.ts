@@ -19,11 +19,14 @@
  * journals, never recomputes financial authority. Tenant-scoped: another
  * org's mission is indistinguishable from a missing one (404).
  *
- * Asset domains and the UAV wind-policy attribution come from the typed
- * authoritative SOURCE REGISTRY (server-side registration) — never guessed
- * from asset names. If an admitted asset has no registry domain, or the UAV
- * policy cannot be attributed to exactly one aerial asset, the endpoint
- * FAILS CLOSED with an explicit machine code (no fabricated class).
+ * HONEST SCOPE (P1): asset domains come from the FIXED SYNTHETIC DEMO
+ * CATALOG (uav-seeker-1 = aerial, registered by trusted code, never guessed
+ * from asset names). This is NOT general physical-domain support: no
+ * per-mission asset-domain registry is wired in this repo (separate contract
+ * request). Any admitted asset outside the demo catalog fail-closes 409
+ * ASSET_DOMAIN_UNAVAILABLE, and if the catalog does not designate exactly
+ * one aerial asset the endpoint fail-closes UAV_POLICY_UNRESOLVABLE — no
+ * fabricated domain class is ever emitted.
  *
  * Response bounds: at most 50 recent events, at most 20 assets, observation
  * values only from the typed allowlist — no free-form strings, no provider
@@ -36,7 +39,6 @@ import type {
   MissionTimelineView,
   ObservationReading,
 } from '../mission-events/src/view.js';
-import { DEFAULT_FRESHNESS_POLICY } from '../mission-events/src/view.js';
 import { DECISION_CATALOG, snapshotServiceFor } from './decision-snapshots.js';
 import { guard } from '../auth.js';
 
@@ -80,9 +82,39 @@ export function constraintFor(input: {
   const comms = latest['asset_comms'];
   const fresh = (r?: ObservationReading) => r !== undefined && r.freshness === 'fresh';
 
-  // The modeled wind limit applies to AERIAL assets ONLY — a ground robot or
-  // surface vessel is never restricted by a UAV wind rule.
-  if (domain === 'aerial' && fresh(wind) && Number(wind!.value) > windLimitKt) {
+  // GROUND + SURFACE domains: no reviewed domain-specific clearance rule
+  // exists (D's ground-safety proposal is isolated/unwired; no surface policy
+  // is reviewed at all). Wind and weather-hold are journaled facts but are
+  // INERT for the verdict here — an aerial wind limit is not a ground/surface
+  // constraint, and a ground/surface asset must never inherit aerial
+  // clearance (or aerial blocking). The verdict matches Agent D's
+  // physicalTimelineToPlannerSafety ground branch exactly: fresh comms
+  // OFFLINE is the one ground-interrupting condition → blocked; otherwise
+  // unknown (degraded comms included — degraded is not a healthy verdict).
+  if (domain === 'ground' || domain === 'surface') {
+    if (fresh(comms) && comms!.value === 'offline') {
+      return {
+        assetId,
+        kind: 'asset-safety',
+        state: 'blocked',
+        reason: 'comms-offline',
+        basis: 'fresh comms report offline (the one ground/surface-interrupting condition)',
+      };
+    }
+    return {
+      assetId,
+      kind: 'asset-safety',
+      state: 'unknown',
+      reason: 'insufficient-evidence',
+      basis: `no reviewed ${domain}-domain clearance rule; wind/hold are journaled facts but inert for this domain pending a domain-specific contract`,
+    };
+  }
+
+  // AERIAL domain — precedence matches Agent D's physicalTimelineToPlannerSafety
+  // aerial chain EXACTLY (wind-limit → weather-hold → comms-offline →
+  // unknown/clear) so both engines emit identical verdicts on the same
+  // journal state.
+  if (fresh(wind) && Number(wind!.value) > windLimitKt) {
     return {
       assetId,
       kind: 'asset-safety',
@@ -100,6 +132,8 @@ export function constraintFor(input: {
       basis: 'fresh weather hold is active (present-tense block, not a forecast)',
     };
   }
+  // Comms is domain-neutral: fresh OFFLINE is a genuine interrupting
+  // condition — blocked, fail-closed.
   if (fresh(comms) && comms!.value === 'offline') {
     return {
       assetId,
@@ -109,22 +143,19 @@ export function constraintFor(input: {
       basis: 'fresh comms report offline',
     };
   }
-  // CLEAR requires explicitly ONLINE comms, an explicitly CLEAR hold, and —
-  // for aerial assets — fresh wind within the modeled limit. Degraded comms
-  // is NOT clear (conservative operational safety): unknown/held.
+  // CLEAR requires explicitly-fresh comms ONLINE, explicitly-fresh hold
+  // CLEAR, and fresh wind within the modeled limit. Degraded comms is NOT a
+  // healthy-aerial verdict: unknown, never clear.
   const commsOnline = fresh(comms) && comms!.value === 'online';
   const holdClear = fresh(hold) && hold!.value === 'clear';
-  const windOk = domain !== 'aerial' || (fresh(wind) && Number(wind!.value) <= windLimitKt);
+  const windOk = fresh(wind) && Number(wind!.value) <= windLimitKt;
   if (commsOnline && holdClear && windOk) {
     return {
       assetId,
       kind: 'asset-safety',
       state: 'clear',
       reason: 'nominal',
-      basis:
-        domain === 'aerial'
-          ? 'fresh comms online, hold clear, wind within the modeled limit'
-          : 'fresh comms online and hold clear (no aerial wind policy for this domain)',
+      basis: 'fresh comms online, hold clear, wind within the modeled limit',
     };
   }
   if (fresh(comms) && comms!.value === 'degraded') {
@@ -143,31 +174,6 @@ export function constraintFor(input: {
     reason: 'insufficient-evidence',
     basis: 'no fresh, explicitly-online comms/clear-hold evidence as of this snapshot',
   };
-}
-
-/** Resolve the authoritative per-asset domain from the SOURCE REGISTRY. */
-function resolveAssetDomains(
-  registrySources: {
-    orgId: string;
-    missionId: string;
-    assetIds: readonly string[];
-    assetDomains?: Readonly<Record<string, AssetDomain>>;
-  }[],
-): Map<string, AssetDomain> {
-  const domains = new Map<string, AssetDomain>();
-  for (const source of registrySources) {
-    if (!source.assetDomains) continue;
-    for (const [assetId, domain] of Object.entries(source.assetDomains)) {
-      const existing = domains.get(assetId);
-      if (existing !== undefined && existing !== domain) {
-        throw new Error(
-          `ASSET_DOMAIN_CONFLICT: ${assetId} registered as ${existing} and ${domain}`,
-        );
-      }
-      domains.set(assetId, domain);
-    }
-  }
-  return domains;
 }
 
 export function projectPhysicalView(
@@ -305,9 +311,10 @@ export function registerPhysicalViewRoute(app: FastifyInstance, ledger: Ledger):
       // Read-only reconciliation against the verified timeline replay.
       const service = snapshotServiceFor(ledger, g.actor.orgId, missionId);
       const timeline = service.replay(g.actor.orgId, missionId);
-      // Authoritative per-asset domains from the server-side SOURCE REGISTRY
-      // (the demo catalog: uav-seeker-1 is the AERIAL asset — registered by
-      // trusted code, never inferred from names).
+      // FIXED SYNTHETIC DEMO CATALOG — the honest scope of this route:
+      // uav-seeker-1 is the (only) AERIAL asset, registered by trusted code,
+      // never inferred from names. No per-mission domain registry is wired;
+      // assets outside this catalog fail closed above (ASSET_DOMAIN_UNAVAILABLE).
       const domains = new Map<string, AssetDomain>([
         [DECISION_CATALOG.assetId, DECISION_CATALOG.assetDomain],
       ]);

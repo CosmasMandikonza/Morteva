@@ -132,17 +132,32 @@ describe('P0-1 — live HTTP payload satisfies the REAL strict viewer adapter', 
     }
   });
 
-  it('S4 historical selection: projecting an EARLIER event subset reproduces the historical scene', async () => {
-    // The viewer's evidence replay selects an earlier event; the adapter's
-    // snapshot is the full journal and the host narrows. Simulate exactly
-    // that: project with only the baseline event visible (S4 semantics are
-    // the host's selection — the snapshot itself stays complete).
+  it('S4-historical: selecting the EARLIER baseline event on the FULL snapshot yields the exact phase, basis and event id', async () => {
+    // REAL S4 mechanism (no journal trimming): the FULL snapshot is fetched
+    // and the host selects the earlier event via SceneSelection.
+    // selected.isHistoricalReplay is derived from journalSeq < max, and the
+    // constraint-at-event is derived from the as-of-event prefix.
     const http = await get(OPERATOR, `/api/missions/${missionId}/physical-view`);
     const snapshot = snapshotFromServerPayload(http.json());
     expect(snapshot.events.length).toBe(2);
-    const historical = { ...snapshot, events: snapshot.events.slice(0, 1) };
-    const scene = projectSceneState(historical as never);
-    expect(scene.phase).not.toBe('S2-restricted'); // baseline was 14.2 kt — nominal era
+    const baselineEvent = snapshot.events.find((e) => e.observations.some((o) => o.kind === 'wind_speed' && o.value === '14.2'));
+    expect(baselineEvent).toBeDefined();
+    const scene = projectSceneState(snapshot, {
+      selectedEventId: baselineEvent!.eventId,
+    });
+    expect(scene.phase).toBe('S4-historical'); // EXACT phase
+    expect(scene.selected).not.toBeNull();
+    expect(scene.selected!.event.eventId).toBe(baselineEvent!.eventId); // exact event id
+    expect(scene.selected!.isHistoricalReplay).toBe(true);
+    // The historical constraint at the baseline event: 14.2 kt, hold clear,
+    // comms online (all fresh at that point) → nominal-era basis, no breach.
+    expect(scene.selected!.constraintAtEvent).toBeDefined();
+    expect(scene.selected!.constraintAtEvent.state).toBe('clear');
+    // And selecting the LATEST incident preserves S2 (no S4 on newest).
+    const latestScene = projectSceneState(snapshot, {
+      selectedEventId: snapshot.events[snapshot.events.length - 1]!.eventId,
+    });
+    expect(latestScene.selected!.isHistoricalReplay).toBe(false);
   });
 
   it('NEGATIVES: malformed/unknown payloads fail the adapter closed', () => {
