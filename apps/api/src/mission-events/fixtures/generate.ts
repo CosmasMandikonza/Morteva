@@ -18,6 +18,7 @@ import {
   offshoreScenario,
   scriptDigest,
   warehouseScenario,
+  warehouseInterruptScenario,
   type ScenarioDefinition,
 } from '../index.js';
 
@@ -32,7 +33,11 @@ export const REFERENCE_WORLD = {
 
 export function generateAll(): void {
   mkdirSync(join(CONTRACT, 'examples'), { recursive: true });
-  for (const definition of [offshoreScenario, warehouseScenario] as ScenarioDefinition[]) {
+  for (const definition of [
+    offshoreScenario,
+    warehouseScenario,
+    warehouseInterruptScenario,
+  ] as ScenarioDefinition[]) {
     const build = definition.build(REFERENCE_WORLD);
     const fixture = {
       scenarioId: definition.id,

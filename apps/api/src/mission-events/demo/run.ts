@@ -22,6 +22,7 @@ import { MissionEventIngestService } from '../src/ingest.js';
 import { SourceRegistry } from '../src/registry.js';
 import { offshoreScenario } from '../src/scenarios/offshore.js';
 import { warehouseScenario } from '../src/scenarios/warehouse.js';
+import { warehouseInterruptScenario } from '../src/scenarios/warehouse-interrupt.js';
 import { runScenario } from '../src/scenarios/runner.js';
 import { scriptDigest } from '../src/scenarios/builder.js';
 import type { ScenarioBuild, ScenarioRunReport } from '../src/scenarios/types.js';
@@ -74,7 +75,7 @@ export async function runDemo(options: { keepDb?: boolean } = {}): Promise<DemoR
     const scenarioReports: DemoScenarioReport[] = [];
     const determinismChecks: { same: boolean; differs: boolean }[] = [];
 
-    for (const definition of [offshoreScenario, warehouseScenario]) {
+    for (const definition of [offshoreScenario, warehouseScenario, warehouseInterruptScenario]) {
       const org = ledger.organizations.createOrganization(`demo-${definition.id}`);
       const mission = ledger.organizations.createMission(org.id, `${definition.id} mission`);
       const world = { orgId: org.id, missionId: mission.id };

@@ -165,13 +165,14 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
       b.submission({
         source: botSrc,
         assetId: bot,
-        sequence: 6,
+        sequence: 5,
         observedMin: 30,
         observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
         expect: rejected('ASSET_OFFLINE'),
         beat:
-          'ADVERSARIAL: SELF-RECOVERY — the offline robot claims its own comms are back. ' +
-          'bot-telemetry is not trustedForRecovery; an offline asset cannot speak itself healthy.',
+          'ADVERSARIAL: SELF-RECOVERY — the offline robot claims its own comms are back on its ' +
+          'very next expected sequence. bot-telemetry is not trustedForRecovery; an offline asset ' +
+          'cannot speak itself healthy.',
       }),
       b.submission({
         source: botSrc,
@@ -182,10 +183,10 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
           { kind: 'inspection_progress', unit: 'percent', value: 30 },
           { kind: 'battery_soc', unit: 'percent', value: 62 },
         ),
-        expect: rejected('DUPLICATE_EVENT'),
+        expect: rejected('ASSET_OFFLINE'),
         beat:
-          'ADVERSARIAL: exact link-layer replay of beat 7 (same eventId) — idempotent refusal; ' +
-          'a duplicated telemetry event can never double-count, let alone duplicate a proposal.',
+          'ADVERSARIAL: the ghost telemetry retried under the sequence the self-recovery claim ' +
+          'did not consume — still refused; rejections never advance a stream and never journal.',
       }),
       b.submission({
         source: wmsSrc,
@@ -224,6 +225,21 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
       }),
       b.submission({
         source: wmsSrc,
+        assetId: bot,
+        sequence: 3,
+        observedMin: 34,
+        observations: obs(
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+          { kind: 'asset_position_status', unit: 'state', value: 'docked' },
+        ),
+        expect: rejected('DUPLICATE_EVENT'),
+        beat:
+          'ADVERSARIAL: the WMS re-delivers its recovery confirmation (link-layer retry, exact ' +
+          'same eventId as the accepted recovery) — idempotent refusal; a duplicated telemetry ' +
+          'event can never double-count, let alone duplicate a financial proposal.',
+      }),
+      b.submission({
+        source: wmsSrc,
         assetId: 'release-recovery-payment',
         sequence: 5,
         observedMin: 38,
@@ -237,12 +253,15 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         source: wmsSrc,
         assetId: bot,
         sequence: 5,
-        observedMin: 51,
+        observedMin: 49,
+        emitDelaySec: -600,
         observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
-        expect: rejected('FUTURE_EVENT'),
+        expect: rejected('TIMESTAMP_ORDER'),
         beat:
-          'ADVERSARIAL: gateway clock 10 minutes fast — a future-dated observation beyond the ' +
-          '2-minute skew tolerance is refused (skewed clock cannot forge current evidence).',
+          'ADVERSARIAL: gateway clock skew so severe the claimed emission time precedes the ' +
+          'observation itself — an impossible emission order is refused outright (future-dated ' +
+          'readings beyond the skew tolerance are refused the same way; covered in the ingest ' +
+          'and freshness suites).',
       }),
       b.submission({
         source: wmsSrc,
@@ -255,13 +274,13 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         ),
         expect: accepted,
         beat:
-          'Bounded skew: the same source within the 2-minute tolerance is admitted ' +
-          '(observed 49 min, clock anchored at its ingest time).',
+          'The corrected gateway reading arrives with a sane emission order and is admitted — ' +
+          'the stream continues at the same expected sequence because refusals never advance it.',
       }),
       b.submission({
         source: botSrc,
         assetId: bot,
-        sequence: 7,
+        sequence: 5,
         observedMin: 21,
         observations: obs(
           { kind: 'inspection_progress', unit: 'percent', value: 28 },
@@ -269,8 +288,9 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         ),
         expect: rejected('STALE_EVENT'),
         beat:
-          'ADVERSARIAL: an old pre-offline observation delivered AFTER the recovery — late ' +
-          'telemetry cannot masquerade as current evidence or rewrite the recovered state.',
+          'ADVERSARIAL: an old pre-offline observation delivered AFTER the recovery (the bot ' +
+          'stream still expects sequence 5 — rejections never advance a stream) — late telemetry ' +
+          'cannot masquerade as current evidence or rewrite the recovered state.',
       }),
       b.submission({
         source: wmsSrc,
@@ -287,7 +307,7 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
       b.submission({
         source: botSrc,
         assetId: bot,
-        sequence: 8,
+        sequence: 5,
         observedMin: 54,
         observations: obs(
           { kind: 'inspection_progress', unit: 'percent', value: 33 },
@@ -295,7 +315,7 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
           { kind: 'battery_soc', unit: 'percent', value: 64 },
         ),
         expect: accepted,
-        beat: 'Robot resumes; both sources now report — newest authoritative reading wins.',
+        beat: 'Robot resumes (sequence 5 finally consumed — the stale copy above never advanced it); both sources now report, newest authoritative reading wins.',
       }),
       b.submission({
         source: wmsSrc,
