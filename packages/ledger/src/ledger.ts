@@ -13,6 +13,7 @@ import { MandateService } from './services/mandates.js';
 import { ApprovalService, PlanService } from './services/plans.js';
 import { AuthorityService } from './services/authority.js';
 import { ExternalIdentityService } from './services/external-identity.js';
+import { TokenAssetService } from './services/token-assets.js';
 import { SpendableService } from './services/spendable.js';
 import { ReservationService } from './services/reservations.js';
 import { EvidenceService } from './services/evidence.js';
@@ -29,6 +30,7 @@ export class Ledger {
   readonly approvals: ApprovalService;
   readonly authority: AuthorityService;
   readonly identity: ExternalIdentityService;
+  readonly tokenAssets: TokenAssetService;
   readonly spendable: SpendableService;
   readonly reservations: ReservationService;
   readonly evidence: EvidenceService;
@@ -46,6 +48,7 @@ export class Ledger {
     this.evidence = new EvidenceService(db, clock);
     this.authority = new AuthorityService(db, clock, this.organizations, this.evidence);
     this.identity = new ExternalIdentityService(db, clock, this.organizations, this.evidence);
+    this.tokenAssets = new TokenAssetService(db, clock, this.evidence);
     this.mandates = new MandateService(db, clock, this.evidence);
     this.plans = new PlanService(db, clock);
     this.approvals = new ApprovalService(db, clock, this.authority, this.evidence, this.mandates);

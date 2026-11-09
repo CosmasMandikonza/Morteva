@@ -52,6 +52,14 @@ const SNAPSHOT_VERSION = 1;
 // equal by test to prevent drift).
 export const DECISION_CATALOG = {
   assetId: 'uav-seeker-1',
+  /**
+   * Fixed SYNTHETIC demo-catalog domain — the ONLY asset-domain mapping
+   * wired in this repo (never name-guessed). This is a demo scope, not
+   * general physical-domain support: any asset outside this catalog
+   * fail-closes ASSET_DOMAIN_UNAVAILABLE, and a general per-mission
+   * asset-domain registry is a separate contract request.
+   */
+  assetDomain: 'aerial' as const,
   windLimitKt: 22,
   incumbent: {
     id: 'uav-inspection',

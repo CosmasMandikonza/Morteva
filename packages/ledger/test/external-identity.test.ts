@@ -20,10 +20,10 @@ import type { ActorView } from '@moterva/domain';
 const ISSUER = 'https://idp.test.example';
 
 describe('migration 0004 (production identity)', () => {
-  it('fresh ledger migrates to v4 with the new tables; existing data intact', () => {
+  it('fresh ledger migrates to v5 with the new tables; existing data intact', () => {
     const ledger = openLedger(tempDbPath('identity-migrate-'));
     ledger.migrate();
-    expect(currentSchemaVersion(ledger.db)).toBe(4);
+    expect(currentSchemaVersion(ledger.db)).toBe(5);
     for (const table of ['identity_links', 'invitations', 'oidc_flows']) {
       expect(
         () => ledger.db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get(),
@@ -33,7 +33,7 @@ describe('migration 0004 (production identity)', () => {
     ledger.close();
   });
 
-  it('v3 ledger with data upgrades to v4 preserving every existing row', () => {
+  it('v3 ledger with data upgrades to v5 preserving every existing row', () => {
     // Build a genuine v3 world: run migrations 1-3 only, create data, then upgrade.
     const dir = mkdtempSync(join(tmpdir(), 'identity-upgrade-'));
     const dbPath = join(dir, 'ledger.sqlite');
@@ -60,8 +60,8 @@ describe('migration 0004 (production identity)', () => {
       ).c,
     };
     const report = ledger.migrate();
-    expect(report.applied.map((m) => m.version)).toEqual([4]);
-    expect(currentSchemaVersion(ledger.db)).toBe(4);
+    expect(report.applied.map((m) => m.version)).toEqual([4, 5]);
+    expect(currentSchemaVersion(ledger.db)).toBe(5);
     expect((ledger.db.prepare('SELECT COUNT(*) AS c FROM actors').get() as { c: number }).c).toBe(
       before.actors,
     );

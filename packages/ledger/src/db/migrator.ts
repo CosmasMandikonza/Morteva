@@ -15,6 +15,7 @@ import { MIGRATION_0001_FINANCIAL_FOUNDATION } from './migrations-0001.js';
 import { MIGRATION_0002_FINANCIAL_AUTHORITY } from './migrations-0002.js';
 import { MIGRATION_0003_PROVIDER_RECEIPTS } from './migrations-0003.js';
 import { MIGRATION_0004_PRODUCTION_IDENTITY } from './migrations-0004.js';
+import { MIGRATION_0005_TOKEN_ASSETS } from './migrations-0005.js';
 
 export interface Migration {
   readonly version: number;
@@ -27,6 +28,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 2, name: 'financial_authority', sql: MIGRATION_0002_FINANCIAL_AUTHORITY },
   { version: 3, name: 'provider_receipts', sql: MIGRATION_0003_PROVIDER_RECEIPTS },
   { version: 4, name: 'production_identity', sql: MIGRATION_0004_PRODUCTION_IDENTITY },
+  { version: 5, name: 'token_assets', sql: MIGRATION_0005_TOKEN_ASSETS },
 ];
 
 export interface MigrationReport {
