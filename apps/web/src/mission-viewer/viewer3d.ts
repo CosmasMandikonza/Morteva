@@ -155,6 +155,10 @@ export class MissionViewer3d {
   private lastFpsAt = performance.now();
   private lostContext = false;
   private modelFallback = false;
+  /** C3: adaptive-resolution scale (1 = device ratio, floor 0.75). */
+  private pixelRatioScale = 1;
+  /** C3: demand-render latch — a render is owed after any visual change. */
+  private needsRender = true;
 
   constructor(
     container: HTMLElement,
@@ -208,6 +212,10 @@ export class MissionViewer3d {
     this.controls.minDistance = 14;
     this.controls.maxDistance = 320;
     this.controls.target.set(0, 2, -12);
+    // C3 demand rendering: any user camera interaction owes a render.
+    this.controls.addEventListener('change', () => {
+      this.needsRender = true;
+    });
     this.applyThemeLights(t);
 
     this.buildHarbor();
@@ -508,6 +516,7 @@ export class MissionViewer3d {
     this.lastState = state;
     this.snapshot = snapshot;
     this.surfaceAssetId = snapshot.assets.find((a) => a.kind === 'surface')?.assetId ?? null;
+    this.needsRender = true; // a state push always owes a rendered frame
     this.applyPoses(state);
     this.syncMarkers(state);
     this.updateMarkerColors(state);
@@ -669,6 +678,27 @@ export class MissionViewer3d {
     this.raf = requestAnimationFrame(this.animate);
     const now = performance.now();
 
+    // C3 demand-based rendering: a hidden document renders nothing — the
+    // rAF budget is returned to the host page until it is visible again.
+    if (document.hidden) return;
+
+    // C3 adaptive resolution: sustained sub-20 fps steps the pixel ratio
+    // down to 0.75× (never below); sustained ≥55 fps steps back up toward
+    // the device ratio. Fidelity of GEOMETRY is never reduced — only the
+    // raster resolution adapts, and the adaptation is recorded via debug().
+    if (now - this.lastFpsAt >= 1000) {
+      const fps = Math.round((this.frames * 1000) / (now - this.lastFpsAt));
+      if (fps < 20 && this.pixelRatioScale > 0.75) {
+        this.pixelRatioScale = Math.max(0.75, this.pixelRatioScale - 0.25);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.pixelRatioScale);
+        this.needsRender = true;
+      } else if (fps >= 55 && this.pixelRatioScale < 1) {
+        this.pixelRatioScale = Math.min(1, this.pixelRatioScale + 0.25);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.pixelRatioScale);
+        this.needsRender = true;
+      }
+    }
+
     if (this.transitionFrom !== null) {
       const k = Math.min(1, (now - this.transitionStart) / this.transitionMs);
       const e = 1 - Math.pow(1 - k, 3); // easeOutCubic
@@ -676,9 +706,11 @@ export class MissionViewer3d {
       this.camera.position.lerpVectors(this.transitionFrom.pos, pose.pos, e);
       this.controls.target.lerpVectors(this.transitionFrom.target, pose.target, e);
       if (k >= 1) this.transitionFrom = null;
+      this.needsRender = true;
     }
 
     // Rotor idle: observed-state illustration, stopped when docked/reduced.
+    let animating = false;
     const last = this.lastState;
     if (this.droneGroup !== null && last !== null) {
       const pose = last.poses.find((p) => p.assetId === last.policy.uavAssetId);
@@ -686,6 +718,7 @@ export class MissionViewer3d {
       if (spinning && !this.reducedMotion) {
         const spin = (now / 1000) * 18;
         for (const r of this.droneRotors) r.rotation.y = spin;
+        animating = true;
       }
       // Strobe blink (1.2 Hz), steady-dim when docked or reduced motion.
       const strobe = this.droneGroup.getObjectByName('__strobe');
@@ -699,6 +732,7 @@ export class MissionViewer3d {
               : 0x3a1212
             : 0x8a2f2f,
         );
+        if (airborne && !this.reducedMotion) animating = true;
       }
     }
 
@@ -709,12 +743,25 @@ export class MissionViewer3d {
       if (pose !== undefined && pose.pose !== 'docked') {
         const p = UAV_POSES[pose.pose] ?? UAV_POSES.unknown!;
         this.droneGroup.position.y = p.y + Math.sin(now / 900) * 0.2;
+        animating = true;
       }
     }
 
     this.controls.update();
     this.projectMarkers();
-    this.renderer.render(this.scene, this.camera);
+
+    // C3 render gating: with reduced motion and a settled camera, frames are
+    // only rendered when something actually changed (control input, state
+    // push, transition) — an idle evidence view costs zero GPU work. Marker
+    // projection runs only on rendered frames.
+    const staticIdle = this.reducedMotion && this.transitionFrom === null && !animating;
+    if (!staticIdle || this.needsRender) {
+      this.renderer.render(this.scene, this.camera);
+      this.needsRender = staticIdle ? false : this.needsRender;
+    } else {
+      // Still keep projected markers glued to their anchors on scroll/resize.
+      this.projectMarkers();
+    }
 
     this.frames += 1;
     if (now - this.lastFpsAt >= 1000) {
