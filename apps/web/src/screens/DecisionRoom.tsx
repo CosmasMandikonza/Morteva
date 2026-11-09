@@ -515,10 +515,8 @@ export function DecisionRoom({
               <p className="mv-droom__incidentreading">{journey.incident.reading}</p>
               <p className="mv-hud">
                 {journey.incident.provenance} · {journey.incident.sourceId} · event{' '}
-                <span className="mv-num" title={journey.incident.eventId}>
-                  {journey.incident.eventId.slice(0, 18)}…
-                </span>{' '}
-                · {journey.incident.observedAt}
+                <span className="mv-num mv-break">{journey.incident.eventId}</span> ·{' '}
+                {journey.incident.observedAt}
               </p>
               <p className="mv-hud">
                 digest{' '}
