@@ -68,8 +68,7 @@ export function physicalTimelineToPlannerSafety(
       }
     }
   }
-  const isGroundAsset = (assetId: string): boolean =>
-    policy.assetKinds?.[assetId] === 'ground';
+  const isGroundAsset = (assetId: string): boolean => policy.assetKinds?.[assetId] === 'ground';
   const latestByAsset = new Map<string, LatestReadings>();
   const evidence: MissionEvidenceInput[] = [];
   const withheldEventIds: string[] = [];
@@ -195,7 +194,9 @@ export function physicalTimelineToPlannerSafety(
         reason,
         // Wind attribution is honest: a ground constraint never carries
         // aerial wind figures (they did not participate in the verdict).
-        ...(windParticipated ? { observedWindKt: latest.windKt, maxWindKt: policy.uavWindLimitKt } : {}),
+        ...(windParticipated
+          ? { observedWindKt: latest.windKt, maxWindKt: policy.uavWindLimitKt }
+          : {}),
       },
       validity: {
         notAfter: new Date(observedMs + timeline.policy.maxAgeMs).toISOString(),

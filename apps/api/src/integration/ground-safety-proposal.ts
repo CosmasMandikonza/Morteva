@@ -67,7 +67,11 @@ export function proposedGroundSafety(readings: GroundSafetyReadings): ProposedGr
   if (readings.charger === 'fault') {
     return { kind: 'asset-safety', domain: 'ground', state: 'blocked', reason: 'charger-fault' };
   }
-  if (readings.comms === undefined || readings.aisle === undefined || readings.charger === undefined) {
+  if (
+    readings.comms === undefined ||
+    readings.aisle === undefined ||
+    readings.charger === undefined
+  ) {
     return {
       kind: 'asset-safety',
       domain: 'ground',

@@ -144,7 +144,8 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         observedMin: 24,
         observations: obs({ kind: 'asset_comms', unit: 'state', value: 'offline' }),
         expect: accepted,
-        beat: 'INTERRUPTION (comms): WMS loses the heartbeat — the one ground-interrupting ' +
+        beat:
+          'INTERRUPTION (comms): WMS loses the heartbeat — the one ground-interrupting ' +
           'condition the current contracts support end-to-end.',
         economicEffect:
           'MEANINGFUL CHANGE #2: bridge verdict for this ground asset becomes blocked/' +

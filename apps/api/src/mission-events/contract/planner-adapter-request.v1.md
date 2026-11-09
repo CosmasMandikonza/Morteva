@@ -6,6 +6,7 @@ below is grounded in measured behavior from the reliability matrix (`reliability
 cases PE-24 / FI-12) plus the MTV-07 ground-domain tests, not speculation.
 
 **Status after MTV-07 (2026-11-09):**
+
 - **Extension 2 (per-asset-kind policy input) is IMPLEMENTED** in the bridge —
   `apps/api/src/integration/physical-to-planner.ts` now accepts the optional
   `assetKinds?: Readonly<Record<string, 'aerial' | 'ground'>>` field exactly as requested below.

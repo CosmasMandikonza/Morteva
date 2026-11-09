@@ -42,7 +42,10 @@ function event(
   };
 }
 
-function timeline(events: AcceptedEventView[], missionId = 'mission-warehouse'): MissionTimelineView {
+function timeline(
+  events: AcceptedEventView[],
+  missionId = 'mission-warehouse',
+): MissionTimelineView {
   return {
     orgId: 'org-demo',
     missionId,
@@ -80,8 +83,9 @@ describe('ground-domain bridge semantics (declared ground asset)', () => {
       reason: 'insufficient-evidence',
     });
     // The wind figure did not participate: no aerial attribution on the constraint.
-    expect(output.evidence[0]?.constraint.observedWindKt).toBeUndefined();
-    expect(output.evidence[0]?.constraint.maxWindKt).toBeUndefined();
+    const c1 = output.evidence[0]?.constraint as { observedWindKt?: number; maxWindKt?: number };
+    expect(c1.observedWindKt).toBeUndefined();
+    expect(c1.maxWindKt).toBeUndefined();
   });
 
   it('never lets calm aerial readings CLEAR a ground robot (no inherited clearance)', () => {
@@ -111,7 +115,8 @@ describe('ground-domain bridge semantics (declared ground asset)', () => {
       state: 'blocked',
       reason: 'comms-offline',
     });
-    expect(output.evidence[0]?.constraint.observedWindKt).toBeUndefined();
+    const c2 = output.evidence[0]?.constraint as { observedWindKt?: number };
+    expect(c2.observedWindKt).toBeUndefined();
   });
 
   it('keeps journaled wind/hold integrity checks for ground assets (malformed journaled values still fail closed)', () => {
@@ -175,14 +180,16 @@ describe('ground-domain bridge semantics (declared ground asset)', () => {
     for (const assetId of ['robot-counter-3', 'uav-seeker-1', 'any-asset-id-xz']) {
       const output = physicalTimelineToPlannerSafety(
         timeline([
-          { ...event(1, 'g1', [{ kind: 'asset_comms', unit: 'state', value: 'offline' }]), assetId },
+          {
+            ...event(1, 'g1', [{ kind: 'asset_comms', unit: 'state', value: 'offline' }]),
+            assetId,
+          },
         ]),
         { ...GROUND_POLICY, assetKinds: { [assetId]: 'ground' } },
       );
       expect(output.evidence[0]?.asset.id).toBe(assetId);
-      verdicts.push(
-        `${output.evidence[0]?.constraint.state}/${output.evidence[0]?.constraint.reason}`,
-      );
+      const c = output.evidence[0]?.constraint as { state: string; reason: string };
+      verdicts.push(`${c.state}/${c.reason}`);
     }
     expect(new Set(verdicts).size).toBe(1);
     expect(verdicts[0]).toBe('blocked/comms-offline');

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openLedger, TunableClock, type Ledger } from '@moterva/ledger';
+import { openLedger, TunableClock } from '@moterva/ledger';
 import {
   MissionEventIngestService,
   SourceRegistry,
@@ -10,8 +10,6 @@ import {
   offshoreScenario,
   runScenario,
 } from '../../src/mission-events/index.js';
-import type { ScenarioBuild } from '../../src/mission-events/src/scenarios/types.js';
-import { fixtureSourceKey } from '../../src/mission-events/src/rng.js';
 import { envelope, makeWorld, type TestWorld } from './helpers.js';
 
 /**

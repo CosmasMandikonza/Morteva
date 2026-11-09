@@ -10,13 +10,13 @@ import {
   financialFacts,
   type DecisionResult,
   type MissionEvidenceInput,
+  type SupplierOffer,
 } from '@moterva/planner';
 import {
   MissionEventIngestService,
   offshoreScenario,
   SourceRegistry,
   warehouseInterruptScenario,
-  runScenario,
   type ScenarioDefinition,
 } from '../../src/mission-events/index.js';
 import type { ScenarioBuild } from '../../src/mission-events/src/scenarios/types.js';
@@ -39,8 +39,6 @@ import { physicalTimelineToPlannerSafety } from '../../src/integration/physical-
  */
 
 const HARBOR_WIND_LIMIT_KT = 22;
-const HARBOR_ORG = 'org_fixture_reference';
-const HARBOR_MISSION = 'msn_fixture_reference';
 
 interface ScenarioWorld {
   readonly ledger: Ledger;
@@ -332,7 +330,9 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
       state: 'unknown',
       reason: 'insufficient-evidence',
     });
-    expect(running.evidence.at(-1)?.constraint.observedWindKt).toBeUndefined();
+    expect(
+      (running.evidence.at(-1)?.constraint as { observedWindKt?: number }).observedWindKt,
+    ).toBeUndefined();
 
     // The comms loss lands: blocked/comms-offline (the supported ground block).
     const offlineIdx = indexOfEnvelopeWith(
@@ -445,6 +445,7 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
       purposes: ['warehouse replenishment'],
     });
     const financialBaseline = financialRowCounts(world.ledger);
+    const baselineJson = JSON.stringify(financialBaseline);
     ingestRange(world, 0, world.build.script.length - 1);
     const first = bridgeFor(world, { 'picker-bot-7': 'ground' }, world.clock.now().getTime());
     const second = bridgeFor(world, { 'picker-bot-7': 'ground' }, world.clock.now().getTime());
@@ -514,6 +515,7 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
     );
     expect(d1.trace.inputDigest).toBe(d2.trace.inputDigest);
     expect(d1.trace.scores).toEqual(d2.trace.scores);
+    expect(JSON.stringify(financialRowCounts(world.ledger))).toBe(baselineJson);
     world.ledger.close();
   });
 });

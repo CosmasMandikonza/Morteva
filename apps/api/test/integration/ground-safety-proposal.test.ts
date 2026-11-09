@@ -19,20 +19,26 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
       state: 'blocked',
       reason: 'comms-offline',
     });
-    expect(proposedGroundSafety({ comms: 'offline', aisle: 'obstructed', charger: 'fault' })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: 'offline', aisle: 'obstructed', charger: 'fault' }),
+    ).toMatchObject({
       state: 'blocked',
       reason: 'comms-offline',
     });
   });
 
   it('precedence 2: obstructed aisle blocks even when comms are healthy', () => {
-    expect(proposedGroundSafety({ comms: 'online', aisle: 'obstructed', charger: 'free' })).toEqual({
-      kind: 'asset-safety',
-      domain: 'ground',
-      state: 'blocked',
-      reason: 'aisle-obstructed',
-    });
-    expect(proposedGroundSafety({ comms: 'online', aisle: 'obstructed', charger: 'fault' })).toMatchObject({
+    expect(proposedGroundSafety({ comms: 'online', aisle: 'obstructed', charger: 'free' })).toEqual(
+      {
+        kind: 'asset-safety',
+        domain: 'ground',
+        state: 'blocked',
+        reason: 'aisle-obstructed',
+      },
+    );
+    expect(
+      proposedGroundSafety({ comms: 'online', aisle: 'obstructed', charger: 'fault' }),
+    ).toMatchObject({
       reason: 'aisle-obstructed',
     });
   });
@@ -47,30 +53,42 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
   });
 
   it('precedence 4: missing readings and DEGRADED comms are unknown, never clear', () => {
-    expect(proposedGroundSafety({ comms: undefined, aisle: 'clear', charger: 'free' })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: undefined, aisle: 'clear', charger: 'free' }),
+    ).toMatchObject({
       state: 'unknown',
       reason: 'insufficient-evidence',
     });
-    expect(proposedGroundSafety({ comms: 'online', aisle: undefined, charger: 'free' })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: 'online', aisle: undefined, charger: 'free' }),
+    ).toMatchObject({
       state: 'unknown',
     });
-    expect(proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: undefined })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: undefined }),
+    ).toMatchObject({
       state: 'unknown',
     });
-    expect(proposedGroundSafety({ comms: 'degraded', aisle: 'clear', charger: 'free' })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: 'degraded', aisle: 'clear', charger: 'free' }),
+    ).toMatchObject({
       state: 'unknown',
       reason: 'insufficient-evidence',
     });
   });
 
   it('all healthy readings clear the robot — the ONLY clear path, and only in the proposal', () => {
-    expect(proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: 'docked_charging' })).toEqual({
+    expect(
+      proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: 'docked_charging' }),
+    ).toEqual({
       kind: 'asset-safety',
       domain: 'ground',
       state: 'clear',
       reason: 'nominal',
     });
-    expect(proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: 'free' })).toMatchObject({
+    expect(
+      proposedGroundSafety({ comms: 'online', aisle: 'clear', charger: 'free' }),
+    ).toMatchObject({
       state: 'clear',
     });
   });
@@ -79,7 +97,11 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
     // Build an evidence input carrying the PROPOSED constraint and feed the
     // existing reviewer: the new reason must be rejected, not silently
     // accepted — proving no ground rule can ride in without Agent A's change.
-    const proposed = proposedGroundSafety({ comms: 'online', aisle: 'obstructed', charger: 'free' });
+    const proposed = proposedGroundSafety({
+      comms: 'online',
+      aisle: 'obstructed',
+      charger: 'free',
+    });
     const input: MissionEvidenceInput = {
       version: 1,
       tenant: { orgId: 'org-1', missionId: 'msn-1' },
@@ -97,7 +119,11 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
         physicalSequence: 1,
         provenance: 'SYNTHETIC',
       },
-      constraint: proposed,
+      // THE PROPOSAL: this cast is the request itself — the proposed shape
+      // is not yet assignable to MissionConstraint, and the reviewer's
+      // rejection below is the proof that Agent A's type change is required.
+      validity: { notAfter: '2026-11-06T09:15:02.000Z' },
+      constraint: proposed as unknown as MissionEvidenceInput['constraint'],
     };
     const review = reviewEvidence([input], new Date('2026-11-06T09:00:02.000Z'), {
       orgId: 'org-1',
