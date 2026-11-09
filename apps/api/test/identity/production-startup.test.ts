@@ -52,7 +52,14 @@ const STUB_CLIENT: OidcClient = {
     };
   },
   async completeFlow() {
-    throw new Error('not exercised in this suite');
+    // A verified identity for the LINKED provisioned owner — enough to drive
+    // session issuance and observe production cookie attributes.
+    return {
+      subject: 'owner-prod-sub',
+      email: 'owner@prod.example',
+      name: 'Prod Owner',
+      issuer: COMPLETE_IDENTITY.MOTERVA_OIDC_ISSUER,
+    };
   },
 };
 
@@ -63,6 +70,15 @@ describe('production startup with identity', () => {
   beforeAll(async () => {
     ledger = openLedger(tempDbPath('identity-prod-'));
     ledger.migrate();
+    // Provision the owner the stub identity resolves to.
+    ledger.identity.provisionIdentityActor({
+      orgTitle: 'Prod Cookie Org',
+      username: 'owner@prod.example',
+      displayName: 'Prod Owner',
+      role: 'owner',
+      provider: COMPLETE_IDENTITY.MOTERVA_OIDC_ISSUER,
+      subject: 'owner-prod-sub',
+    });
     app = buildApp(
       loadConfig({ NODE_ENV: 'production', ...COMPLETE_IDENTITY }),
       undefined,
@@ -125,6 +141,37 @@ describe('production startup with identity', () => {
       body: start.body,
     });
     expect(everything).not.toContain('a-real-server-side-secret-value');
+  });
+
+  it('production sign-in sets SECURE cookies and X-Forwarded-Proto https is honored via trustProxy', async () => {
+    // Flow start → stub callback (identity verified) → session cookies.
+    await app.inject({ method: 'GET', url: '/api/auth/oidc/login' });
+    // The stub flow always uses state 'stub-state'.
+    const done = await app.inject({
+      method: 'GET',
+      url: '/api/auth/oidc/callback?code=stub-code&state=stub-state',
+      headers: { 'x-forwarded-proto': 'https' },
+    });
+    expect(done.statusCode).toBe(303);
+    const setCookie = done.headers['set-cookie'] as unknown;
+    const all = Array.isArray(setCookie) ? setCookie : [String(setCookie)];
+    const session = all.find((c) => c.startsWith('moterva_session='));
+    const csrf = all.find((c) => c.startsWith('moterva_csrf='));
+    expect(session).toBeDefined();
+    expect(csrf).toBeDefined();
+    expect(session).toMatch(/Secure/i); // production → Secure always
+    expect(session).toMatch(/HttpOnly/i);
+    expect(session).toMatch(/SameSite=Strict/i);
+    expect(csrf).toMatch(/Secure/i);
+    // The session actually authenticates (cookie works through the edge).
+    const value = session!.split(';')[0]!;
+    const probe = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: value, 'x-forwarded-proto': 'https' },
+    });
+    expect(probe.statusCode).toBe(200);
+    expect((probe.json() as { actor: { role: string } }).actor.role).toBe('owner');
   });
 });
 
