@@ -1418,3 +1418,423 @@ a {
     max-width: 100%;
   }
 }
+
+/* ==================================================================== MTV-20
+   UI primitives (docs/design/mtv-20-design-implementation-map.md). Original
+   implementations of the Cult UI component patterns on MOTERVA semantic
+   tokens; all motion uses the existing motion tokens and collapses under
+   prefers-reduced-motion via the global gate. */
+
+.mv-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Halo Tabs ---- */
+.mv-halotabs {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  background: var(--mv-surface-sunken);
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+}
+.mv-halotabs__tab {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  color: var(--mv-ink-2);
+  font: inherit;
+  font-size: var(--mv-size-sm);
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition:
+    color var(--mv-motion-fast) ease,
+    background var(--mv-motion-fast) ease;
+}
+.mv-halotabs__tab:hover {
+  color: var(--mv-ink-1);
+}
+.mv-halotabs__tab.is-active {
+  color: var(--mv-ink-1);
+  background: var(--mv-surface-card);
+  box-shadow:
+    var(--mv-shadow-raised),
+    0 1px 3px rgba(0, 0, 0, 0.22);
+}
+.mv-halotabs__tab:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: var(--mv-focus-offset);
+}
+.mv-halotabs__count {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.mv-halotabs__panel:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* ---- Halo Segmented ---- */
+.mv-segmented {
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--mv-line);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--mv-surface-sunken);
+}
+.mv-segmented__opt {
+  border: 0;
+  background: transparent;
+  color: var(--mv-ink-3);
+  font: inherit;
+  font-size: var(--mv-size-sm);
+  padding: 5px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color var(--mv-motion-fast) ease,
+    background var(--mv-motion-fast) ease;
+}
+.mv-segmented__opt.is-active {
+  color: var(--mv-ink-1);
+  background: var(--mv-accent-soft);
+}
+.mv-segmented__opt:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* ---- Halo Badge ---- */
+.mv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--mv-line-strong);
+  color: var(--mv-ink-2);
+  background: var(--mv-surface-raised);
+  white-space: nowrap;
+  max-width: 100%;
+}
+.mv-badge__glyph {
+  font-size: var(--mv-size-sm);
+  line-height: 1;
+}
+.mv-badge__count {
+  font-family: var(--mv-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--mv-ink-1);
+  border-left: 1px solid var(--mv-line);
+  padding-left: 6px;
+}
+.mv-badge__live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mv-transit-text);
+  animation: mv-badge-live 1.6s ease-in-out infinite;
+}
+@keyframes mv-badge-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.mv-badge--transit {
+  color: var(--mv-transit-text);
+  background: var(--mv-transit-bg);
+  border-color: transparent;
+}
+.mv-badge--verified {
+  color: var(--mv-verified-text);
+  background: var(--mv-verified-bg);
+  border-color: transparent;
+}
+.mv-badge--danger {
+  color: var(--mv-danger-text);
+  background: var(--mv-danger-bg);
+  border-color: transparent;
+}
+.mv-badge--hold {
+  color: var(--mv-hold-text);
+  background: var(--mv-hold-bg);
+  border-color: transparent;
+}
+.mv-badge--info {
+  color: var(--mv-info-text);
+  background: var(--mv-info-soft);
+  border-color: transparent;
+}
+.mv-badge--neutral {
+  color: var(--mv-ink-2);
+}
+
+/* ---- Halo Progress ---- */
+.mv-progress {
+  display: grid;
+  gap: 5px;
+}
+.mv-progress__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-progress__label {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+.mv-progress__value {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-1);
+}
+.mv-progress__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--mv-surface-sunken);
+  border: 1px solid var(--mv-line);
+  overflow: hidden;
+}
+.mv-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--mv-accent-fill);
+  transition: width var(--mv-motion-fast) var(--mv-motion-standard);
+}
+.mv-progress--warn .mv-progress__fill {
+  background: var(--mv-hold-text);
+}
+.mv-progress__pct {
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+}
+
+/* ---- Expandable Card ---- */
+.mv-xcard {
+  border: 1px solid var(--mv-line);
+  border-radius: 10px;
+  background: var(--mv-surface-card);
+  overflow: hidden;
+  transition: border-color var(--mv-motion-fast) ease;
+}
+.mv-xcard:hover {
+  border-color: var(--mv-line-strong);
+}
+.mv-xcard--selected {
+  border-color: var(--mv-accent-fill);
+  border-left-width: 3px;
+}
+.mv-xcard--blocked {
+  opacity: 0.72;
+}
+.mv-xcard--noaction {
+  border-style: dashed;
+}
+.mv-xcard__summary {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.mv-xcard__summary:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-accent-text);
+  outline-offset: calc(-1 * var(--mv-focus-width));
+}
+.mv-xcard__chevron {
+  color: var(--mv-ink-3);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.mv-xcard__body {
+  flex: 1;
+  min-width: 0;
+}
+.mv-xcard__details {
+  border-top: 1px solid var(--mv-line);
+  padding: 12px 14px 14px 38px;
+  background: var(--mv-surface-raised);
+}
+
+/* ---- Side Panel ---- */
+.mv-sidepanel {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: var(--mv-surface-overlay);
+  display: flex;
+  justify-content: flex-end;
+}
+.mv-sidepanel__card {
+  width: min(480px, 100%);
+  height: 100%;
+  background: var(--mv-surface-card);
+  border-left: 1px solid var(--mv-line-strong);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.3);
+  padding: 16px 18px;
+  overflow-y: auto;
+  outline: none;
+}
+.mv-sidepanel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--mv-line);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+.mv-sidepanel__title {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+}
+[data-theme='light'] .mv-sidepanel__card {
+  box-shadow: -6px 0 24px rgba(24, 24, 27, 0.1);
+}
+
+/* ---- Copy button / toasts / skeletons ---- */
+.mv-copybtn {
+  font-size: var(--value-xs, var(--mv-size-xs));
+  padding: 3px 10px;
+}
+.mv-toasts {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 70;
+  display: grid;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+}
+.mv-toast {
+  margin: 0;
+  background: var(--mv-surface-card);
+  border: 1px solid var(--mv-line-strong);
+  border-left: 3px solid var(--mv-accent-fill);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-1);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+.mv-skeletonrows {
+  display: grid;
+  gap: 8px;
+}
+.mv-skeletonrows__row {
+  height: 44px;
+  border-radius: 8px;
+  background: var(--mv-surface-sunken);
+  border: 1px solid var(--mv-line);
+}
+
+/* ---- Stepper ---- */
+.mv-stepper {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+}
+.mv-stepper__step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: var(--mv-size-sm);
+}
+.mv-stepper__marker {
+  font-size: var(--mv-size-sm);
+}
+.mv-stepper__label {
+  color: var(--mv-ink-2);
+  font-weight: 500;
+}
+.mv-stepper__note {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  margin-left: 6px;
+}
+.mv-stepper__step.is-done .mv-stepper__marker {
+  color: var(--mv-verified-text);
+}
+.mv-stepper__step.is-done .mv-stepper__label {
+  color: var(--mv-ink-1);
+}
+.mv-stepper__step.is-active .mv-stepper__marker {
+  color: var(--mv-transit-text);
+}
+.mv-stepper__step.is-active .mv-stepper__label {
+  color: var(--mv-ink-1);
+}
+.mv-stepper__step.is-halted .mv-stepper__marker {
+  color: var(--mv-danger-text);
+}
+.mv-stepper__step.is-unknown .mv-stepper__marker {
+  color: var(--mv-hold-text);
+}
+.mv-stepper__step.is-pending .mv-stepper__marker {
+  color: var(--mv-ink-3);
+}
+
+/* ---- Narrow viewports: topbar wraps, meta tags break ---- */
+@media (max-width: 360px) {
+  .mv-topbar__ops {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-left: 0;
+  }
+  .mv-panel__meta .mv-tag,
+  .mv-panel__meta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+}
+
+/* Long identifiers inside governed panels never widen narrow viewports. */
+.mv-governed__list .mv-num,
+.mv-governed .mv-hud,
+.mv-xcard .mv-num,
+.mv-sidepanel .mv-num {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
