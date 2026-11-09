@@ -19,7 +19,7 @@ import type {
   MissionTimelineView,
   ObservationReading,
 } from '../mission-events/src/view.js';
-import { snapshotServiceFor } from './decision-snapshots.js';
+import { snapshotServiceFor, DECISION_CATALOG } from './decision-snapshots.js';
 import { guard } from '../auth.js';
 
 const MAX_RECENT_EVENTS = 50;
@@ -33,8 +33,18 @@ export interface PhysicalViewPayload {
   tenant: { orgId: string; missionId: string };
   asOf: string;
   truthLabel: string;
+  /** Modeled-limit + freshness policy — the client renders, never re-derives. */
+  policy: {
+    maxAgeMs: number;
+    expiredMs: number;
+    uavAssetId: string;
+    uavWindLimitKt: number;
+  };
   assets: {
     assetId: string;
+    /** Physical domain of the asset ('aerial' for the catalog inspection UAV). */
+    kind: string;
+    label?: string;
     comms: string | null;
     positionStatus: string | null;
     latest: Record<
@@ -45,11 +55,17 @@ export interface PhysicalViewPayload {
   recentEvents: {
     eventId: string;
     journalSeq: number;
+    /** The source's own per-stream sequence (independent across sources). */
+    sequence: number;
     assetId: string;
     sourceId: string;
     sourceType: string;
     provenance: string;
     observedAt: string;
+    /** Emission time at the source (may precede ingestion — delayed delivery). */
+    ingestedAt: string;
+    /** Ledger recording time (journal write). */
+    recordedAt: string;
     eventDigest: string;
     observations: { kind: string; unit: string; value: string }[];
     freshness: string;
@@ -141,8 +157,15 @@ function projectView(
         freshness: reading.freshness,
       };
     }
+    // The demo catalog owns the only asset this route journals for
+    // (DECISION_CATALOG.assetId) — its physical domain is aerial by
+    // definition of the modeled wind limit. Other asset ids cannot appear
+    // here today; if a second catalog lands, extend this mapping then.
+    const isCatalogAsset = assetId === DECISION_CATALOG.assetId;
     return {
       assetId,
+      kind: isCatalogAsset ? 'aerial' : 'unknown-domain',
+      ...(isCatalogAsset ? { label: 'Inspection UAV' } : {}),
       comms: state.comms,
       positionStatus: state.positionStatus,
       latest,
@@ -152,15 +175,24 @@ function projectView(
   const recentEvents = recent.map((event: AcceptedEventView) => ({
     eventId: event.eventId,
     journalSeq: event.journalSeq,
+    // Per-source sequence preserved alongside journal order: independent
+    // sources legitimately reuse the same sequence numbers.
+    sequence: event.sequence,
     assetId: event.assetId,
     sourceId: event.sourceId,
     sourceType: event.sourceType,
     provenance: event.provenance,
     observedAt: event.observedAt,
+    // Emission vs ledger recording kept distinct: delayed delivery must not
+    // rewrite event time (physical-view.v1 contract, Agent C).
+    ingestedAt: event.ingestedAt,
+    recordedAt: event.recordedAt,
     eventDigest: event.eventDigest,
-    observations: event.observations
-      .filter((o) => ALLOWED_KINDS.has(o.kind))
-      .map((o) => ({ kind: o.kind, unit: o.unit, value: String(o.value) })),
+    observations: event.observations.map((o) => ({
+      kind: o.kind,
+      unit: o.unit,
+      value: String(o.value),
+    })),
     freshness: event.freshness,
     planningValid: event.planningValid,
   }));
@@ -174,6 +206,15 @@ function projectView(
     tenant: { orgId: timeline.orgId, missionId: timeline.missionId },
     asOf: timeline.asOf,
     truthLabel,
+    // The modeled-limit and freshness policy travel WITH the payload: the
+    // client renders them (never re-derives) — single source of truth for
+    // what "stale" and "exceeds the limit" mean (physical-view.v1, Agent C).
+    policy: {
+      maxAgeMs: timeline.policy.maxAgeMs,
+      expiredMs: timeline.policy.expiredMs,
+      uavAssetId: DECISION_CATALOG.assetId,
+      uavWindLimitKt: windLimitKt,
+    },
     assets,
     recentEvents,
     constraints,
@@ -194,7 +235,11 @@ export function registerPhysicalViewRoute(app: FastifyInstance, ledger: Ledger):
       // Read-only reconciliation against the verified timeline replay.
       const service = snapshotServiceFor(ledger, g.actor.orgId, missionId);
       const timeline = service.replay(g.actor.orgId, missionId);
-      return projectView(timeline, 'SIMULATED_OPERATION — POLICY-ONLY', 22);
+      return projectView(
+        timeline,
+        'SIMULATED_OPERATION — POLICY-ONLY',
+        DECISION_CATALOG.windLimitKt,
+      );
     } catch (error) {
       request.log.error({ err: error }, 'physical view read failed');
       return reply.code(500).send({ error: { code: 'INTERNAL' } });
