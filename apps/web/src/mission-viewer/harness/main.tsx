@@ -24,7 +24,7 @@ import '@fontsource-variable/geist-mono';
 import '../../theme/tokens.css';
 import '../mission-viewer.css';
 import './harness.css';
-import { MissionPhysicalViewer } from '../index.js';
+import { MissionPhysicalViewer, snapshotFromServerPayload } from '../index.js';
 import type { PhysicalViewSnapshot } from '../contract.js';
 import { projectSceneState } from '../scene-state.js';
 
@@ -35,7 +35,10 @@ const FIXTURE_MODULES = import.meta.glob('../fixtures/*.physical-view.json', {
 const FIXTURES = new Map<string, { description: string; snapshot: PhysicalViewSnapshot }>();
 for (const [path, mod] of Object.entries(FIXTURE_MODULES)) {
   const name = path.match(/([^/]+)\.physical-view\.json$/)?.[1] ?? path;
-  FIXTURES.set(name, { description: mod.default.description ?? name, snapshot: mod.default });
+  // Every fixture passes the STRICT server-shape adapter on load — the
+  // harness crashes otherwise, so shape compliance is continuously proven.
+  const snapshot = snapshotFromServerPayload(mod.default);
+  FIXTURES.set(name, { description: mod.default.description ?? name, snapshot });
 }
 
 function params(): URLSearchParams {
@@ -162,6 +165,16 @@ createRoot(root).render(<Harness />);
 // Debug surface for Playwright (read-only).
 (window as { __MPV_DEBUG?: unknown }).__MPV_DEBUG = {
   fixtures: [...FIXTURES.keys()],
+  // Strict server-shape adapter exposed for adversarial e2e: positive cases
+  // must pass, any mutated payload must fail closed with the reason.
+  validateAdapter: (payload: unknown): { ok: boolean; reason?: string } => {
+    try {
+      snapshotFromServerPayload(payload);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  },
   engineDebug: () =>
     (window as { __MPV_ENGINE?: { debug(): unknown } }).__MPV_ENGINE?.debug() ?? null,
 };

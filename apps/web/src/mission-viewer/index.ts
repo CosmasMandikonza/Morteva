@@ -7,10 +7,15 @@
  * entry is vite-gated; embedders lazy-load via import()).
  */
 export { MissionPhysicalViewer } from './MissionPhysicalViewer.jsx';
-export type { MissionPhysicalViewerProps } from './MissionPhysicalViewer.jsx';
+export type { MissionPhysicalViewerProps, SnapshotAvailability } from './MissionPhysicalViewer.jsx';
 export { projectSceneState, framingFor } from './scene-state.js';
 export type { SceneSelection } from './scene-state.js';
 export { WebGLUnavailableError } from './viewer3d.js';
+export {
+  snapshotFromServerPayload,
+  isPhysicalViewSnapshot,
+  PhysicalViewShapeError,
+} from './adapter.js';
 export type {
   PhysicalViewSnapshot,
   PhysicalViewEvent,

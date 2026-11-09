@@ -439,3 +439,35 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Honest availability states (C2): shown INSTEAD of a scene when the host
+   cannot deliver the physical-view snapshot. Never a demo-data substitute. */
+.mpv--unavailable,
+.mpv--loading {
+  display: block;
+}
+
+.mpv-unavailable {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 22px;
+  background: var(--mv-surface-sunken);
+}
+
+.mpv-unavailable__title {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  color: var(--mv-ink-1);
+}
+
+.mpv-unavailable__reason {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  max-width: 640px;
+}

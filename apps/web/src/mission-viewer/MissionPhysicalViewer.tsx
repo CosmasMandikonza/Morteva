@@ -20,11 +20,30 @@ import { EvidenceHud } from './hud.jsx';
 import type { PhysicalViewSnapshot, SceneState } from './contract.js';
 import './mission-viewer.css';
 
+export type SnapshotAvailability = 'ready' | 'loading' | 'unavailable';
+
 export interface MissionPhysicalViewerProps {
   /** Host-owned mission identity (rendered, never fetched). */
   readonly missionId: string;
-  /** Authoritative physical-view snapshot v1 for THIS mission. */
-  readonly snapshot: PhysicalViewSnapshot;
+  /**
+   * Authoritative physical-view snapshot v1 for THIS mission. REQUIRED when
+   * `availability` is 'ready' (default). The viewer NEVER substitutes demo
+   * data: when the host cannot deliver a snapshot it must say so via
+   * `availability: 'unavailable'` — an honest degraded card is rendered and
+   * the 3D/2D scene is not shown at all.
+   */
+  readonly snapshot: PhysicalViewSnapshot | null;
+  /**
+   * Host-declared snapshot availability (default 'ready'). 'loading' renders
+   * a pending state; 'unavailable' renders the honest degraded state with
+   * `unavailableReason` — used when the physical-view read endpoint is
+   * unreachable, unauthorized, or not yet deployed.
+   */
+  readonly availability?: SnapshotAvailability;
+  /** Required, human-readable, when availability is 'unavailable'. */
+  readonly unavailableReason?: string;
+  /** Optional host retry handler rendered on the unavailable card. */
+  readonly onRetryLoad?: () => void;
   /** Host-owned selection (controlled). */
   readonly selectedEventId: string | null;
   readonly onSelectEvent: (eventId: string | null) => void;
@@ -54,6 +73,9 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
   const {
     missionId,
     snapshot,
+    availability = 'ready',
+    unavailableReason,
+    onRetryLoad,
     selectedEventId,
     onSelectEvent,
     selectedAssetId,
@@ -83,6 +105,7 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
 
   const prefersReduced = usePrefersReducedMotion();
   const reduced = reducedMotion ?? prefersReduced;
+  const snapshotReady = availability === 'ready' && snapshot !== null;
 
   // Pure projection — the single source of everything the renderer draws.
   const selection: SceneSelection = useMemo(
@@ -93,15 +116,17 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
     }),
     [selectedEventId, selectedAssetId, decisionAvailable],
   );
-  const state: SceneState = useMemo(
-    () => projectSceneState(snapshot, selection),
-    [snapshot, selection],
+  const state: SceneState | null = useMemo(
+    () => (snapshotReady && snapshot !== null ? projectSceneState(snapshot, selection) : null),
+    [snapshotReady, snapshot, selection],
   );
 
   // 3D engine lifecycle: one engine per mount; full disposal on unmount or
   // mode change. The engine performs no fetches and no API writes ever.
+  // It is also never created without a ready snapshot — an unavailable or
+  // loading viewer shows the honest state card instead of a scene.
   useEffect(() => {
-    if (effectiveMode !== '3d') return;
+    if (effectiveMode !== '3d' || !snapshotReady) return;
     const host = canvasHostRef.current;
     const markerLayer = markerLayerRef.current;
     if (host === null || markerLayer === null) return;
@@ -118,7 +143,7 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
         onFrameDebug: (info) => setFrameInfo(info),
       });
       engineRef.current = engine;
-      engine.applyState(state, snapshot);
+      engine.applyState(state!, snapshot!);
       engine.setFraming('overview', false);
       (window as { __MPV_ENGINE?: MissionViewer3d }).__MPV_ENGINE = engine;
     } catch (error) {
@@ -134,14 +159,16 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
       engineRef.current = null;
       delete (window as { __MPV_ENGINE?: MissionViewer3d }).__MPV_ENGINE;
     };
-    // Rebuild only on mode/theme change; per-frame state flows via applyState.
-    // (The exhaustive-deps rule is not configured in this repo's eslint set,
-    // so no disable comment is needed — the narrower dep array is deliberate.)
-  }, [effectiveMode, theme]);
+    // Rebuild only on mode/theme/snapshot-availability change; per-frame
+    // state flows via applyState. (The exhaustive-deps rule is not configured
+    // in this repo's eslint set — the narrower dep array is deliberate.)
+  }, [effectiveMode, theme, snapshotReady]);
 
   // Push projected state into the engine without rebuilding it.
   useEffect(() => {
-    if (effectiveMode === '3d') engineRef.current?.applyState(state, snapshot);
+    if (effectiveMode === '3d' && state !== null && snapshot !== null) {
+      engineRef.current?.applyState(state, snapshot);
+    }
   }, [state, snapshot, effectiveMode]);
 
   useEffect(() => {
@@ -150,30 +177,83 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
 
   // Framing follows the storyboard: overview → asset focus → event focus.
   useEffect(() => {
-    if (effectiveMode !== '3d') return;
+    if (effectiveMode !== '3d' || state === null) return;
     if (state.selected !== null) engineRef.current?.setFraming('event');
     else if (selectedAssetId !== null) engineRef.current?.setFraming('asset');
     else engineRef.current?.setFraming('overview');
   }, [state, selectedAssetId, effectiveMode]);
 
   const requested3d = displayMode !== '2d';
-  const show3d = effectiveMode === '3d';
+  const show3d = effectiveMode === '3d' && snapshotReady;
+
+  // Honest availability card: the viewer NEVER substitutes demo data — an
+  // unavailable physical-view read renders this state instead of a scene.
+  if (availability === 'unavailable' || (availability === 'ready' && snapshot === null)) {
+    return (
+      <section
+        className={['mpv', 'mpv--unavailable', className ?? ''].join(' ')}
+        data-testid="mission-viewer"
+        data-availability="unavailable"
+        data-theme-mode={theme}
+        aria-label={`Physical mission viewer for mission ${missionId} — currently unavailable`}
+      >
+        <div className="mpv-unavailable" data-testid="mpv-unavailable">
+          <span className="mpv-chip mpv-chip--truth">SIMULATED_OPERATION</span>
+          <h4 className="mpv-unavailable__title">Physical evidence read-out unavailable</h4>
+          <p className="mpv-unavailable__reason" data-testid="mpv-unavailable-reason">
+            {unavailableReason ??
+              'The physical-view snapshot for this mission could not be loaded. Showing no scene rather than an unverified one.'}
+          </p>
+          <p className="mpv-note">
+            The viewer renders only admitted, authenticated journal evidence — no demo data is
+            substituted while the read is down.
+          </p>
+          {onRetryLoad !== undefined && (
+            <button type="button" className="mpv-hud__modebtn" data-testid="mpv-retry-load" onClick={onRetryLoad}>
+              Retry
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+  if (availability === 'loading') {
+    return (
+      <section
+        className={['mpv', 'mpv--loading', className ?? ''].join(' ')}
+        data-testid="mission-viewer"
+        data-availability="loading"
+        data-theme-mode={theme}
+        aria-label={`Physical mission viewer for mission ${missionId} — loading evidence`}
+      >
+        <div className="mpv-unavailable" data-testid="mpv-loading" role="status">
+          <span className="mpv-chip mpv-chip--truth">SIMULATED_OPERATION</span>
+          <h4 className="mpv-unavailable__title">Loading admitted physical evidence…</h4>
+        </div>
+      </section>
+    );
+  }
+
+  // Past the availability gates the snapshot is ready by construction.
+  const readySnapshot = snapshot as PhysicalViewSnapshot;
+  const readyState = state as SceneState;
 
   return (
     <section
       className={['mpv', className ?? ''].join(' ')}
       data-testid="mission-viewer"
-      data-phase={state.phase}
+      data-availability="ready"
+      data-phase={readyState.phase}
       data-mode={show3d ? '3d' : '2d'}
       data-theme-mode={theme}
-      aria-label={`Physical mission viewer for mission ${missionId} — ${snapshot.truthLabel}`}
+      aria-label={`Physical mission viewer for mission ${missionId} — ${readySnapshot.truthLabel}`}
     >
       <div className="mpv-stage">
         {show3d ? (
           <>
             <div ref={canvasHostRef} className="mpv-canvas-host" data-testid="mpv-canvas" />
             <div ref={markerLayerRef} className="mpv-marker-layer" aria-hidden="false">
-              {state.markers.map((marker) => (
+              {readyState.markers.map((marker) => (
                 <button
                   key={marker.eventId}
                   type="button"
@@ -194,8 +274,8 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
           </>
         ) : (
           <Viewer2d
-            state={state}
-            snapshot={snapshot}
+            state={readyState}
+            snapshot={readySnapshot}
             selectedEventId={selectedEventId}
             onSelectEvent={onSelectEvent}
             theme={theme}
@@ -203,9 +283,9 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
         )}
 
         <EvidenceHud
-          state={state}
-          snapshot={snapshot}
-          selected={state.selected}
+          state={readyState}
+          snapshot={readySnapshot}
+          selected={readyState.selected}
           theme={theme}
           frameInfo={show3d ? frameInfo : null}
           reducedMotion={reduced}
@@ -228,10 +308,10 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
 
       {!hideEventList && (
         <aside className="mpv-events" aria-label="Admitted evidence timeline">
-          <h4 className="mpv-events__title">Admitted evidence ({state.eventCount})</h4>
+          <h4 className="mpv-events__title">Admitted evidence ({readyState.eventCount})</h4>
           <ol className="mpv-events__list">
-            {[...state.markers].reverse().map((marker) => {
-              const event = snapshot.events.find((e) => e.eventId === marker.eventId);
+            {[...readyState.markers].reverse().map((marker) => {
+              const event = readySnapshot.events.find((e) => e.eventId === marker.eventId);
               if (event === undefined) return null;
               return (
                 <li key={marker.eventId}>
@@ -260,7 +340,7 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
 
       {/* Non-visual incident description for screen readers (acceptance #34). */}
       <p className="mpv-visually-hidden" role="status" data-testid="mpv-sr-status">
-        {srDescription(state, snapshot)}
+        {srDescription(readyState, readySnapshot)}
       </p>
     </section>
   );
