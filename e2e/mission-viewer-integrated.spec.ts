@@ -92,7 +92,9 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
   const viewer = page.locator('[data-testid="decision-room"] [data-testid="mission-viewer"]');
   await expect(viewer).toHaveAttribute('data-availability', 'ready', { timeout: 30_000 });
   if (await page.getByTestId('mpv-unavailable-reason').count()) {
-    throw new Error('UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()));
+    throw new Error(
+      'UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()),
+    );
   }
   await expect(viewer).toHaveAttribute('data-phase', 'S0-initial');
   await expect(page.getByTestId('mpv-phase')).toContainText('unknown by design');
@@ -128,7 +130,9 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
     /evt_demo_incident_[a-z0-9]+/i,
   )?.[0];
   expect(incidentId).toBeTruthy();
-  await expect(viewer.locator('.mpv-events')).toContainText(new RegExp(incidentId!, 'i'), { timeout: 15_000 });
+  await expect(viewer.locator('.mpv-events')).toContainText(new RegExp(incidentId!, 'i'), {
+    timeout: 15_000,
+  });
   // The restricted state shows the financial decision link (host-provided),
   // never a payment result.
   await expect(page.getByTestId('mpv-decision-link')).toBeVisible();
