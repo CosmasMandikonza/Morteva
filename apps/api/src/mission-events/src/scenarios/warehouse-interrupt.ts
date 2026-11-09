@@ -150,6 +150,89 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
           'MEANINGFUL CHANGE #2: bridge verdict for this ground asset becomes blocked/' +
           'comms-offline — the planner must refuse any candidate that requires the robot.',
       }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 5,
+        observedMin: 28,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 30 },
+          { kind: 'battery_soc', unit: 'percent', value: 62 },
+        ),
+        expect: rejected('ASSET_OFFLINE'),
+        beat: 'ADVERSARIAL: ghost telemetry from the offline robot — refused fail-closed.',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 6,
+        observedMin: 30,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
+        expect: rejected('ASSET_OFFLINE'),
+        beat:
+          'ADVERSARIAL: SELF-RECOVERY — the offline robot claims its own comms are back. ' +
+          'bot-telemetry is not trustedForRecovery; an offline asset cannot speak itself healthy.',
+      }),
+      b.submission({
+        source: botSrc,
+        assetId: bot,
+        sequence: 5,
+        observedMin: 28,
+        observations: obs(
+          { kind: 'inspection_progress', unit: 'percent', value: 30 },
+          { kind: 'battery_soc', unit: 'percent', value: 62 },
+        ),
+        expect: rejected('DUPLICATE_EVENT'),
+        beat:
+          'ADVERSARIAL: exact link-layer replay of beat 7 (same eventId) — idempotent refusal; ' +
+          'a duplicated telemetry event can never double-count, let alone duplicate a proposal.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 4,
+        observedMin: 32,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
+        expect: rejected('SEQUENCE_GAP'),
+        beat: 'ADVERSARIAL: WMS jumps to sequence 4 while 3 is missing — lost updates fail closed.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 3,
+        observedMin: 34,
+        observations: obs(
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+          { kind: 'asset_position_status', unit: 'state', value: 'docked' },
+        ),
+        expect: accepted,
+        beat:
+          'AUTHORIZED RECOVERY: the WMS (trustedForRecovery supervisor) confirms the crew ' +
+          'reseated the radio — the ONLY path that may reopen an offline asset.',
+        economicEffect:
+          'MEANINGFUL CHANGE #3: comms restored. Recovery is a physical fact only — it does NOT ' +
+          'verify any payment, release any commitment or fabricate completed work.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 4,
+        observedMin: 36,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
+        expect: accepted,
+        beat: 'The previously lost update now arrives in order — the stream repairs itself.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: 'release-recovery-payment',
+        sequence: 5,
+        observedMin: 38,
+        observations: obs({ kind: 'asset_comms', unit: 'state', value: 'online' }),
+        expect: rejected('AUTHORITY_TERMS_REJECTED'),
+        beat:
+          'ADVERSARIAL: banking vocabulary riding in an event id — the physical channel refuses ' +
+          'it outright (unauthorized physical input can never change financial authority).',
+      }),
     ];
 
     return {
