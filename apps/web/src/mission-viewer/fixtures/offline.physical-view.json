@@ -1,0 +1,74 @@
+{
+  "description": "Gateway-declared offline; telemetry cannot speak (S5, blocked)",
+  "contractVersion": 1,
+  "tenant": {
+    "orgId": "org_64a2c56e-6e09-4e36-acf8-911be3b88026",
+    "missionId": "msn_db7b6ab8-be19-44f0-ad34-c44c1a755946"
+  },
+  "asOf": "2026-11-06T09:08:02.000Z",
+  "truthLabel": "SIMULATED_OPERATION",
+  "policy": {
+    "maxAgeMs": 900000,
+    "expiredMs": 1800000,
+    "uavAssetId": "uav-seeker-1",
+    "uavWindLimitKt": 22
+  },
+  "assets": [
+    {
+      "assetId": "uav-seeker-1",
+      "kind": "aerial",
+      "label": "Inspection UAV"
+    },
+    {
+      "assetId": "vessel-prospect",
+      "kind": "surface",
+      "label": "Moored vessel"
+    }
+  ],
+  "events": [
+    {
+      "eventId": "mevt_of01",
+      "journalSeq": 1,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:01:00.000Z",
+      "ingestedAt": "2026-11-06T09:01:02.000Z",
+      "recordedAt": "2026-11-06T09:01:02.000Z",
+      "eventDigest": "de53c63e37027098e04bc2ad00e3b791bfeed2062a02da1e545f704e4a187745",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_of02",
+      "journalSeq": 2,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "vessel-gateway",
+      "sourceType": "vessel_gateway",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:05:00.000Z",
+      "ingestedAt": "2026-11-06T09:05:02.000Z",
+      "recordedAt": "2026-11-06T09:05:02.000Z",
+      "eventDigest": "111666563d942270da659eb6354ed119a57b1eb17aeee6e1963a3ecaecc36a54",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "offline"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    }
+  ]
+}

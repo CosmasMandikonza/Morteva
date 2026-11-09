@@ -25,6 +25,13 @@ import {
 } from '../lib/api';
 import { money as moneyOf } from '../lib/format';
 import { ApprovePlanSheet, ManualPlanSheet } from '../components/GovernedActions';
+// MTV-09/12 (Agent C): physical mission viewport mounted per the CTO
+// integration directive. Placement/styling is Agent B's to evolve. While the
+// physical-view read endpoint is not deployed, this renders the THREE-FREE
+// honest unavailable card (no demo fixture substitution, no 3D bundle cost);
+// when Agent A ships the endpoint, switch to `MissionPhysicalViewerLazy`
+// with `snapshotFromServerPayload(json)` — see AGENT-B-HANDOFF.md.
+import { MissionViewerUnavailableCard } from '../mission-viewer/availability-cards.js';
 
 function money(minor: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(minor / 100);
@@ -371,6 +378,20 @@ export function DecisionRoom({
             <p className="mv-hud">Digest {journey.incident.eventDigest}</p>
           </section>
         )}
+        {/*
+          MTV-09/12 physical mission viewport (Agent C module). The
+          physical-view read endpoint (planner-endpoint-request.v1) is NOT
+          deployed on this build yet, so this renders the honest UNAVAILABLE
+          card — no demo fixture is substituted in the product shell, and no
+          3D bundle is downloaded for a state with no scene. When Agent A
+          ships the endpoint: load its JSON, validate via
+          `snapshotFromServerPayload`, and mount `MissionPhysicalViewerLazy`
+          with `availability="ready"` (selection below is already wired to
+          the journey's incident event id).
+        */}
+        <MissionViewerUnavailableCard
+          reason="The physical-view read for this mission is not available on this build (the sanitized mission-evidence read endpoint is not deployed yet). No scene is shown rather than an unverified one — the admitted incident above carries the exact journal identities."
+        />
         <div className="mv-decision-room__comparison">
           <DecisionCard title="Before · initial plan" decision={journey?.before ?? null} />
           <DecisionCard title="After · updated constraints" decision={journey?.after ?? null} />

@@ -15,16 +15,27 @@ const proxy = {
 // Default production builds exclude it entirely; the shipped shell is
 // untouched.
 const designLab = process.env.VITE_DESIGN_LAB === '1';
+// MTV-09/12 mission viewer (issue #11/#14): the standalone harness entry uses
+// the same isolation pattern, gated behind VITE_MISSION_VIEWER=1, so the
+// default production build stays byte-identical to main's and the three.js
+// dependency never enters the shipped shell bundle.
+const missionViewer = process.env.VITE_MISSION_VIEWER === '1';
 
 export default defineConfig({
   plugins: [react()],
   // With the lab disabled, rollupOptions is omitted entirely so the default
   // build's entry naming and hashes are indistinguishable from main's
   // (verified: byte-identical JS/CSS/HTML against an origin/main build).
-  ...(designLab
+  ...(designLab || missionViewer
     ? {
         build: {
-          rollupOptions: { input: { main: 'index.html', lab: 'design-lab.html' } },
+          rollupOptions: {
+            input: {
+              main: 'index.html',
+              ...(designLab ? { lab: 'design-lab.html' } : {}),
+              ...(missionViewer ? { missionViewer: 'mission-viewer.html' } : {}),
+            },
+          },
         },
       }
     : {}),
