@@ -4,6 +4,7 @@ import { SystemStatusCard } from './components/SystemStatusCard';
 import { Treasury } from './screens/Treasury';
 import { EvidenceReplay } from './screens/Evidence';
 import { PlannedSurface } from './screens/PlannedSurface';
+import { AuthorityExecution } from './screens/AuthorityExecution';
 import { DecisionRoom } from './screens/DecisionRoom';
 import { NAV_ITEMS, type SectionId } from './nav';
 import {
@@ -296,6 +297,13 @@ export function App(): JSX.Element {
           />
         ) : section === 'decisions' ? (
           <DecisionRoom
+            session={session}
+            mission={missionsForContext}
+            csrfToken={csrfToken}
+            onSessionExpired={handleSessionExpired}
+          />
+        ) : active.id === 'authority' ? (
+          <AuthorityExecution
             session={session}
             mission={missionsForContext}
             csrfToken={csrfToken}

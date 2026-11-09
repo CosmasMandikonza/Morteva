@@ -2058,3 +2058,77 @@ a {
 .mv-position .mv-progress {
   margin: 8px 0 4px;
 }
+
+/* ---- Authority & Execution (MTV-20) ---- */
+.mv-auth__section {
+  border: 1px solid var(--mv-line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: var(--mv-surface-card);
+  display: grid;
+  gap: 10px;
+}
+.mv-auth__head {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-md);
+  font-weight: 600;
+}
+.mv-auth__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.mv-auth__mandate,
+.mv-auth__plan {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--mv-surface-raised);
+}
+.mv-auth__mandatehead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-auth__mandatecap {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+}
+.mv-auth__planterms {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mv-auth__amount {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xl);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+}
+.mv-auth__terms {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  overflow-wrap: anywhere;
+}
+.mv-auth__approval {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+.mv-auth__history {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-3);
+}
