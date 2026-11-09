@@ -14,6 +14,7 @@ import { LedgerError } from '../errors.js';
 import { MIGRATION_0001_FINANCIAL_FOUNDATION } from './migrations-0001.js';
 import { MIGRATION_0002_FINANCIAL_AUTHORITY } from './migrations-0002.js';
 import { MIGRATION_0003_PROVIDER_RECEIPTS } from './migrations-0003.js';
+import { MIGRATION_0004_PRODUCTION_IDENTITY } from './migrations-0004.js';
 
 export interface Migration {
   readonly version: number;
@@ -25,6 +26,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'financial_foundation', sql: MIGRATION_0001_FINANCIAL_FOUNDATION },
   { version: 2, name: 'financial_authority', sql: MIGRATION_0002_FINANCIAL_AUTHORITY },
   { version: 3, name: 'provider_receipts', sql: MIGRATION_0003_PROVIDER_RECEIPTS },
+  { version: 4, name: 'production_identity', sql: MIGRATION_0004_PRODUCTION_IDENTITY },
 ];
 
 export interface MigrationReport {
