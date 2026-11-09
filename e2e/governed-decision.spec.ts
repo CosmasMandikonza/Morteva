@@ -282,22 +282,34 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     page,
   }) => {
     await signIn(page, 'operator');
-    // Mission A ships with a journaled demo incident (evt_demo_incident_*).
+    // A fresh ledger journals no incident until the journey is driven; run it
+    // on the default mission (Harbor) so the evidence chain exists to inspect.
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
+    await runStage(page, 'baseline');
+    await runStage(page, 'incident');
     await page.getByRole('navigation').getByRole('link', { name: 'Evidence Replay' }).click();
     await expect(page.getByTestId('evidence-panel')).toBeVisible();
     // The signed synthetic incident event is present with its full identity.
     await expect(page.getByTestId('evidence-panel')).toContainText('evt_demo_incident_', {
       timeout: 10_000,
     });
+    // The durable snapshot is journaled with its evaluation identity.
+    await expect(page.getByTestId('evidence-panel')).toContainText('planner.decision.snapshot', {
+      timeout: 10_000,
+    });
   });
 
   test('320px and 390px: governed panels do not overflow', async ({ page }) => {
     await signIn(page, 'operator');
-    // Mission A already carries the demo incident journey state.
+    // Drive the journey on the default mission so the governed panels render
+    // with real content (snapshots, proposal, journal-verified approval).
     await page.getByRole('link', { name: 'Decision Room' }).click();
-    await expect(page.getByTestId('recorded-snapshots')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('decision-room')).toBeVisible();
+    await runStage(page, 'baseline');
+    await runStage(page, 'incident');
+    await page.getByTestId('propose-plan').click();
+    await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       const sw = await page.evaluate<number>('document.documentElement.scrollWidth');
