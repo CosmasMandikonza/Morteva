@@ -63,6 +63,20 @@ export class AirwallexWebhookSignatureError extends Error {
   }
 }
 
+/**
+ * Thrown for EVERY webhook when no signing secret is configured (and the
+ * offline-fixture escape hatch is not explicitly set): a payments webhook
+ * endpoint must never degrade to unauthenticated acceptance.
+ */
+export class AirwallexWebhookRequiredError extends Error {
+  constructor() {
+    super(
+      'webhook ingestion refused: no signing secret is configured. Unauthenticated payment-status events fail closed; configure AIRWALLEX_WEBHOOK_SECRET before enabling the endpoint.',
+    );
+    this.name = 'AirwallexWebhookRequiredError';
+  }
+}
+
 /** Strips anything credential-shaped from a payload we constructed ourselves. */
 export function redactProviderPayload(value: unknown): string {
   const json = JSON.stringify(value ?? null);
@@ -135,11 +149,20 @@ export interface AirwallexDispatcherDeps {
     payload: unknown;
   }) => void;
   /**
-   * Webhook signing secret (server-only). When configured, ingestion REQUIRES
-   * a valid raw-bytes HMAC-SHA256 signature with a fresh timestamp (audit
-   * 2026-11-08); unverified events are refused before the sink.
+   * Webhook signing secret (server-only). REQUIRED for webhook ingestion:
+   * an HTTP endpoint that accepts payment-status webhooks must never accept
+   * unauthenticated events merely because no secret was configured — a
+   * missing secret FAILS CLOSED (every ingestion throws) until the secret is
+   * configured. See `allowUnverifiedWebhooks` for the only escape hatch.
    */
   readonly webhookSecret?: string;
+  /**
+   * Explicit verification opt-out for OFFLINE FIXTURE tests that exercise
+   * dedupe/ordering without cryptography. STRUCTURALLY BARRED on the live
+   * rail: `buildSandboxDispatcher` refuses a dispatcher with this flag set,
+   * so a production endpoint can never be wired verification-blind.
+   */
+  readonly allowUnverifiedWebhooks?: boolean;
   readonly clock: { now(): Date; iso(): string };
   /** Server-side beneficiary mapping per org (sandbox configuration, never client-supplied). */
   readonly beneficiaryIdForOrg: (orgId: string) => string | undefined;
@@ -153,6 +176,13 @@ export class AirwallexDispatcher implements RailDispatcher {
   private readonly orgByRequestId = new Map<string, string>();
 
   constructor(private readonly deps: AirwallexDispatcherDeps) {
+    if (deps.environment === 'sandbox' && deps.allowUnverifiedWebhooks === true) {
+      // Structural bar: a LIVE rail can never be verification-blind. The
+      // offline-fixture escape hatch exists only for test environments.
+      throw new Error(
+        'allowUnverifiedWebhooks is not permitted on a sandbox (live) dispatcher: webhook ingestion without a signing secret fails closed',
+      );
+    }
     this.client = new AirwallexClient(deps.config, deps.transport, deps.clock);
   }
 
@@ -584,13 +614,18 @@ export class AirwallexDispatcher implements RailDispatcher {
    * therefore cannot regress anything — reconciliation reads the provider's
    * CURRENT state, and the ledger's state machine rejects regressions anyway.
    *
-   * Signature enforcement (audit 2026-11-08): when the dispatcher is wired
-   * with `webhookSecret`, the caller MUST present the RAW request bytes plus
-   * the provider signature/timestamp header values; anything that does not
-   * verify (mismatch, stale replay window, future timestamp, malformed) is
-   * refused BEFORE the sink or any reconciliation. Without a configured
-   * secret the ingestion is signature-blind (development-only wiring; the
-   * production HTTP route must always configure the secret).
+   * Signature enforcement FAILS CLOSED (CTO convergence directive, Nov 9):
+   * an HTTP endpoint that accepts payment-status webhooks must never accept
+   * unauthenticated events merely because no signing secret was configured.
+   *  - Secret configured → every event MUST carry the RAW request bytes plus
+   *    the provider signature/timestamp header values; anything that does not
+   *    verify (mismatch, stale replay window, future timestamp, malformed) is
+   *    refused BEFORE the sink or any reconciliation.
+   *  - Secret MISSING → ingestion throws `AirwallexWebhookRequiredError` for
+   *    EVERY event (nothing reaches the sink; nothing reconciles). There is
+   *    no signature-blind mode on a live rail: `buildSandboxDispatcher`
+   *    refuses `allowUnverifiedWebhooks` outright, so the only way to ingest
+   *    unverified events is an explicit offline-fixture test wiring.
    */
   async ingestTransferWebhook(input: {
     readonly orgId: string;
@@ -606,7 +641,25 @@ export class AirwallexDispatcher implements RailDispatcher {
     /** Provider timestamp header value, unix seconds (required when webhookSecret is configured). */
     readonly timestamp?: string | number;
   }): Promise<{ deduped: boolean; reconciled: boolean }> {
-    if (this.deps.webhookSecret !== undefined) {
+    if (this.deps.webhookSecret === undefined) {
+      if (this.deps.allowUnverifiedWebhooks !== true) {
+        // FAIL CLOSED: webhooks are enabled (this method is the endpoint's
+        // entry) but verification cannot run. Refuse unconditionally.
+        this.append({
+          orgId: input.orgId,
+          operationId: null,
+          requestId: input.requestId ?? `webhook:${input.eventId}`,
+          transferId: input.transferId ?? null,
+          kind: 'ambiguous-failure',
+          httpStatus: null,
+          providerStatus: 'WEBHOOK_VERIFICATION_DISABLED',
+          payload: {
+            note: 'webhook refused: no signing secret configured and verification opt-out is not the offline-fixture escape hatch; configure webhookSecret — unauthenticated payment-status events are never accepted',
+          },
+        });
+        throw new AirwallexWebhookRequiredError();
+      }
+    } else {
       const verdict = verifyWebhookSignature({
         rawBody: input.rawBody ?? null,
         signature: input.signature,
@@ -794,7 +847,7 @@ function validateAgainstSettlementScope(
   };
 }
 
-/** Builds the LIVE (sandbox) dispatcher; refuses fixture transports. */
+/** Builds the LIVE (sandbox) dispatcher; refuses fixture transports AND webhook verification opt-outs. */
 export function buildSandboxDispatcher(
   config: AirwallexAdapterConfig,
   transport: AirwallexTransport,
@@ -816,6 +869,10 @@ export function buildSandboxDispatcher(
     store,
     clock,
     beneficiaryIdForOrg,
+    // The live rail is built WITHOUT allowUnverifiedWebhooks (the field is
+    // not part of this builder's inputs): webhook ingestion on the live rail
+    // ALWAYS fails closed until a signing secret is configured. There is no
+    // code path that can construct a verification-blind sandbox dispatcher.
     environment: 'sandbox',
   });
 }
@@ -827,6 +884,18 @@ export function buildOfflineFixtureDispatcher(
   store: ProviderReceiptStore,
   clock: { now(): Date; iso(): string },
   beneficiaryIdForOrg: (orgId: string) => string | undefined,
+  /** Test-only extras: dedupe sink or the explicit unverified-webhook opt-out (never available on the live builder). */
+  extras: {
+    webhookSink?: (event: {
+      eventId: string;
+      name: string;
+      transferId?: string;
+      requestId?: string;
+      payload: unknown;
+    }) => void;
+    webhookSecret?: string;
+    allowUnverifiedWebhooks?: boolean;
+  } = {},
 ): AirwallexDispatcher {
   return new AirwallexDispatcher({
     // Fixture runs regardless of credentials; config used for timeouts only.
@@ -836,6 +905,7 @@ export function buildOfflineFixtureDispatcher(
     clock,
     beneficiaryIdForOrg,
     environment: 'offline-fixture',
+    ...extras,
   });
 }
 

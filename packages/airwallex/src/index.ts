@@ -33,6 +33,7 @@ export type { AirwallexBalance, AirwallexTransferRecord } from './client.js';
 
 export {
   AirwallexDispatcher,
+  AirwallexWebhookRequiredError,
   AirwallexWebhookSignatureError,
   asSettlementScope,
   buildOfflineFixtureDispatcher,

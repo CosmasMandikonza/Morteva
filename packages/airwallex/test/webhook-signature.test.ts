@@ -8,7 +8,11 @@
 import { describe, expect, it } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { verifyWebhookSignature } from '../src/webhook-signature.js';
-import { AirwallexDispatcher, AirwallexWebhookSignatureError } from '../src/dispatcher.js';
+import {
+  AirwallexDispatcher,
+  AirwallexWebhookRequiredError,
+  AirwallexWebhookSignatureError,
+} from '../src/dispatcher.js';
 import { FixtureTransport, ok } from '../src/fixture-transport.js';
 import { loadAirwallexConfig } from '../src/config.js';
 import type { ProviderReceiptStore } from '@moterva/providers';
@@ -211,5 +215,82 @@ describe('airwallex webhook signature verification (raw-bytes HMAC-SHA256)', () 
         timestamp: NOW,
       }),
     ).resolves.toMatchObject({ deduped: false, reconciled: true });
+  });
+
+  it('FAILS CLOSED when no signing secret is configured: every webhook is refused, nothing reconciles (CTO Nov 9)', async () => {
+    const receipts: Array<{ kind: string; providerStatus: string | null }> = [];
+    const store: ProviderReceiptStore = {
+      append(receipt) {
+        receipts.push({ kind: receipt.kind, providerStatus: receipt.providerStatus });
+      },
+      listByRequestId: () => [],
+    };
+    const transport = new FixtureTransport({
+      login: [ok({ token: 't', expires_at: new Date(Date.now() + 900_000).toISOString() })],
+      createTransfer: [],
+      // Empty lane: if a reconciliation were (wrongly) triggered, the lane
+      // exhausts and throws — a second, structural guard on "nothing read".
+      listTransfers: [],
+      getTransfer: [],
+      balances: [],
+    });
+    const clock = {
+      now: () => new Date(NOW * 1000),
+      iso: () => new Date(NOW * 1000).toISOString(),
+    };
+    // NO webhookSecret, NO escape hatch: the endpoint is enabled (ingestion
+    // is being called) but verification cannot run — must refuse ALL events.
+    const unconfigured = new AirwallexDispatcher({
+      config: loadAirwallexConfig(),
+      transport,
+      store,
+      clock,
+      beneficiaryIdForOrg: () => 'beneficiary-fixture',
+      environment: 'offline-fixture',
+    });
+    await expect(
+      unconfigured.ingestTransferWebhook({
+        orgId: 'org_1',
+        eventId: 'evt-no-secret',
+        name: 'transfer.updated',
+        requestId: 'req-1',
+        payload: { status: 'PAID' },
+        rawBody: BODY,
+        signature: sign(BODY), // even a VALID-looking signature is refused — there is no secret to trust it against
+        timestamp: NOW,
+      }),
+    ).rejects.toBeInstanceOf(AirwallexWebhookRequiredError);
+    // The refusal was journaled and NOTHING reconciled (no provider read —
+    // the empty listTransfers lane above would throw on any attempt).
+    expect(receipts.some((r) => r.providerStatus === 'WEBHOOK_VERIFICATION_DISABLED')).toBe(true);
+  });
+
+  it('structurally bars the verification opt-out on a LIVE (sandbox) dispatcher — no builder or direct construction can create a verification-blind rail', () => {
+    const store: ProviderReceiptStore = { append() {}, listByRequestId: () => [] };
+    const transport = new FixtureTransport({
+      login: [],
+      createTransfer: [],
+      listTransfers: [],
+      getTransfer: [],
+      balances: [],
+    });
+    const clock = {
+      now: () => new Date(NOW * 1000),
+      iso: () => new Date(NOW * 1000).toISOString(),
+    };
+    // Direct construction with environment 'sandbox' + the opt-out throws in
+    // the constructor — `buildSandboxDispatcher` never passes the flag at all.
+    expect(
+      () =>
+        new AirwallexDispatcher({
+          config: loadAirwallexConfig(),
+          transport,
+          store,
+          clock,
+          beneficiaryIdForOrg: () => 'b',
+          environment: 'sandbox',
+          allowUnverifiedWebhooks: true,
+        }),
+    ).toThrow(/not permitted on a sandbox \(live\) dispatcher/);
   });
 });
