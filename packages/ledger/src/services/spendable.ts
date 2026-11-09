@@ -46,7 +46,7 @@ export class SpendableService {
    */
   compute(orgId: string, currency: string): SpendableView {
     const now = this.clock.now();
-    const account = this.accounts.getTreasuryAccount(orgId, currency);
+    const account = this.accounts.getAccountForCurrency(orgId, currency);
     const latest = this.accounts.latestSnapshot(orgId, currency, now);
     if (latest === undefined) {
       throw new LedgerError(

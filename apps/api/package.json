@@ -23,10 +23,14 @@
     "@moterva/planner": "0.1.0",
     "@moterva/providers": "0.1.0",
     "fastify": "^5.2.0",
+    "openid-client": "6.8.9",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/oidc-provider": "^9.13.1",
+    "jose": "6.2.15",
+    "oidc-provider": "9.13.3",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^5.1.0"

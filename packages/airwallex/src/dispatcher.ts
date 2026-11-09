@@ -782,6 +782,7 @@ export class AirwallexDispatcher implements RailDispatcher {
       return;
     }
     this.deps.store.append({
+      provider: 'airwallex',
       orgId: input.orgId,
       operationId: input.operationId,
       requestId: input.requestId,
