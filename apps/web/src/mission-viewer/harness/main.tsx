@@ -163,6 +163,12 @@ if (root === null) throw new Error('harness root missing');
 createRoot(root).render(<Harness />);
 
 // Debug surface for Playwright (read-only).
+const RAW_FIXTURES: Record<string, Record<string, unknown>> = {};
+for (const [path, mod] of Object.entries(FIXTURE_MODULES)) {
+  const name = path.match(/([^/]+)\.physical-view\.json$/)?.[1] ?? path;
+  RAW_FIXTURES[name] = mod.default as unknown as Record<string, unknown>;
+}
+(window as { __MPV_FIXTURES_RAW?: unknown }).__MPV_FIXTURES_RAW = RAW_FIXTURES;
 (window as { __MPV_DEBUG?: unknown }).__MPV_DEBUG = {
   fixtures: [...FIXTURES.keys()],
   // Strict server-shape adapter exposed for adversarial e2e: positive cases

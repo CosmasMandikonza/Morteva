@@ -585,3 +585,230 @@ test('C36 (case 36): no raw journal payloads or secrets enter the browser', asyn
   expect(audit.poisoned).not.toContain('secretKey');
   expect(audit.poisoned).not.toContain('signature"');
 });
+
+// ---------------------------------------------------------------------------
+// C2/C4 additions: strict server-shape adapter + additional browser cases.
+// ---------------------------------------------------------------------------
+
+type ValidateResult = { ok: boolean; reason?: string };
+
+ mutationSource);
+}
+
+function validateMutated(
+  page: Page,
+  mutation: (payload: Record<string, unknown>) => void,
+): Promise<ValidateResult> {
+  return page.evaluate((mutationSource) => {
+    const debug = (window as { __MPV_DEBUG?: { validateAdapter(p: unknown): ValidateResult } })
+      .__MPV_DEBUG;
+    const raw = (window as { __MPV_FIXTURES_RAW?: Record<string, Record<string, unknown>> })
+      .__MPV_FIXTURES_RAW;
+    const payload = JSON.parse(JSON.stringify(raw?.['primary'] ?? {}));
+    // The mutation source is test-authored (this file), never page content.
+    new Function('payload', mutationSource)(payload);
+    return debug!.validateAdapter(payload);
+  }, mutation.toString());
+}
+
+test.describe('C2 — strict server-shape adapter (fail closed)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoViewer(page, '?fixture=primary');
+  });
+
+  test('every committed fixture passes the strict adapter (proven on load)', async ({ page }) => {
+    for (const fixture of [
+      'primary',
+      'empty',
+      'stale',
+      'conflict',
+      'offline',
+      'recovered',
+      'warehouse',
+      'duplicate',
+    ]) {
+      await gotoViewer(page, `?fixture=${fixture}`);
+      await expect(page.locator('[data-testid="mission-viewer"]')).toHaveAttribute(
+        'data-availability',
+        'ready',
+        { timeout: 30_000 },
+      );
+    }
+  });
+
+  test('rejects: wrong contractVersion, missing field, unknown event asset, duplicate asset', async ({
+    page,
+  }) => {
+    let r = await validateMutated(page, (p) => {
+      p['contractVersion'] = 2;
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('contractVersion');
+
+    r = await validateMutated(page, (p) => {
+      const policy = p['policy'] as Record<string, unknown>;
+      policy['uavWindLimitKt'] = undefined;
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('uavWindLimitKt');
+
+    r = await validateMutated(page, (p) => {
+      const events = p['events'] as Record<string, unknown>[];
+      events[0]!['assetId'] = 'asset-ghost';
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/not a registered asset/);
+
+    r = await validateMutated(page, (p) => {
+      const assets = p['assets'] as Record<string, unknown>[];
+      assets[1]!['assetId'] = assets[0]!['assetId'];
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('duplicate assetId');
+  });
+
+  test('rejects: bad digest, invalid freshness enum, inverted policy, malformed timestamp', async ({
+    page,
+  }) => {
+    let r = await validateMutated(page, (p) => {
+      const events = p['events'] as Record<string, unknown>[];
+      events[0]!['eventDigest'] = 'zz-not-hex';
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('64-hex');
+
+    r = await validateMutated(page, (p) => {
+      const events = p['events'] as Record<string, unknown>[];
+      events[0]!['freshnessAtSnapshot'] = 'current';
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('freshnessAtSnapshot');
+
+    r = await validateMutated(page, (p) => {
+      const policy = p['policy'] as Record<string, unknown>;
+      policy['expiredMs'] = 1000;
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('expiredMs');
+
+    r = await validateMutated(page, (p) => {
+      const events = p['events'] as Record<string, unknown>[];
+      events[0]!['observedAt'] = '2026-11-06 09:00';
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('ISO-8601');
+  });
+
+  test('accepts optional metadata absence (label optional; kind mandatory)', async ({ page }) => {
+    const okNoLabel = await validateMutated(page, (p) => {
+      const assets = p['assets'] as Record<string, unknown>[];
+      const asset = assets[0]!;
+      delete asset['label'];
+    });
+    expect(okNoLabel.ok).toBe(true);
+    const noKind = await validateMutated(page, (p) => {
+      const assets = p['assets'] as Record<string, unknown>[];
+      const asset = assets[0]!;
+      delete asset['kind'];
+    });
+    expect(noKind.ok).toBe(false);
+    expect(noKind.reason).toContain('kind');
+  });
+});
+
+test.describe('C4 — additional browser resilience cases', () => {
+  test('out-of-order per-source arrival cannot reorder the journal timeline', async ({ page }) => {
+    await gotoViewer(page, '?fixture=primary');
+    const state = await stateJson(page);
+    // Journal order is the timeline: the gateway event (per-source seq 1)
+    // sits at journal #3 AFTER two telemetry events with higher per-source
+    // sequences — and the marker list follows the journal, not the sources.
+    expect(state.markers).toEqual(['mevt_pri01', 'mevt_pri02', 'mevt_pri03']);
+  });
+
+  test('rapid selection changes converge on a defined final state without errors', async ({
+    page,
+  }) => {
+    await gotoViewer(page, '?fixture=primary');
+    const items = page.locator('.mpv-events__item');
+    const count = await items.count();
+    for (let i = 0; i < count; i++) await items.nth(i).click();
+    // A final click on the already-selected last item deselects (toggle law):
+    const last = items.nth(count - 1);
+    await last.click();
+    await expect(last).toHaveAttribute('aria-pressed', 'false');
+    const state = await stateJson(page);
+    expect(state.selectedEventId).toBeNull();
+  });
+
+  test('switching missions during an active replay clears the replay state', async ({ page }) => {
+    await gotoViewer(page, '?fixture=primary&event=mevt_pri01');
+    const before = await stateJson(page);
+    expect(before.replay).toBe(true);
+    await gotoViewer(page, '?fixture=warehouse');
+    const after = await stateJson(page);
+    expect(after.selectedEventId).toBeNull();
+    expect(after.replay).toBe(false);
+    expect(after.markers.every((id) => !id.startsWith('mevt_pri'))).toBe(true);
+  });
+
+  test('browser resize during a camera transition settles deterministically', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await gotoViewer(page, '?fixture=primary&event=mevt_pri03');
+    // Fire a resize while the 950ms framing transition is still running.
+    await page.waitForTimeout(200);
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.waitForTimeout(1600);
+    const withResize = await engineDebug(page);
+    // Deterministic: the same scenario without the mid-transition resize
+    // lands at the identical settled camera pose.
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await gotoViewer(page, '?fixture=primary&event=mevt_pri03');
+    await page.waitForTimeout(2500);
+    const withoutResize = await engineDebug(page);
+    expect(withResize?.camera).toEqual(withoutResize?.camera);
+    expect(withResize?.framing).toBe('event');
+  });
+
+  test('device-pixel-ratio change adapts the backing store and keeps the scene', async ({
+    page,
+  }) => {
+    await gotoViewer(page, '?fixture=primary');
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1000,
+      height: 600,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await page.waitForTimeout(900);
+    await expect(page.locator('[data-testid="mission-viewer"]')).toHaveAttribute('data-mode', '3d');
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1000,
+      height: 600,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await page.waitForTimeout(600);
+    await expect(page.locator('[data-testid="mission-viewer"]')).toHaveAttribute('data-mode', '3d');
+    await expect(page.locator('[data-testid="mpv-canvas"] canvas')).toBeVisible();
+  });
+
+  test('context loss during rapid evidence selection preserves the final selection', async ({
+    page,
+  }) => {
+    await gotoViewer(page, '?fixture=primary');
+    const items = page.locator('.mpv-events__item');
+    await items.nth(0).click();
+    await items.nth(1).click();
+    await page.evaluate(() => {
+      (
+        window as { __MPV_ENGINE?: { simulateContextLoss(): void } }
+      ).__MPV_ENGINE?.simulateContextLoss();
+    });
+    await expect(page.locator('[data-testid="mission-viewer"]')).toHaveAttribute('data-mode', '2d');
+    await expect(page.locator('.mpv-events__item[aria-pressed="true"]')).toContainText(
+      'mevt_pri02',
+    );
+  });
+});

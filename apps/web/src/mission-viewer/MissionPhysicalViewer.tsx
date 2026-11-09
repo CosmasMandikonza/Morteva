@@ -209,7 +209,12 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
             substituted while the read is down.
           </p>
           {onRetryLoad !== undefined && (
-            <button type="button" className="mpv-hud__modebtn" data-testid="mpv-retry-load" onClick={onRetryLoad}>
+            <button
+              type="button"
+              className="mpv-hud__modebtn"
+              data-testid="mpv-retry-load"
+              onClick={onRetryLoad}
+            >
               Retry
             </button>
           )}

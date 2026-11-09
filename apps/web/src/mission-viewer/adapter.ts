@@ -82,7 +82,10 @@ function reqEnum<T extends string>(
  * a string (decimal-string kinds per the ingest contract) — both travel the
  * wire exactly as admitted.
  */
-function obsOf(raw: unknown, where: string): { kind: string; unit: string; value: number | string } {
+function obsOf(
+  raw: unknown,
+  where: string,
+): { kind: string; unit: string; value: number | string } {
   if (!isRecord(raw)) throw new PhysicalViewShapeError(`${where} must be an object`);
   const kind = reqString(raw, 'kind', where);
   const unit = reqString(raw, 'unit', where);
@@ -137,7 +140,12 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
     const assetId = reqString(raw, 'assetId', where);
     if (assetIds.has(assetId)) throw new PhysicalViewShapeError(`duplicate assetId "${assetId}"`);
     assetIds.add(assetId);
-    const kind = reqEnum(raw, 'kind', KINDS as readonly (typeof KINDS)[number][] as readonly string[], where);
+    const kind = reqEnum(
+      raw,
+      'kind',
+      KINDS as readonly (typeof KINDS)[number][] as readonly string[],
+      where,
+    );
     const out: { assetId: string; kind: PhysicalViewAsset['kind']; label?: string } = {
       assetId,
       kind: kind as PhysicalViewAsset['kind'],

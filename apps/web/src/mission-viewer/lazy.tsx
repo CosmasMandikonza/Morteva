@@ -30,13 +30,7 @@ export function MissionPhysicalViewerLazy(
   const documentTheme = useDocumentTheme();
   const theme = props.theme ?? documentTheme;
   return (
-    <Suspense
-      fallback={
-        <MissionViewerLoadingCard
-          className={props.className}
-        />
-      }
-    >
+    <Suspense fallback={<MissionViewerLoadingCard className={props.className} />}>
       <Viewer {...props} theme={theme} />
     </Suspense>
   );
