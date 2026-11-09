@@ -104,7 +104,7 @@ test('mounted viewer: honest unavailable state inside the real Decision Room', a
   const incident = page.getByTestId('physical-incident');
   await expect(incident).toContainText('24.6 kt');
   const incidentText = await incident.innerText();
-  expect(incidentText).toMatch(/mevt_[0-9a-f]+/); // exact journal event id present
+  expect(incidentText).toMatch(/EVT_[A-Za-z0-9_]+|mevt_[0-9a-f]+/); // exact journal event id present
 
   // Financial decision cards are unaffected by the mount.
   await expect(page.getByTestId('decision-room')).toContainText('After · updated constraints');

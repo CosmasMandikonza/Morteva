@@ -603,7 +603,12 @@ function validateMutated(
       .__MPV_FIXTURES_RAW;
     const payload = JSON.parse(JSON.stringify(raw?.['primary'] ?? {}));
     // The mutation source is test-authored (this file), never page content.
-    new Function('payload', mutationSource)(payload);
+    // `return (arrow)(payload)` — a bare arrow at statement position would
+    // be parsed as an expression statement and never apply the mutation.
+    const apply = new Function('payload', `return (${mutationSource})(payload);`) as (
+      p: Record<string, unknown>,
+    ) => void;
+    apply(payload);
     return debug!.validateAdapter(payload);
   }, mutation.toString());
 }
