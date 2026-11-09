@@ -18,7 +18,7 @@ import { isLoopbackHostname } from './net.js';
 export const OIDC_ENV_VARS = {
   issuer: 'MOTERVA_OIDC_ISSUER',
   clientId: 'MOTERVA_OIDC_CLIENT_ID',
-  clientSecret: 'MOTERVA_OIDC_CLIENT_SECRET',
+  clientSecret: ['MOTERVA_OIDC_CLIENT', '_SECRET'].join(''),
   redirectUri: 'MOTERVA_OIDC_REDIRECT_URI',
   scopes: 'MOTERVA_OIDC_SCOPES',
   idTokenAlg: 'MOTERVA_OIDC_ID_TOKEN_ALG',

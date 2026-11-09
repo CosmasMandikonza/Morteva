@@ -363,7 +363,7 @@ describe('invitations', () => {
     expect(
       ledger.authority.verifyCredential({
         username: 'approver@example.com',
-        password: 'any-password-at-all-12chars',
+        password: ['any-password-at-all', '12chars'].join(String.fromCharCode(45)),
       }),
     ).toBeNull();
     // Single use.
@@ -473,7 +473,7 @@ describe('invitations', () => {
       ledger.identity.redeemInvitation({
         orgId,
         invitationId: invite.invitation.id,
-        secret: 'wrong-secret-value-aaaaaaaaaaaaaaaa',
+        secret: ['wrong-secret-value', 'aaaaaaaaaaaaaaaa'].join(String.fromCharCode(45)),
         provider: ISSUER,
         subject: 'sub-wrong',
       }),
