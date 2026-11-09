@@ -81,6 +81,7 @@ describe('production startup with identity', () => {
       undefined,
       ledger,
       undefined,
+      undefined,
       STUB_CLIENT,
     );
     await app.ready();

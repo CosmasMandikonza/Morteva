@@ -77,6 +77,10 @@ function makeDispatcher(
     store,
     clock,
     () => beneficiary,
+    // Offline-fixture escape hatch: these are SINK/reconcile-behavior tests,
+    // not signature tests (the live sandbox builder has no such parameter —
+    // see webhook-signature.test.ts for the fail-closed matrix).
+    { allowUnverifiedWebhooks: true },
   );
   return { dispatcher, store, ledger, fixture, orgId, missionId, ns };
 }
@@ -395,13 +399,17 @@ describe('webhook ingestion (at-least-once, out-of-order safe)', () => {
       store,
       clock,
       () => 'ben-1',
+      // Offline-fixture escape hatch (explicit; structurally barred on the
+      // live sandbox builder): these tests exercise SINK dedupe/ordering,
+      // not signature verification.
+      {
+        allowUnverifiedWebhooks: true,
+        webhookSink: (event: { eventId: string }) => {
+          if (seen.includes(event.eventId)) throw new Error('duplicate event');
+          seen.push(event.eventId);
+        },
+      },
     );
-    // inject the dedupe sink (production wires the ledger evidence journal)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (dispatcher as any).deps.webhookSink = (event: { eventId: string }) => {
-      if (seen.includes(event.eventId)) throw new Error('duplicate event');
-      seen.push(event.eventId);
-    };
 
     const first = await dispatcher.ingestTransferWebhook({
       orgId,
