@@ -19,6 +19,9 @@
     },
     {
       "path": "../../packages/planner"
+    },
+    {
+      "path": "../../packages/metal"
     }
   ]
 }
