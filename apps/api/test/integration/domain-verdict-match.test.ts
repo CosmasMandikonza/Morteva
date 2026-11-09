@@ -105,7 +105,14 @@ function runTraceWithMatchedWalks(
       }),
     );
   }
-  return { ledger, dbDir, orgId: org.id, missionId: mission.id, verdicts, lastTimeline: lastTimeline! };
+  return {
+    ledger,
+    dbDir,
+    orgId: org.id,
+    missionId: mission.id,
+    verdicts,
+    lastTimeline: lastTimeline!,
+  };
 }
 
 /**
@@ -241,9 +248,9 @@ describe('P0-2 matched verdicts: physical-view engine ≡ planner bridge on REAL
       // ground facts journaled — the LAST matched verdict (final beat's walk,
       // agreed by both engines) and the view's authoritative latest-readings
       // map both stay honest `unknown/insufficient-evidence`.
-      expect(`${world.verdicts[world.verdicts.length - 1]!.state}/${world.verdicts[world.verdicts.length - 1]!.reason}`).toBe(
-        'unknown/insufficient-evidence',
-      );
+      expect(
+        `${world.verdicts[world.verdicts.length - 1]!.state}/${world.verdicts[world.verdicts.length - 1]!.reason}`,
+      ).toBe('unknown/insufficient-evidence');
       const lastTimeline = world.lastTimeline;
       const viewLatest = lastTimeline.assets['picker-bot-7']!.latest;
       const fromView = constraintFor({

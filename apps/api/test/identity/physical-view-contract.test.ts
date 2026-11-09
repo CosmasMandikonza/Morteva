@@ -140,7 +140,9 @@ describe('P0-1 — live HTTP payload satisfies the REAL strict viewer adapter', 
     const http = await get(OPERATOR, `/api/missions/${missionId}/physical-view`);
     const snapshot = snapshotFromServerPayload(http.json());
     expect(snapshot.events.length).toBe(2);
-    const baselineEvent = snapshot.events.find((e) => e.observations.some((o) => o.kind === 'wind_speed' && o.value === '14.2'));
+    const baselineEvent = snapshot.events.find((e) =>
+      e.observations.some((o) => o.kind === 'wind_speed' && o.value === '14.2'),
+    );
     expect(baselineEvent).toBeDefined();
     const scene = projectSceneState(snapshot, {
       selectedEventId: baselineEvent!.eventId,

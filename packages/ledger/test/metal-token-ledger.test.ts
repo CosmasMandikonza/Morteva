@@ -1160,7 +1160,12 @@ END`,
       orgId,
       missionId,
       proposedBy: operator.id,
-      terms: { amountMinor: 2_000_00, currency: 'USDZ', beneficiary: '0x' + 'c'.repeat(40), purpose: 'harbor inspection' },
+      terms: {
+        amountMinor: 2_000_00,
+        currency: 'USDZ',
+        beneficiary: '0x' + 'c'.repeat(40),
+        purpose: 'harbor inspection',
+      },
     });
     const approval = ledger.approvals.record({
       orgId,
@@ -1194,15 +1199,23 @@ END`,
       approvalId: approval.id,
     });
     expect(t0.operation.state).toBe('RESERVED');
-    const opsAfterT0 = (ledger.db
-      .prepare("SELECT COUNT(*) AS c FROM operations WHERE request_id = 'chain-fresh-t0'")
-      .get() as { c: number }).c;
+    const opsAfterT0 = (
+      ledger.db
+        .prepare("SELECT COUNT(*) AS c FROM operations WHERE request_id = 'chain-fresh-t0'")
+        .get() as { c: number }
+    ).c;
     expect(opsAfterT0).toBe(1);
 
     // Baseline for the zero-write assertion below.
     const opsAndCommitmentsBefore = {
       ops: (ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number }).c,
-      commitments: (ledger.db.prepare("SELECT COUNT(*) AS c FROM commitments WHERE currency = 'USDZ' AND state IN ('reserved','unknown')").get() as { c: number }).c,
+      commitments: (
+        ledger.db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM commitments WHERE currency = 'USDZ' AND state IN ('reserved','unknown')",
+          )
+          .get() as { c: number }
+      ).c,
     };
 
     // Advance 16 minutes: the chain read (recorded at T0) is now >15 min old.
@@ -1216,7 +1229,12 @@ END`,
         orgId,
         missionId,
         proposedBy: operator.id,
-        terms: { amountMinor: 1_000_00, currency: 'USDZ', beneficiary: '0x' + 'c'.repeat(40), purpose: 'harbor inspection' },
+        terms: {
+          amountMinor: 1_000_00,
+          currency: 'USDZ',
+          beneficiary: '0x' + 'c'.repeat(40),
+          purpose: 'harbor inspection',
+        },
       });
       const approval2 = ledger.approvals.record({
         orgId,
@@ -1239,10 +1257,16 @@ END`,
         }),
       ).toThrow(/CHAIN_READ_STALE|older than/);
       // ZERO new operations or commitments appeared after the read aged out.
-      const opsAfter = (ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number }).c;
-      const commitmentsAfter = (ledger.db
-        .prepare("SELECT COUNT(*) AS c FROM commitments WHERE currency = 'USDZ' AND state IN ('reserved','unknown')")
-        .get() as { c: number }).c;
+      const opsAfter = (
+        ledger.db.prepare('SELECT COUNT(*) AS c FROM operations').get() as { c: number }
+      ).c;
+      const commitmentsAfter = (
+        ledger.db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM commitments WHERE currency = 'USDZ' AND state IN ('reserved','unknown')",
+          )
+          .get() as { c: number }
+      ).c;
       expect(opsAfter).toBe(opsAndCommitmentsBefore.ops);
       expect(commitmentsAfter).toBe(opsAndCommitmentsBefore.commitments);
     } finally {
