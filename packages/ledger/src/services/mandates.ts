@@ -84,12 +84,39 @@ export class MandateService {
         throw new LedgerError('RAIL_NOT_PERMITTED', `unknown rail "${rail}"`);
       }
     }
-    if (rails.includes('metal')) {
-      // Tokenized assets cannot be funded from fiat treasuries (PR #23 gate);
-      // enabling Metal requires issue #6's separate asset accounting first.
+    // Rail/asset isolation (MTV-19 migration 0005): the metal rail is only
+    // authorized for a currency that is a REGISTERED token asset of this
+    // organization, and then EXCLUSIVELY — a token mandate can never carry
+    // the airwallex rail, and a fiat mandate can never carry metal. The
+    // mandate's permitted kinds must be metal_order only, so no token
+    // envelope can authorize a fiat operation either.
+    // Tolerate pre-migration databases (raw in-memory fixtures): without
+    // the table there are no registered token assets — fiat-only world.
+    const tokenCurrency =
+      this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'token_assets'")
+        .get() !== undefined &&
+      this.db
+        .prepare(
+          "SELECT id FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL",
+        )
+        .get(input.orgId, currency) !== undefined;
+    if (rails.includes('metal') && !tokenCurrency) {
       throw new LedgerError(
         'RAIL_ASSET_UNSUPPORTED',
-        'the metal rail cannot be authorized yet: token-asset accounts/precision are implemented in issue #6; a fiat USD mandate must never fund tokenized payments',
+        'the metal rail requires a currency that is a registered token asset of this organization (chain/contract/decimals + token account); fiat envelopes can never authorize tokenized payments',
+      );
+    }
+    if (!rails.includes('metal') && tokenCurrency) {
+      throw new LedgerError(
+        'RAIL_ASSET_UNSUPPORTED',
+        'a token-asset currency can only be mandated on the metal rail',
+      );
+    }
+    if (tokenCurrency && input.permittedOperationKinds.some((kind) => kind !== 'metal_order')) {
+      throw new LedgerError(
+        'RAIL_ASSET_UNSUPPORTED',
+        'a token-asset mandate can only permit metal_order operations',
       );
     }
     const allowedBeneficiaries = (input.allowedBeneficiaries ?? [])

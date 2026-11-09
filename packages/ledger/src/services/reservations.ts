@@ -109,6 +109,20 @@ export class ReservationService {
     'AUTH_SELF_APPROVAL',
   ]);
 
+  /** Live token-asset registry lookup (migration 0005); null when fiat. */
+  private tokenAssetLookup(orgId: string, currency: string): { id: string; currency: string } | null {
+    // Tolerate pre-migration databases (raw in-memory fixtures): without the
+    // table there are no registered token assets, i.e. fiat-only.
+    const table = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'token_assets'")
+      .get() as { name: string } | undefined;
+    if (table === undefined) return null;
+    const row = this.db
+      .prepare('SELECT id, currency FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL')
+      .get(orgId, currency) as { id: string; currency: string } | undefined;
+    return row ?? null;
+  }
+
   reserve(input: ReserveInput): ReserveResult {
     if (input.requestId.trim() === '') {
       throw new LedgerError('INVALID_INPUT', 'requestId must not be empty');
@@ -300,16 +314,25 @@ export class ReservationService {
         `mandate ${mandate.id} v${mandate.version} does not permit operation kind "${input.kind}"`,
       );
     }
-    // A tokenized Metal testnet payment cannot be funded out of an ISO USD
-    // bank account merely because the token's price is USD-denominated.
-    // Separate provider/asset balances (USDC decimals, chain, token contract)
-    // must exist before MTV-04/#6 may enable this rail. No fake fiat bridge.
-    // Checked before the rail allowlist so the asset-accounting invariant is
-    // always the primary, unambiguous failure for Metal orders.
-    if (input.kind === 'metal_order') {
+    // Asset-accounting isolation (MTV-19 migration 0005): a tokenized Metal
+    // order may ONLY be authorized in a currency that is a REGISTERED token
+    // asset for this organization (chain/contract/decimals verified at
+    // registration; balances only from chain reads). A fiat-USD treasury
+    // snapshot still can never fund a USDZ order, and a token mandate can
+    // never fund an Airwallex transfer — the (org, currency) keys make the
+    // two domains structurally disjoint. Checked before the rail allowlist
+    // so the asset invariant is always the primary, unambiguous failure.
+    const tokenAsset = this.tokenAssetLookup(mandate.orgId, money.currency);
+    if (input.kind === 'metal_order' && tokenAsset === null) {
       throw new LedgerError(
         'RAIL_ASSET_UNSUPPORTED',
-        'Metal token orders require a separate, verified token-asset account and mandate. Fiat USD treasury snapshots cannot fund a tokenized payment; implement the rail/asset ledger in issue #6 before enabling this kind.',
+        'metal_order requires a registered token asset for the mandate currency (registered chain/contract/decimals + token account); fiat treasury snapshots cannot fund a tokenized payment',
+      );
+    }
+    if (input.kind !== 'metal_order' && tokenAsset !== null) {
+      throw new LedgerError(
+        'RAIL_ASSET_UNSUPPORTED',
+        `currency ${money.currency} is a registered token asset; only metal_order may be authorized against it`,
       );
     }
 
