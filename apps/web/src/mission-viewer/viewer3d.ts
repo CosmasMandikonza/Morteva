@@ -391,6 +391,7 @@ export class MissionViewer3d {
         });
         this.droneGroup = group;
         this.scene.add(group);
+        this.needsRender = true; // async attach after the last frame must paint
         if (this.lastState !== null) this.applyPoses(this.lastState);
       },
       undefined,
@@ -399,6 +400,7 @@ export class MissionViewer3d {
         this.modelFallback = true;
         this.droneGroup = this.placeholderUav();
         this.scene.add(this.droneGroup);
+        this.needsRender = true;
         if (this.lastState !== null) this.applyPoses(this.lastState);
       },
     );
@@ -422,6 +424,7 @@ export class MissionViewer3d {
         });
         this.vesselGroup = group;
         this.scene.add(group);
+        this.needsRender = true; // async attach must paint
         this.applyVesselOrientation();
       },
       undefined,
@@ -429,6 +432,7 @@ export class MissionViewer3d {
         this.modelFallback = true;
         this.vesselGroup = this.placeholderVessel();
         this.scene.add(this.vesselGroup);
+        this.needsRender = true;
       },
     );
   }
