@@ -73,6 +73,15 @@ async function selectMission(page: Page, title: string): Promise<void> {
 /** Drive journal+snapshot for one stage on the selected mission, tolerating
  *  already-recorded state (idempotent replays are honest, not failures). */
 async function runStage(page: Page, stage: 'baseline' | 'incident'): Promise<void> {
+  // Already recorded by an earlier test/run on this ledger — replayed durable
+  // state is success, not failure (the server is idempotent by intent).
+  if (
+    await page
+      .getByTestId('snapshot-' + stage)
+      .isVisible()
+      .catch(() => false)
+  )
+    return;
   const button =
     stage === 'baseline'
       ? page.getByTestId('start-synthetic')
