@@ -20,6 +20,10 @@ import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
+import {
+  registerDecisionAuthorityRoutes,
+  registerDemoAuthorityRefreshRoute,
+} from './integration/decision-snapshots.js';
 
 export function buildApp(
   config: AppConfig,
@@ -58,6 +62,10 @@ export function buildApp(
       registerAuthAndFinancialRoutes(scope, config, ledger);
       // Controlled local-only physical-to-money demo; never mounted in production.
       registerDemoDecisionRoutes(scope, ledger);
+      // Durable decision snapshots + guarded proposal bridge (#19 A1/A2);
+      // demo-time authority refresh (#19 A5). Same DEMO_AUTH-only scope.
+      registerDecisionAuthorityRoutes(scope, ledger);
+      registerDemoAuthorityRefreshRoute(scope, ledger);
     });
   }
 
