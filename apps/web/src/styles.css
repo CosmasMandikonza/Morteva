@@ -2216,3 +2216,46 @@ a {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- Onboarding wizard step indicator (Cult UI Onboarding pattern) ---- */
+.mv-wizard__steps {
+  list-style: none;
+  display: flex;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 0;
+  flex-wrap: wrap;
+  font-size: var(--mv-size-sm);
+}
+.mv-wizard__steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--mv-ink-3);
+}
+.mv-wizard__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--mv-line-strong);
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+}
+.mv-wizard__steps li.is-active {
+  color: var(--mv-ink-1);
+}
+.mv-wizard__steps li.is-active .mv-wizard__num {
+  border-color: var(--mv-accent-fill);
+  color: var(--mv-accent-text);
+}
+.mv-wizard__steps li.is-done {
+  color: var(--mv-ink-2);
+}
+.mv-wizard__steps li.is-done .mv-wizard__num {
+  background: var(--mv-verified-bg);
+  color: var(--mv-verified-text);
+  border-color: transparent;
+}

@@ -242,6 +242,20 @@ export function MandateCreateSheet({
           this request — the button below exists so the refusal is observable, not to bypass it.
         </p>
       )}
+      {/* Cult UI Onboarding pattern: explicit step indicator with gating. */}
+      <ol className="mv-wizard__steps" aria-label="Mandate wizard steps">
+        <li className={step === 'form' ? 'is-active' : 'is-done'}>
+          <span className="mv-wizard__num">1</span> Constraints
+        </li>
+        <li
+          className={step === 'review' ? 'is-active' : step === 'form' ? 'is-pending' : 'is-done'}
+        >
+          <span className="mv-wizard__num">2</span> Exact review
+        </li>
+        <li className="is-pending">
+          <span className="mv-wizard__num">3</span> Server grant
+        </li>
+      </ol>
       {step === 'form' ? (
         <form
           className="mv-sheet__form"
