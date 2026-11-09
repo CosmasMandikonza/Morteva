@@ -11,10 +11,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openLedger, TunableClock, type Ledger } from '../src/index.js';
-import { TEST_PASSWORD, tempDbPath } from './helpers.js';
+import { TEST_PASSWORD } from './helpers.js';
 
 const DIR = mkdtempSync(join(tmpdir(), 'metal-receipts-'));
 const DB = join(DIR, 'ledger.sqlite');

@@ -227,6 +227,7 @@ describe('access and isolation', () => {
     const strip = (body: string) => {
       const parsed = JSON.parse(body) as { asOf: string };
       const { asOf, ...rest } = parsed;
+      void asOf;
       return JSON.stringify(rest);
     };
     // asOf is the read instant (freshness is relative to it, by contract);
