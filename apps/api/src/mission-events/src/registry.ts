@@ -35,6 +35,8 @@ export class SourceRegistry {
    *  legitimately exist in many missions/orgs (correction A). */
   private readonly byScopedSourceId = new Map<string, RegisteredSource>();
   private readonly byKeyId = new Map<string, RegisteredSource>();
+  /** Explicitly revoked keyIds: never silently re-registrable. */
+  private readonly revokedKeyIds = new Set<string>();
 
   register(source: RegisteredSource): void {
     if (source.sourceType === 'asset_telemetry' && source.assetIds.length !== 1) {
@@ -45,6 +47,11 @@ export class SourceRegistry {
     if (this.byKeyId.has(source.keyId)) {
       throw new Error(`keyId "${source.keyId}" is already registered`);
     }
+    if (this.revokedKeyIds.has(source.keyId)) {
+      // A revoked credential is never silently re-registrable: rotation means
+      // a NEW keyId, and resurrecting the old one would defeat revocation.
+      throw new Error(`keyId "${source.keyId}" was revoked and cannot be re-registered`);
+    }
     const scoped = JSON.stringify([source.orgId, source.missionId, source.sourceId]);
     this.byScopedSourceId.set(scoped, source);
     this.byKeyId.set(source.keyId, source);
@@ -52,6 +59,34 @@ export class SourceRegistry {
 
   registerAll(sources: readonly RegisteredSource[]): void {
     for (const source of sources) this.register(source);
+  }
+
+  /**
+   * Revokes a credential: the keyId stops resolving immediately, so every
+   * further event signed with it is refused exactly like an unknown key
+   * (UNREGISTERED_SOURCE) — and the keyId can never be silently re-registered
+   * under a different identity. Rotation means registering the NEW key;
+   * revocation is the removal of trust in the old one. An event in flight
+   * during rotation is not grandfathered: authentication happens at ingest
+   * time against the current registry.
+   */
+  revoke(keyId: string): boolean {
+    const source = this.byKeyId.get(keyId);
+    if (source === undefined) return false;
+    this.byKeyId.delete(keyId);
+    const scoped = JSON.stringify([source.orgId, source.missionId, source.sourceId]);
+    // Only delete the scoped entry if it still points at THIS source (a
+    // same-sourceId re-registration with a new keyId must survive).
+    if (this.byScopedSourceId.get(scoped) === source) {
+      this.byScopedSourceId.delete(scoped);
+    }
+    this.revokedKeyIds.add(keyId);
+    return true;
+  }
+
+  /** True when the keyId was explicitly revoked (audit/debug surface). */
+  isRevoked(keyId: string): boolean {
+    return this.revokedKeyIds.has(keyId);
   }
 
   /** Key ids are globally unique across orgs: a key pins the org it belongs to. */

@@ -1,0 +1,131 @@
+{
+  "description": "Conflicting source reports; the journal decides without silent favor (S1)",
+  "contractVersion": 1,
+  "tenant": {
+    "orgId": "org_3062b5cd-66b2-435e-8e78-2b25e10b5804",
+    "missionId": "msn_bff0957c-7b40-4215-95a3-fc66906abda1"
+  },
+  "asOf": "2026-11-06T09:07:02.000Z",
+  "truthLabel": "SIMULATED_OPERATION",
+  "policy": {
+    "maxAgeMs": 900000,
+    "expiredMs": 1800000,
+    "uavAssetId": "uav-seeker-1",
+    "uavWindLimitKt": 22
+  },
+  "assets": [
+    {
+      "assetId": "uav-seeker-1",
+      "kind": "aerial",
+      "label": "Inspection UAV"
+    },
+    {
+      "assetId": "vessel-prospect",
+      "kind": "surface",
+      "label": "Moored vessel"
+    }
+  ],
+  "events": [
+    {
+      "eventId": "mevt_cf01",
+      "journalSeq": 1,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:01:00.000Z",
+      "ingestedAt": "2026-11-06T09:01:02.000Z",
+      "recordedAt": "2026-11-06T09:01:02.000Z",
+      "eventDigest": "8adab4376670b0d6b1eaa8b5e2a039d32cfa474407d4312ea965064177aa10d7",
+      "observations": [
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "14.2"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_cf02",
+      "journalSeq": 2,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "vessel-gateway",
+      "sourceType": "vessel_gateway",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:04:00.000Z",
+      "ingestedAt": "2026-11-06T09:04:02.000Z",
+      "recordedAt": "2026-11-06T09:04:02.000Z",
+      "eventDigest": "a7b9df4c64d35c63e3738162c8a28d91cda23a4b24f489e6c797f237b1cf8cea",
+      "observations": [
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "24.6"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "active"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_cf03",
+      "journalSeq": 3,
+      "sequence": 2,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:07:00.000Z",
+      "ingestedAt": "2026-11-06T09:07:02.000Z",
+      "recordedAt": "2026-11-06T09:07:02.000Z",
+      "eventDigest": "0c6619aa5d7d0755a732600e1797342044252dfb613a815978d6d7f9be13bbd5",
+      "observations": [
+        {
+          "kind": "wind_speed",
+          "unit": "kt",
+          "value": "14.2"
+        },
+        {
+          "kind": "weather_hold",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    }
+  ]
+}

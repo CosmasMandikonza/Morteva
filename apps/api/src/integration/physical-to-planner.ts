@@ -18,6 +18,18 @@ export interface PhysicalSafetyPolicy {
   readonly asOf: Date;
   /** Explicit operator-defined limit, NOT measured or forecast weather. */
   readonly uavWindLimitKt: number;
+  /**
+   * Operator-declared physical domain per asset id (planner-adapter-request
+   * extension 2). AERIAL and UNDECLARED assets keep the historical state
+   * machine exactly (wind threshold + hold + comms). A declared GROUND asset
+   * NEVER consumes `wind_speed`/`weather_hold` for its verdict — an aerial
+   * wind limit is not a ground constraint, and a ground asset must never
+   * inherit aerial clearance. Comms remains domain-neutral for every asset.
+   * Until Agent A's ground-clearance contract lands (extension 1), a ground
+   * verdict is `blocked/comms-offline` when comms are offline and otherwise
+   * `unknown/insufficient-evidence` — never `clear`.
+   */
+  readonly assetKinds?: Readonly<Record<string, 'aerial' | 'ground'>>;
 }
 
 export interface PhysicalSafetyBridgeResult {
@@ -49,6 +61,14 @@ export function physicalTimelineToPlannerSafety(
   ) {
     throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
   }
+  if (policy.assetKinds !== undefined) {
+    for (const kind of Object.values(policy.assetKinds)) {
+      if (kind !== 'aerial' && kind !== 'ground') {
+        throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
+      }
+    }
+  }
+  const isGroundAsset = (assetId: string): boolean => policy.assetKinds?.[assetId] === 'ground';
   const latestByAsset = new Map<string, LatestReadings>();
   const evidence: MissionEvidenceInput[] = [];
   const withheldEventIds: string[] = [];
@@ -106,15 +126,36 @@ export function physicalTimelineToPlannerSafety(
     let state: 'clear' | 'blocked' | 'unknown';
     let reason:
       'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
-    if (latest.windKt !== undefined && latest.windKt > policy.uavWindLimitKt) {
+    let windParticipated: boolean;
+    if (isGroundAsset(event.assetId)) {
+      // GROUND domain: wind and hold are journaled facts but are INERT for
+      // the verdict — an aerial wind limit is not a ground constraint and a
+      // ground asset must never inherit aerial clearance (or aerial
+      // blocking). Comms is domain-neutral. Until Agent A's ground-clearance
+      // contract lands, no ground rule can produce `clear`: the verdict is
+      // blocked on comms-offline (a genuine ground-interrupting condition)
+      // and otherwise unknown — asset-dependent spend stays gated by the
+      // planner's ASSET_SAFETY_BLOCKED prerequisite.
+      if (latest.comms === 'offline') {
+        state = 'blocked';
+        reason = 'comms-offline';
+      } else {
+        state = 'unknown';
+        reason = 'insufficient-evidence';
+      }
+      windParticipated = false;
+    } else if (latest.windKt !== undefined && latest.windKt > policy.uavWindLimitKt) {
       state = 'blocked';
       reason = 'wind-limit';
+      windParticipated = true;
     } else if (latest.hold === 'active') {
       state = 'blocked';
       reason = 'weather-hold';
+      windParticipated = true;
     } else if (latest.comms === 'offline') {
       state = 'blocked';
       reason = 'comms-offline';
+      windParticipated = true;
     } else if (
       latest.windKt === undefined ||
       latest.hold !== 'clear' ||
@@ -122,9 +163,11 @@ export function physicalTimelineToPlannerSafety(
     ) {
       state = 'unknown';
       reason = 'insufficient-evidence';
+      windParticipated = true;
     } else {
       state = 'clear';
       reason = 'nominal';
+      windParticipated = true;
     }
 
     // No invented forecast, supplier price, payment event or physical control.
@@ -149,8 +192,11 @@ export function physicalTimelineToPlannerSafety(
         kind: 'asset-safety',
         state,
         reason,
-        observedWindKt: latest.windKt,
-        maxWindKt: policy.uavWindLimitKt,
+        // Wind attribution is honest: a ground constraint never carries
+        // aerial wind figures (they did not participate in the verdict).
+        ...(windParticipated
+          ? { observedWindKt: latest.windKt, maxWindKt: policy.uavWindLimitKt }
+          : {}),
       },
       validity: {
         notAfter: new Date(observedMs + timeline.policy.maxAgeMs).toISOString(),
