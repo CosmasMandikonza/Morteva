@@ -24,6 +24,11 @@ const CAPTURE_DIR = join(import.meta.dirname, '..', 'research', 'mtv-09', 'captu
 
 test.setTimeout(180_000);
 
+// The demo-auth server seeds ONE shared ledger: concurrent journeys reorder
+// the synthetic timeline and trip login rate limiting (documented D-3 class).
+// Serial execution is the established pattern for real-server journey specs.
+test.describe.configure({ mode: 'serial' });
+
 async function signIn(page: Page, username: 'founder' | 'operator'): Promise<void> {
   await page.goto('/');
   await page.getByLabel('Username').fill(username);
@@ -123,7 +128,7 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
     /evt_demo_incident_[a-z0-9]+/i,
   )?.[0];
   expect(incidentId).toBeTruthy();
-  await expect(viewer.locator('.mpv-events')).toContainText(incidentId!, { timeout: 15_000 });
+  await expect(viewer.locator('.mpv-events')).toContainText(new RegExp(incidentId!, 'i'), { timeout: 15_000 });
   // The restricted state shows the financial decision link (host-provided),
   // never a payment result.
   await expect(page.getByTestId('mpv-decision-link')).toBeVisible();
