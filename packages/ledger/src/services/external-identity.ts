@@ -452,6 +452,22 @@ export class ExternalIdentityService {
     if (input.provider === '' || input.subject === '') {
       throw new LedgerError('INVALID_INPUT', 'a verified identity (provider, subject) is required');
     }
+    return this.redeemWithRoleRules({ ...input, emailAtLink: input.emailAtLink ?? null });
+  }
+
+  /**
+   * Shared redemption transaction. A null secret is ONLY reachable through
+   * redeemPreverifiedInvitation (the consumed OIDC flow row already proved
+   * the secret was checked before the authorization redirect).
+   */
+  private redeemWithRoleRules(input: {
+    orgId: string;
+    invitationId: string;
+    secret: string | null;
+    provider: string;
+    subject: string;
+    emailAtLink: string | null;
+  }): { actor: ActorView; created: boolean } {
     return this.db.transaction(() => {
       const row = this.db
         .prepare('SELECT * FROM invitations WHERE id = ? AND org_id = ?')
@@ -467,10 +483,12 @@ export class ExternalIdentityService {
       if (new Date(text(row.expires_at, 'expires_at')) <= this.clock.now()) {
         throw new LedgerError('INVITATION_EXPIRED', 'invitation has expired');
       }
-      const provided = Buffer.from(sha256(input.secret), 'hex');
-      const stored = Buffer.from(text(row.secret_hash, 'secret_hash'), 'hex');
-      if (provided.length !== stored.length || !timingSafeEqual(provided, stored)) {
-        throw new LedgerError('INVITATION_SECRET_INVALID', 'invitation secret does not match');
+      if (input.secret !== null) {
+        const provided = Buffer.from(sha256(input.secret), 'hex');
+        const stored = Buffer.from(text(row.secret_hash, 'secret_hash'), 'hex');
+        if (provided.length !== stored.length || !timingSafeEqual(provided, stored)) {
+          throw new LedgerError('INVITATION_SECRET_INVALID', 'invitation secret does not match');
+        }
       }
       if (this.findActorIdByIdentity(input.orgId, input.provider, input.subject) !== null) {
         throw new LedgerError(
@@ -516,11 +534,14 @@ export class ExternalIdentityService {
           unknown
         >;
       } else {
-        if (existingRow.kind !== 'human' || existingRow.revoked_at !== null) {
+        if (existingRow.kind !== 'human') {
           throw new LedgerError(
             'AUTH_USERNAME_TAKEN',
             'the invited email collides with a non-invitable actor',
           );
+        }
+        if (existingRow.revoked_at !== null) {
+          throw new LedgerError('AUTH_ACTOR_REVOKED', 'the invited account has been revoked');
         }
         if (existingRow.role !== role) {
           // A pre-provisioned actor keeps ITS role; an invitation never
@@ -566,6 +587,200 @@ export class ExternalIdentityService {
       });
       return { actor, created };
     }, 'immediate');
+  }
+
+  /** Looks an invitation up by id alone (org-scoping is applied at redemption). */
+  findInvitationById(invitationId: string): InvitationView | null {
+    const row = this.db
+      .prepare('SELECT * FROM invitations WHERE id = ?')
+      .get(invitationId) as unknown;
+    return row === undefined ? null : this.mapInvitation(row);
+  }
+
+  // -------------------------------------------------------------- provisioning
+
+  /**
+   * Separately authorized provisioning: creates an organization's initial
+   * privileged actor (owner/admin) and binds the verified identity in one
+   * step. This is a SERVER-SIDE operation (direct ledger access IS the
+   * authorization) — there is deliberately NO HTTP route that can reach it,
+   * so no public registration flow can ever mint owner/admin authority.
+   * The actor is identity-only: password stays NULL, so no password path
+   * exists for the provisioned owner.
+   */
+  provisionIdentityActor(input: {
+    orgId?: string;
+    orgTitle?: string;
+    username: string;
+    displayName: string;
+    role: ActorRole;
+    provider: string;
+    subject: string;
+    emailAtLink?: string | null;
+    provisioningNote?: string;
+  }): { orgId: string; actor: ActorView; created: boolean } {
+    if (input.role !== 'owner' && input.role !== 'admin') {
+      throw new LedgerError(
+        'AUTH_ROLE_FORBIDDEN',
+        'provisioning is for the initial owner/admin only; use invitations for member roles',
+      );
+    }
+    const username = input.username.trim().toLowerCase();
+    if (username.length < 3) {
+      throw new LedgerError('INVALID_INPUT', 'username must be at least 3 characters');
+    }
+    return this.db.transaction(() => {
+      let orgId = input.orgId;
+      let created = false;
+      if (orgId === undefined) {
+        if (input.orgTitle === undefined || input.orgTitle.trim() === '') {
+          throw new LedgerError(
+            'INVALID_INPUT',
+            'orgTitle is required when creating a new organization',
+          );
+        }
+        orgId = this.orgs.createOrganization(input.orgTitle).id;
+      } else {
+        this.orgs.requireOrganization(orgId);
+      }
+      const existing = this.db
+        .prepare('SELECT * FROM actors WHERE org_id = ? AND username = ?')
+        .get(orgId, username) as Record<string, unknown> | undefined;
+      let actor: ActorView;
+      if (existing === undefined) {
+        const id = newId('act');
+        this.db
+          .prepare(
+            'INSERT INTO actors (id, org_id, username, display_name, role, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          )
+          .run(id, orgId, username, input.displayName, input.role, 'human', this.clock.iso());
+        this.evidence.append({
+          orgId,
+          topic: 'financial',
+          type: 'actor.created',
+          eventKey: `actor:${id}:created`,
+          payload: {
+            actorId: id,
+            username,
+            role: input.role,
+            kind: 'human',
+            via: 'provisioning',
+            note: input.provisioningNote ?? null,
+          },
+        });
+        created = true;
+      } else {
+        if (existing.kind !== 'human' || existing.revoked_at !== null) {
+          throw new LedgerError(
+            'AUTH_USERNAME_TAKEN',
+            'provisioning target is not a live human actor',
+          );
+        }
+        if (existing.role !== input.role) {
+          throw new LedgerError(
+            'AUTH_ROLE_FORBIDDEN',
+            'provisioning cannot change an existing actor role',
+          );
+        }
+      }
+      const actorRow = this.db
+        .prepare('SELECT * FROM actors WHERE org_id = ? AND username = ?')
+        .get(orgId, username) as Record<string, unknown>;
+      actor = this.mapActorRow(actorRow);
+      const already = this.findActorIdByIdentity(orgId, input.provider, input.subject);
+      if (already === null) {
+        this.linkIdentity({
+          orgId,
+          actorId: actor.id,
+          provider: input.provider,
+          subject: input.subject,
+          emailAtLink: input.emailAtLink ?? null,
+          linkedBy: actor.id, // provisioning step is self-attested server-side
+        });
+        this.evidence.append({
+          orgId,
+          topic: 'financial',
+          type: 'identity.provisioned',
+          eventKey: `identity:${actor.id}:provisioned:${this.clock.iso()}`,
+          payload: {
+            actorId: actor.id,
+            role: actor.role,
+            provider: input.provider,
+            subjectSha256: sha256(input.subject),
+            note: input.provisioningNote ?? null,
+          },
+        });
+      } else if (already !== actor.id) {
+        throw new LedgerError(
+          'IDENTITY_CONFLICT',
+          'identity is already linked to a different actor',
+        );
+      }
+      return { orgId, actor, created };
+    }, 'immediate');
+  }
+
+  /**
+   * Pre-verifies an invitation at the accept endpoint: existence, single-use,
+   * expiry and constant-time secret check. Returns the invitation so the OIDC
+   * flow can carry its id as a PRE-VERIFIED intent. The secret is never
+   * persisted again after this check.
+   */
+  preverifyInvitation(invitationId: string, secret: string): InvitationView {
+    const row = this.db.prepare('SELECT * FROM invitations WHERE id = ?').get(invitationId) as
+      Record<string, unknown> | undefined;
+    if (row === undefined) throw new LedgerError('INVITATION_NOT_FOUND', 'invitation not found');
+    if (row.revoked_at !== null)
+      throw new LedgerError('INVITATION_REVOKED', 'invitation was revoked');
+    if (row.redeemed_at !== null)
+      throw new LedgerError('INVITATION_REDEEMED', 'invitation was already redeemed');
+    if (new Date(text(row.expires_at, 'expires_at')) <= this.clock.now()) {
+      throw new LedgerError('INVITATION_EXPIRED', 'invitation has expired');
+    }
+    const provided = Buffer.from(sha256(secret), 'hex');
+    const stored = Buffer.from(text(row.secret_hash, 'secret_hash'), 'hex');
+    if (provided.length !== stored.length || !timingSafeEqual(provided, stored)) {
+      throw new LedgerError('INVITATION_SECRET_INVALID', 'invitation secret does not match');
+    }
+    return this.mapInvitation(row);
+  }
+
+  /**
+   * Redeems a PRE-VERIFIED invitation (the secret was checked at the accept
+   * endpoint and the consumed single-use OIDC flow row proves it) for the now
+   * cryptographically verified identity. Same transaction/single-use/role
+   * rules as redeemInvitation; the secret is not re-presented because it was
+   * never persisted.
+   */
+  redeemPreverifiedInvitation(input: {
+    orgId: string;
+    invitationId: string;
+    provider: string;
+    subject: string;
+    emailAtLink?: string | null;
+  }): { actor: ActorView; created: boolean } {
+    if (input.provider === '' || input.subject === '') {
+      throw new LedgerError('INVALID_INPUT', 'a verified identity (provider, subject) is required');
+    }
+    const flow = this.db
+      .prepare(
+        'SELECT invitation_preverified FROM oidc_flows WHERE invitation_id = ? AND consumed_at IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      )
+      .get(input.invitationId) as { invitation_preverified: number } | undefined;
+    if (flow === undefined || flow.invitation_preverified !== 1) {
+      throw new LedgerError(
+        'INVITATION_SECRET_INVALID',
+        'no pre-verified invitation intent for this flow',
+      );
+    }
+    return this.redeemWithRoleRules({
+      orgId: input.orgId,
+      invitationId: input.invitationId,
+      secret: null,
+      provider: input.provider,
+      subject: input.subject,
+      emailAtLink: input.emailAtLink ?? null,
+    });
   }
 
   private mapInvitation(row: unknown): InvitationView {

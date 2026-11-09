@@ -19,6 +19,8 @@ import { systemStatusView, type AirwallexRailFacts } from './routes/system-statu
 import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
+import { registerProductionIdentityRoutes } from './identity/routes.js';
+import { createOidcClient } from './identity/oidc-client.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -50,22 +52,34 @@ export function buildApp(
     systemStatusView(config, ledgerStatus?.(), airwallexFacts?.()),
   );
 
-  if (ledger !== undefined && config.devAuth) {
-    // Fail closed: there is NO production human IdP yet. Financial endpoints
-    // are a loopback-only DEMO_AUTH workflow, not a production authentication
-    // surface. A migrated dev session must never authorize deployed routes.
-    // One encapsulated scope: cookie parsing, the session decorator/hook and
-    // the routes share context, so every guarded route sees request.session.
+  if (ledger !== undefined && (config.devAuth || config.identity !== null)) {
+    // Authenticated scope: mounted for DEMO_AUTH (loopback-only development,
+    // unchanged) OR for a fully configured production identity provider —
+    // never for an anonymous deployment. One encapsulated scope: cookie
+    // parsing, the session decorator/hook and the routes share context, so
+    // every guarded route sees request.session.
     void app.register(async (scope) => {
       await scope.register(cookie);
       attachSession(scope, ledger);
+      // Financial + mission routes (read + governed mutations). The demo
+      // login/dev-bootstrap endpoints inside remain devAuth-gated; logout and
+      // session inspection work for any active authentication method.
       registerAuthAndFinancialRoutes(scope, config, ledger);
-      // Controlled local-only physical-to-money demo; never mounted in production.
-      registerDemoDecisionRoutes(scope, ledger);
-      // Durable decision snapshots + guarded proposal bridge (#19 A1/A2);
-      // demo-time authority refresh (#19 A5). Same DEMO_AUTH-only scope.
+      // Durable decision snapshots + guarded proposal bridge (#19) + the
+      // reviewer plan read — role-gated, CSRF-protected, safe in production.
       registerDecisionAuthorityRoutes(scope, ledger);
-      registerDemoAuthorityRefreshRoute(scope, ledger);
+      if (config.identity !== null) {
+        // Production identity: OIDC (code flow + PKCE), invitation accept,
+        // invitation management. Registered ONLY with complete config.
+        const client = await createOidcClient(config.identity);
+        registerProductionIdentityRoutes(scope, config, ledger, client);
+      }
+      if (config.devAuth) {
+        // Controlled local-only physical-to-money demo; never mounted outside
+        // the DEMO_AUTH gate (unchanged from #19).
+        registerDemoDecisionRoutes(scope, ledger);
+        registerDemoAuthorityRefreshRoute(scope, ledger);
+      }
     });
   }
 
