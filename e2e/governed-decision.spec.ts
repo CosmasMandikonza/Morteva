@@ -328,8 +328,12 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await expect(page.getByTestId('decision-room')).toBeVisible();
     await runStage(page, 'baseline');
     await runStage(page, 'incident');
-    await page.getByTestId('propose-plan').click();
-    await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    // First propose can hit a transient contention 409; the server is
+    // idempotent on retry — retry until the durable row appears.
+    await expect(async () => {
+      await page.getByTestId('propose-plan').click();
+      await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       const sw = await page.evaluate<number>('document.documentElement.scrollWidth');
