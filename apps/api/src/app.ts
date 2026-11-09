@@ -20,7 +20,7 @@ import { healthView } from './routes/health.js';
 import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
 import { registerProductionIdentityRoutes } from './identity/routes.js';
-import { createOidcClient } from './identity/oidc-client.js';
+import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -32,6 +32,13 @@ export function buildApp(
   ledgerStatus?: () => LedgerStatusView,
   ledger?: Ledger,
   airwallexFacts?: () => AirwallexRailFacts,
+  /**
+   * Test seam ONLY: a pre-built OIDC client (e.g. pointed at the local test
+   * IdP) so hermetic suites can exercise production posture without live
+   * discovery. Production boots ALWAYS discover the configured issuer —
+   * config validation and the identity===null gate still apply regardless.
+   */
+  identityClient?: OidcClient,
 ): FastifyInstance {
   const app = Fastify({
     logger: {
@@ -71,7 +78,7 @@ export function buildApp(
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.
-        const client = await createOidcClient(config.identity);
+        const client = identityClient ?? (await createOidcClient(config.identity));
         registerProductionIdentityRoutes(scope, config, ledger, client);
       }
       if (config.devAuth) {

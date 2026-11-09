@@ -86,11 +86,15 @@ export async function startTestIdp(options: TestIdpOptions): Promise<TestIdpHand
   });
   const address = server.address();
   const actualPort = address !== null && typeof address === 'object' ? address.port : port;
+  let closed = false;
   return {
     issuer: `http://127.0.0.1:${actualPort}`,
     port: actualPort,
     users,
+    /** Idempotent: an outage simulation may already have shut the IdP down. */
     close: async () => {
+      if (closed) return;
+      closed = true;
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
