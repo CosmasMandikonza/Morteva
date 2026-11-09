@@ -113,12 +113,13 @@ describe('physical-view contract shape', () => {
     const body = v.json as {
       contractVersion: number;
       truthLabel: string;
+      policy: { uavAssetId: string; uavWindLimitKt: number; maxAgeMs: number; expiredMs: number };
       assets: {
         assetId: string;
-        comms: string | null;
+        kind: string;
         latest: Record<string, { freshness: string }>;
       }[];
-      recentEvents: { eventId: string; provenance: string; observations: { kind: string }[] }[];
+      events: { eventId: string; provenance: string; observations: { kind: string }[] }[];
       constraints: { state: string; reason: string }[];
     };
     expect(body.contractVersion).toBe(1);
