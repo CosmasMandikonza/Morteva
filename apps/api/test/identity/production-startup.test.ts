@@ -130,6 +130,18 @@ describe('production startup with identity', () => {
     expect(body.body).not.toContain('spendable');
   });
 
+  it('anonymous auth capabilities reports oidc without leaking configuration', async () => {
+    const caps = await app.inject({ method: 'GET', url: '/api/auth/capabilities' });
+    expect(caps.statusCode).toBe(200); // anonymous by design
+    const body = caps.json() as { authMode: string; demoLogin: boolean };
+    expect(body.authMode).toBe('oidc');
+    expect(body.demoLogin).toBe(false);
+    expect(caps.body).not.toContain('https://idp.example.com');
+    expect(caps.body).not.toContain('moterva-prod');
+    expect(caps.body).not.toContain('a-real-server-side-secret-value');
+    expect(caps.body).not.toContain(REDIRECT_URI);
+  });
+
   it('no identity secrets appear in any response body or cookie', async () => {
     const start = await app.inject({ method: 'GET', url: '/api/auth/oidc/login' });
     const everything = JSON.stringify({
@@ -199,6 +211,14 @@ describe('production startup WITHOUT identity', () => {
       const r = await app.inject({ method, url, payload: {} });
       expect(r.statusCode, `${method} ${url}`).toBe(404);
     }
+  });
+
+  it('anonymous auth capabilities reports none (route itself still exists)', async () => {
+    const caps = await app.inject({ method: 'GET', url: '/api/auth/capabilities' });
+    expect(caps.statusCode).toBe(200);
+    const body = caps.json() as { authMode: string; demoLogin: boolean };
+    expect(body.authMode).toBe('none');
+    expect(body.demoLogin).toBe(false);
   });
 
   it('and the authenticated financial scope is absent too (no anonymous surface)', async () => {

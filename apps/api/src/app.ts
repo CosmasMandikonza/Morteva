@@ -21,6 +21,7 @@ import { attachSession } from './auth.js';
 import { registerAuthAndFinancialRoutes } from './routes.js';
 import { registerProductionIdentityRoutes } from './identity/routes.js';
 import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
+import { registerAuthCapabilitiesRoute } from './identity/capabilities.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -58,6 +59,10 @@ export function buildApp(
   app.get('/api/system/status', async () =>
     systemStatusView(config, ledgerStatus?.(), airwallexFacts?.()),
   );
+
+  // Anonymous auth-mode discovery (identity/v1): a signed-out browser learns
+  // which login affordance to render. Public by design; minimal projection.
+  registerAuthCapabilitiesRoute(app, config);
 
   if (ledger !== undefined && (config.devAuth || config.identity !== null)) {
     // Authenticated scope: mounted for DEMO_AUTH (loopback-only development,
