@@ -316,7 +316,7 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
           <h4 className="mpv-events__title">Admitted evidence ({readyState.eventCount})</h4>
           <ol className="mpv-events__list">
             {[...readyState.markers].reverse().map((marker) => {
-              const event = readySnapshot.events.find((e) => e.eventId === marker.eventId);
+              const event = readySnapshot.recentEvents.find((e) => e.eventId === marker.eventId);
               if (event === undefined) return null;
               return (
                 <li key={marker.eventId}>
@@ -359,7 +359,7 @@ function srDescription(state: SceneState, snapshot: PhysicalViewSnapshot): strin
   const wind = state.aerialWindKt;
   const selectedPart =
     state.selected !== null
-      ? ` Selected evidence ${state.selected.event.eventId} from source ${state.selected.event.sourceId}, observed at ${state.selected.event.observedAt}, currently ${state.selected.event.freshnessAtSnapshot}.`
+      ? ` Selected evidence ${state.selected.event.eventId} from source ${state.selected.event.sourceId}, observed at ${state.selected.event.observedAt}, currently ${state.selected.event.freshness}.`
       : '';
   const windPart =
     wind !== null

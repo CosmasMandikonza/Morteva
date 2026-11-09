@@ -54,8 +54,8 @@ export interface PhysicalViewEvent {
   readonly eventDigest: string;
   readonly observations: readonly PhysicalViewObservation[];
   /** Evaluated at the snapshot's asOf by the host's read model. */
-  readonly freshnessAtSnapshot: PhysicalFreshness;
-  readonly planningValidAtSnapshot: boolean;
+  readonly freshness: PhysicalFreshness;
+  readonly planningValid: boolean;
 }
 
 /**
@@ -92,8 +92,9 @@ export interface PhysicalViewSnapshot {
   readonly truthLabel: string;
   readonly policy: PhysicalViewPolicy;
   readonly assets: readonly PhysicalViewAsset[];
-  /** Journal-ordered accepted events (oldest first). */
-  readonly events: readonly PhysicalViewEvent[];
+  /** Journal-ordered accepted events (oldest first), bounded to the 50 most
+   * recent by the server — the journal remains the full durable history. */
+  readonly recentEvents: readonly PhysicalViewEvent[];
 }
 
 // ---------------------------------------------------------------------------

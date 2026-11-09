@@ -2,8 +2,8 @@
   "description": "Gateway-declared offline; telemetry cannot speak (S5, blocked)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_64a2c56e-6e09-4e36-acf8-911be3b88026",
-    "missionId": "msn_db7b6ab8-be19-44f0-ad34-c44c1a755946"
+    "orgId": "org_7a1b4647-d687-4dbc-9a60-10ffe44a74fa",
+    "missionId": "msn_9dbd84bd-1949-471e-acd7-22d5bb5f3f23"
   },
   "asOf": "2026-11-06T09:08:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "events": [
+  "recentEvents": [
     {
       "eventId": "mevt_of01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "de53c63e37027098e04bc2ad00e3b791bfeed2062a02da1e545f704e4a187745",
+      "eventDigest": "797aed155aa4907ed66a20aa5fb6ebdcbba4762223474de7ed40050911eab67b",
       "observations": [
         {
           "kind": "asset_comms",
@@ -45,8 +45,8 @@
           "value": "online"
         }
       ],
-      "freshnessAtSnapshot": "fresh",
-      "planningValidAtSnapshot": true
+      "freshness": "fresh",
+      "planningValid": true
     },
     {
       "eventId": "mevt_of02",
@@ -59,7 +59,7 @@
       "observedAt": "2026-11-06T09:05:00.000Z",
       "ingestedAt": "2026-11-06T09:05:02.000Z",
       "recordedAt": "2026-11-06T09:05:02.000Z",
-      "eventDigest": "111666563d942270da659eb6354ed119a57b1eb17aeee6e1963a3ecaecc36a54",
+      "eventDigest": "9f771df89c33253fcca8cad0c90deb043a4729959d19c30e98e9a9592b9fb98c",
       "observations": [
         {
           "kind": "asset_comms",
@@ -67,8 +67,8 @@
           "value": "offline"
         }
       ],
-      "freshnessAtSnapshot": "fresh",
-      "planningValidAtSnapshot": true
+      "freshness": "fresh",
+      "planningValid": true
     }
   ]
 }

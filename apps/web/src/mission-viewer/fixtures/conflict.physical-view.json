@@ -2,8 +2,8 @@
   "description": "Conflicting source reports; the journal decides without silent favor (S1)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_3062b5cd-66b2-435e-8e78-2b25e10b5804",
-    "missionId": "msn_bff0957c-7b40-4215-95a3-fc66906abda1"
+    "orgId": "org_777d7dc1-9005-4bac-8be1-c4a94f5ab6bf",
+    "missionId": "msn_9f335ebb-70b0-48e2-8d32-7274bd8a2aac"
   },
   "asOf": "2026-11-06T09:07:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "events": [
+  "recentEvents": [
     {
       "eventId": "mevt_cf01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "8adab4376670b0d6b1eaa8b5e2a039d32cfa474407d4312ea965064177aa10d7",
+      "eventDigest": "385541457a6f9e7d1be5c3e503a0fbbfa75bb7a0ab99d29f2439676043aedd4f",
       "observations": [
         {
           "kind": "wind_speed",
@@ -60,8 +60,8 @@
           "value": "on_station"
         }
       ],
-      "freshnessAtSnapshot": "fresh",
-      "planningValidAtSnapshot": true
+      "freshness": "fresh",
+      "planningValid": true
     },
     {
       "eventId": "mevt_cf02",
@@ -74,7 +74,7 @@
       "observedAt": "2026-11-06T09:04:00.000Z",
       "ingestedAt": "2026-11-06T09:04:02.000Z",
       "recordedAt": "2026-11-06T09:04:02.000Z",
-      "eventDigest": "a7b9df4c64d35c63e3738162c8a28d91cda23a4b24f489e6c797f237b1cf8cea",
+      "eventDigest": "75112247454b2e1aa0c7c9979cfe2867b54d1a9e1910070ce521c4b7ce8a2601",
       "observations": [
         {
           "kind": "wind_speed",
@@ -87,8 +87,8 @@
           "value": "active"
         }
       ],
-      "freshnessAtSnapshot": "fresh",
-      "planningValidAtSnapshot": true
+      "freshness": "fresh",
+      "planningValid": true
     },
     {
       "eventId": "mevt_cf03",
@@ -101,7 +101,7 @@
       "observedAt": "2026-11-06T09:07:00.000Z",
       "ingestedAt": "2026-11-06T09:07:02.000Z",
       "recordedAt": "2026-11-06T09:07:02.000Z",
-      "eventDigest": "0c6619aa5d7d0755a732600e1797342044252dfb613a815978d6d7f9be13bbd5",
+      "eventDigest": "503d5371ffff0f2fa0a52e9b65be6f663112bd38e402b66e286c67800b935d44",
       "observations": [
         {
           "kind": "wind_speed",
@@ -124,8 +124,8 @@
           "value": "on_station"
         }
       ],
-      "freshnessAtSnapshot": "fresh",
-      "planningValidAtSnapshot": true
+      "freshness": "fresh",
+      "planningValid": true
     }
   ]
 }

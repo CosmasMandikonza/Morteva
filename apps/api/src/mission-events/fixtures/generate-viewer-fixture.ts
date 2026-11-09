@@ -171,7 +171,7 @@ function toSnapshot(view: MissionTimelineView) {
       { assetId: 'uav-seeker-1', kind: 'aerial' as const, label: 'Inspection UAV' },
       { assetId: 'vessel-prospect', kind: 'surface' as const, label: 'Moored vessel' },
     ],
-    events: view.events.map((e) => ({
+    recentEvents: view.events.map((e) => ({
       eventId: e.eventId,
       journalSeq: e.journalSeq,
       sequence: e.sequence,
@@ -184,8 +184,8 @@ function toSnapshot(view: MissionTimelineView) {
       recordedAt: e.recordedAt,
       eventDigest: e.eventDigest,
       observations: e.observations.map((o) => ({ kind: o.kind, unit: o.unit, value: o.value })),
-      freshnessAtSnapshot: e.freshness,
-      planningValidAtSnapshot: e.planningValid,
+      freshness: e.freshness,
+      planningValid: e.planningValid,
     })),
   };
 }
@@ -397,7 +397,7 @@ writeFileSync(join(OUT_DIR, 'registry.json'), JSON.stringify(registry, null, 2) 
 console.info(`wrote ${fixtures.length} journal-derived viewer fixtures → ${OUT_DIR}`);
 for (const f of fixtures) {
   console.info(
-    `  ${f.name}: ${f.snapshot.events.length} events, asOf ${f.snapshot.asOf} — ${f.description}`,
+    `  ${f.name}: ${f.snapshot.recentEvents.length} events, asOf ${f.snapshot.asOf} — ${f.description}`,
   );
 }
 console.info(`reference times: T0 ${m(0)}, +9m ${m(9)}, +18m ${m(18)}`);

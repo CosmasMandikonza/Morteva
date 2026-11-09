@@ -157,8 +157,10 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
     throw new PhysicalViewShapeError('policy.uavAssetId is not present in assets');
   }
 
-  const eventsRaw = payload['events'];
-  if (!Array.isArray(eventsRaw)) throw new PhysicalViewShapeError('events must be an array');
+  // v1.1 wire: the server bounds the payload to the 50 most recent events
+  // (recentEvents) — the journal remains the full durable history.
+  const eventsRaw = payload['recentEvents'];
+  if (!Array.isArray(eventsRaw)) throw new PhysicalViewShapeError('recentEvents must be an array');
   const events: PhysicalViewEvent[] = eventsRaw.map((raw, i) => {
     const where = `events[${i}]`;
     if (!isRecord(raw)) throw new PhysicalViewShapeError(`${where} must be an object`);
@@ -190,11 +192,11 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
         return v;
       })(),
       observations: observationsRaw.map((o, j) => obsOf(o, `${where}.observations[${j}]`)),
-      freshnessAtSnapshot: reqEnum(raw, 'freshnessAtSnapshot', FRESHNESS, where),
-      planningValidAtSnapshot: (() => {
-        const v = raw['planningValidAtSnapshot'];
+      freshness: reqEnum(raw, 'freshness', FRESHNESS, where),
+      planningValid: (() => {
+        const v = raw['planningValid'];
         if (typeof v !== 'boolean') {
-          throw new PhysicalViewShapeError(`${where}.planningValidAtSnapshot must be boolean`);
+          throw new PhysicalViewShapeError(`${where}.planningValid must be boolean`);
         }
         return v;
       })(),
@@ -211,7 +213,7 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
     truthLabel,
     policy,
     assets,
-    events,
+    recentEvents: events,
   };
 }
 

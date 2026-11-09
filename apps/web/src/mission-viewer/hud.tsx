@@ -134,8 +134,8 @@ export function EvidenceHud(props: {
           <div>
             <dt>Freshness at snapshot</dt>
             <dd data-testid="mpv-freshness">
-              {selected.event.freshnessAtSnapshot}
-              {selected.event.planningValidAtSnapshot ? '' : ' · not planning-valid'}
+              {selected.event.freshness}
+              {selected.event.planningValid ? '' : ' · not planning-valid'}
             </dd>
           </div>
           <div>
