@@ -1,4 +1,4 @@
-# ADR 0006 — Metal testnet adapter: Tahoe C-Chain, nonce-durable identity, mandate-gated USDZ purchases
+# ADR 0007 — Metal testnet adapter: Tahoe C-Chain, nonce-durable identity, mandate-gated USDZ purchases
 
 - **Status:** Proposed (delivered with issue #6; real-testnet gate BLOCKED on the hackathon Metal guide's USDZ token address + funded testnet wallet — adapter complete and adversarially tested offline)
 - **Date:** 2026-11-08

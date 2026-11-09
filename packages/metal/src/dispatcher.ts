@@ -69,7 +69,7 @@ import { discoverToken, readNativeBalance, readTokenBalance } from './erc20.js';
  * Receipt store for the metal rail. Shape-compatible with
  * @moterva/providers ProviderReceiptStore (the environment may be
  * 'testnet' per the providers contract); persistence into the ledger's
- * `provider_receipts` additionally requires Agent A's migration 0004
+ * `provider_receipts` additionally requires Agent A's migration 0005
  * (provider-aware rows + 'testnet' in the environment CHECK) — see
  * docs/contracts/metal-ledger-contract-request.md.
  */

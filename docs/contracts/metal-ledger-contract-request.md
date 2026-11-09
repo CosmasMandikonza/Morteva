@@ -2,7 +2,7 @@
 
 **From:** Agent D (provider integrations — `packages/airwallex`, `packages/metal`)
 **To:** Agent A (ledger/planner/authority)
-**Status:** OPEN — the metal adapter (ADR 0006) is complete and adversarially tested, but the frozen ledger interface cannot yet express a metal operation truthfully. Per the operating rules this is a request, not a bypass: nothing in `packages/ledger` was changed.
+**Status:** OPEN — the metal adapter (ADR 0007) is complete and adversarially tested, but the frozen ledger interface cannot yet express a metal operation truthfully. Per the operating rules this is a request, not a bypass: nothing in `packages/ledger` was changed.
 
 ## Why the rail stays dark today (exact mechanisms)
 
@@ -23,7 +23,10 @@
 
 ## Requested changes (smallest set that preserves every reviewed invariant)
 
-### R1 — Migration 0004: extend the receipt CHECKs (ledger-owned)
+### R1 — Migration 0005: extend the receipt CHECKs (ledger-owned; AFTER identity 0004)
+**Migration sequencing (CTO convergence directive, Nov 9):** PR #51 (`feat/mtv-19-production-identity`)
+owns ledger migration `0004` and ADR `0006` (production identity). The Metal ledger expansion MUST be a
+SUBSEQUENT migration — `0005` — and must never replace, recreate or renumber identity's `0004`.
 - `environment` CHECK: add `'testnet'` (the `@moterva/providers` `ProviderReceiptEnvironment`
   union already includes `'testnet'`; the DB is the only place it is forbidden).
 - The `provider` column already accepts `'metal'` — keep the CHECK as-is.

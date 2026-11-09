@@ -1,7 +1,7 @@
 # @moterva/metal — Metal Blockchain (Tahoe testnet) adapter
 
 Genuine mandate-controlled USDZ testnet purchases for MOTERVA's paid-diagnostics
-journey (issue #6). See [ADR 0006](../../docs/adr/0006-metal-testnet-adapter.md)
+journey (issue #6). See [ADR 0007](../../docs/adr/0007-metal-testnet-adapter.md)
 for the decision record and
 [the ledger contract request](../../docs/contracts/metal-ledger-contract-request.md)
 for what Agent A must land before the worker rail opens.

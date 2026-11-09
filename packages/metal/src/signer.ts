@@ -19,7 +19,7 @@
  *     EVM nonce ordering is the chain-native duplicate-prevention equivalent
  *     of Airwallex's request_id dedupe. This difference is explicit: Metal
  *     has NO provider-side request-id, so durable identity = recorded nonce +
- *     tx hash + local ledger uniqueness (documented in ADR 0006).
+ *     tx hash + local ledger uniqueness (documented in ADR 0007).
  *
  * Fees are conservative EIP-1559 fields re-estimated per attempt from the
  * chain (eth_gasPrice + headroom). They are signing parameters, not claims
