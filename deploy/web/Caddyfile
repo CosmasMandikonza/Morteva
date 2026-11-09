@@ -1,0 +1,48 @@
+# MOTERVA web edge (issue #19).
+#
+# One Caddy site: static web shell + reverse-proxied API. TLS is automatic:
+#  - production: set MOTERVA_DOMAIN (a real DNS name pointing at this host) —
+#    Caddy obtains/renews a public Let's Encrypt certificate.
+#  - local/CI staging: MOTERVA_DOMAIN=localhost — Caddy issues an internal
+#    self-signed certificate for localhost (curl -k / browser warning is
+#    expected and honest for a staging deploy).
+#
+# Security posture (deliberate):
+#  - /api/* responses are Cache-Control: no-store — authenticated payloads are
+#    never publicly cacheable (release security suite item 28).
+#  - Strict security headers on everything; Server header suppressed.
+#  - Only this edge publishes ports. The API container stays container-private.
+#
+# NOTE: no global `email` directive — Caddy creates an anonymous ACME account
+# when none is set, and an empty {$ACME_EMAIL} placeholder would be a parse
+# error. For a production domain, mount a Caddyfile that adds
+# `{ email you@example.org }` if you want Let's Encrypt expiry notices.
+
+{$MOTERVA_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	handle /healthz {
+		reverse_proxy api:8787
+	}
+
+	handle /api/* {
+		header Cache-Control "no-store"
+		reverse_proxy api:8787
+	}
+
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+		header /index.html Cache-Control "no-cache"
+	}
+}
