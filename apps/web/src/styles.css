@@ -1838,3 +1838,160 @@ a {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+/* ---- Decision Room: signature 12-column composition (CP2) ---- */
+/* Desktop: physical mission column ~7 cols, financial decisions ~5 cols.
+   Below 1024px the columns stack (financial column first on mobile so the
+   decision is never pushed below the fold by the physical context). */
+.mv-droom {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 14px;
+  align-items: start;
+}
+.mv-droom__physical {
+  grid-column: span 7;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.mv-droom__financial {
+  grid-column: span 5;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+@media (max-width: 1023px) {
+  .mv-droom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mv-droom__physical,
+  .mv-droom__financial {
+    grid-column: auto;
+  }
+  /* decision first on small screens: the physical context follows */
+  .mv-droom__financial {
+    order: -1;
+  }
+}
+
+/* Mission header band */
+.mv-droom__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--mv-line);
+  padding-bottom: 12px;
+}
+.mv-droom__title {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-2xl);
+  font-weight: 600;
+  letter-spacing: var(--mv-track-display);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.mv-droom__sub {
+  margin: 4px 0 0;
+}
+.mv-droom__badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mv-droom__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-droom__note {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+  margin: 0;
+}
+.mv-droom__notice {
+  margin: 0;
+  color: var(--mv-ink-1);
+  font-size: var(--mv-size-sm);
+  border-left: 3px solid var(--mv-transit-text);
+  padding: 6px 10px;
+  background: var(--mv-transit-bg);
+  border-radius: 0 6px 6px 0;
+}
+.mv-droom__secttitle {
+  margin: 0 0 8px;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-md);
+  font-weight: 600;
+}
+.mv-droom__incident {
+  border: 1px solid var(--mv-line-strong);
+  border-left: 3px solid var(--mv-transit-text);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--mv-surface-card);
+}
+.mv-droom__incidentreading {
+  margin: 6px 0;
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+}
+
+/* Finance cards stack */
+.mv-droom__cards {
+  display: grid;
+  gap: 10px;
+}
+.mv-xcard__title {
+  display: block;
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+  margin-bottom: 3px;
+}
+.mv-xcard__action {
+  display: block;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+  line-height: 1.2;
+}
+.mv-xcard__money {
+  display: block;
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+  margin-top: 4px;
+}
+.mv-xcard__meta {
+  display: block;
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-3);
+  margin-top: 3px;
+}
+.mv-xcard__sub {
+  display: block;
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+  margin-top: 3px;
+}
+.mv-xcard__subhead {
+  margin: 10px 0 6px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+.mv-xcard__list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
