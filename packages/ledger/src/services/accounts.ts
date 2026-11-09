@@ -81,6 +81,37 @@ export class AccountService {
     return account;
   }
 
+  /**
+   * Currency-scoped account lookup regardless of kind: fiat currencies resolve
+   * to their 'treasury' account, registered token currencies (migration 0005)
+   * resolve to their 'token' account. Spendable/reservation math is
+   * (org, currency)-keyed, so a token balance can never be conflated with a
+   * fiat one — the kind column exists for provenance and UI labeling only.
+   */
+  getAccountForCurrency(orgId: string, currency: string): AccountView {
+    const row = this.db
+      .prepare(
+        'SELECT id, org_id, currency, kind, label, protected_floor_minor, created_at FROM accounts WHERE org_id = ? AND currency = ? ORDER BY kind',
+      )
+      .get(orgId, this.normalizeCurrency(currency));
+    if (row === undefined) {
+      throw new LedgerError(
+        'ACCOUNT_NOT_FOUND',
+        `no account for ${currency} in organization ${orgId}`,
+      );
+    }
+    const r = row as Record<string, unknown>;
+    return {
+      id: text(r.id, 'id'),
+      orgId: text(r.org_id, 'org_id'),
+      currency: text(r.currency, 'currency'),
+      kind: text(r.kind, 'kind') as AccountView['kind'],
+      label: text(r.label, 'label'),
+      protectedFloorMinor: num(r.protected_floor_minor, 'protected_floor_minor'),
+      createdAt: text(r.created_at, 'created_at'),
+    };
+  }
+
   getTreasuryAccount(orgId: string, currency: string): AccountView {
     const row = this.db
       .prepare(

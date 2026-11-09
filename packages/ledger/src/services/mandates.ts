@@ -113,6 +113,12 @@ export class MandateService {
         'a token-asset currency can only be mandated on the metal rail',
       );
     }
+    if (rails.includes('airwallex') && tokenCurrency) {
+      throw new LedgerError(
+        'RAIL_ASSET_UNSUPPORTED',
+        'a token-asset mandate can never carry the airwallex rail; fiat rails and token rails are structurally disjoint',
+      );
+    }
     if (tokenCurrency && input.permittedOperationKinds.some((kind) => kind !== 'metal_order')) {
       throw new LedgerError(
         'RAIL_ASSET_UNSUPPORTED',
