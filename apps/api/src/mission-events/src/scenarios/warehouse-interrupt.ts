@@ -318,6 +318,24 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
           'the verdict stays unknown/insufficient-evidence. Any robot-gated spend remains refused ' +
           'by the existing ASSET_SAFETY gate; a human decides, and nothing is paid here.',
       }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 8,
+        observedMin: 56,
+        observations: obs({ kind: 'battery_soc', unit: 'kilowatt_hour', value: 71 }),
+        expect: rejected('INVALID_UNIT'),
+        beat: 'ADVERSARIAL: correct kind, WRONG unit — units are part of the typed vocabulary.',
+      }),
+      b.submission({
+        source: wmsSrc,
+        assetId: bot,
+        sequence: 8,
+        observedMin: 57,
+        observations: obs({ kind: 'forklift_proximity', unit: 'state', value: 'near' }),
+        expect: rejected('INVALID_ENVELOPE'),
+        beat: 'ADVERSARIAL: unsupported observation kind — invented sensors cannot enter the journal.',
+      }),
     ];
 
     return {
