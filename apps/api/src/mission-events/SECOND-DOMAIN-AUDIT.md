@@ -6,14 +6,14 @@ each gap against the commit that closes it.
 
 ## Already delivered by prior lanes (do NOT rebuild)
 
-| Capability | Where | Evidence |
-| --- | --- | --- |
-| Authenticated source registry (HMAC keys, per-(org,mission,source) scoping, global keyId uniqueness, `trustedForRecovery`) | `src/registry.ts` | auth.test 12 cases incl. cross-org key, rogue key, provenance mismatch |
-| Envelope schema v1 + observation vocabulary (12 kinds incl. warehouse `aisle_access`/`charger_status`/`stock_discrepancy`), canonical digests, AUTHORITY_TERMS refusal | `src/schema.ts`, `src/vocabulary.ts` | contract.test 10 cases |
-| Ingest pipeline: sequence monotonicity per source, gaps fail-closed, offline ghost-telemetry refusal, authorized recovery only, staleness/future skew at arrival, journal integrity, tenant isolation, deterministic replay | `src/ingest.ts` | ingest/replay/restart-safety/multitenant/cross-source-race suites (50+ cases) |
-| Warehouse ingestion fixture `warehouse-cycle-count-v1` (17 beats: obstructed aisle, charger fault, offline+authorized recovery, discrepancy, ghost/authority-terms/stale/monotonic adversarial beats) with committed byte-exact reference trace | `src/scenarios/warehouse.ts` + `fixtures/` | demo.test regeneration test |
-| Reliability-matrix warehouse coverage: PE-22 (schema), PE-24 (no forced UAV rules, comms-only robot → conservative unknown), PE-25 (both domains coexist), FI-12 (warehouse economics, zero operations) | `reliability/scenarios-*.ts` | reliability.test (45-case stable catalogue — intentionally untouched by this work) |
-| Bridge `physicalTimelineToPlannerSafety`: fresh-SYNTHETIC-only evidence, stale withheld not erased, per-source `physicalSequence` preserved, no forecast invention, UAV wind threshold as explicit policy parameter | `src/integration/physical-to-planner.ts` | integration/physical-to-planner.test 4 cases |
+| Capability                                                                                                                                                                                                                                      | Where                                      | Evidence                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Authenticated source registry (HMAC keys, per-(org,mission,source) scoping, global keyId uniqueness, `trustedForRecovery`)                                                                                                                      | `src/registry.ts`                          | auth.test 12 cases incl. cross-org key, rogue key, provenance mismatch             |
+| Envelope schema v1 + observation vocabulary (12 kinds incl. warehouse `aisle_access`/`charger_status`/`stock_discrepancy`), canonical digests, AUTHORITY_TERMS refusal                                                                          | `src/schema.ts`, `src/vocabulary.ts`       | contract.test 10 cases                                                             |
+| Ingest pipeline: sequence monotonicity per source, gaps fail-closed, offline ghost-telemetry refusal, authorized recovery only, staleness/future skew at arrival, journal integrity, tenant isolation, deterministic replay                     | `src/ingest.ts`                            | ingest/replay/restart-safety/multitenant/cross-source-race suites (50+ cases)      |
+| Warehouse ingestion fixture `warehouse-cycle-count-v1` (17 beats: obstructed aisle, charger fault, offline+authorized recovery, discrepancy, ghost/authority-terms/stale/monotonic adversarial beats) with committed byte-exact reference trace | `src/scenarios/warehouse.ts` + `fixtures/` | demo.test regeneration test                                                        |
+| Reliability-matrix warehouse coverage: PE-22 (schema), PE-24 (no forced UAV rules, comms-only robot → conservative unknown), PE-25 (both domains coexist), FI-12 (warehouse economics, zero operations)                                         | `reliability/scenarios-*.ts`               | reliability.test (45-case stable catalogue — intentionally untouched by this work) |
+| Bridge `physicalTimelineToPlannerSafety`: fresh-SYNTHETIC-only evidence, stale withheld not erased, per-source `physicalSequence` preserved, no forecast invention, UAV wind threshold as explicit policy parameter                             | `src/integration/physical-to-planner.ts`   | integration/physical-to-planner.test 4 cases                                       |
 
 ## The genuine gaps (this workstream)
 
@@ -25,7 +25,7 @@ verdict for a ground asset), and at 10 kt + hold clear + comms online it becomes
 asset incorrectly receiving aerial wind policy.
 
 **G2 — no ground-domain decision evidence.** Warehouse facts are journaled but no committed,
-reproducible trace derives a *decision* through `physicalTimelineToPlannerSafety → reviewEvidence
+reproducible trace derives a _decision_ through `physicalTimelineToPlannerSafety → reviewEvidence
 → generateCandidates → evaluate` for a ground asset. FI-12 exercises the catalogue but documents
 "conservative clearance pending the domain adapter" without a committed trace. Issue #9 requires
 "same planner and provider contract handles both physical domains without domain-specific finance

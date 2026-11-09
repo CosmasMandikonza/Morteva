@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  at,
-  envelope,
-  makeWorld,
-  type TestWorld,
-} from './helpers.js';
+import { at, envelope, makeWorld, type TestWorld } from './helpers.js';
 
 /**
  * Credential revocation (MTV-07, issue #9; audit gap G3, edge case 14).
@@ -35,7 +30,9 @@ describe('source credential revocation', () => {
     expect(world.registry.isRevoked(world.telemetrySource.keyId)).toBe(true);
 
     const after = signedEvent(world, 2, 3);
-    expect(() => world.service.ingest(world.orgId, after)).toThrow(/UNREGISTERED_SOURCE|not registered/i);
+    expect(() => world.service.ingest(world.orgId, after)).toThrow(
+      /UNREGISTERED_SOURCE|not registered/i,
+    );
     // No journal row for the refused event:
     const rows = world.ledger.db
       .prepare('SELECT COUNT(*) AS c FROM evidence_events WHERE type = ?')
@@ -46,7 +43,9 @@ describe('source credential revocation', () => {
   it('a revoked keyId can never be silently re-registered (rotation means a NEW keyId)', () => {
     const world = makeWorld();
     world.registry.revoke(world.telemetrySource.keyId);
-    expect(() => world.registry.register(world.telemetrySource)).toThrow(/revoked and cannot be re-registered/);
+    expect(() => world.registry.register(world.telemetrySource)).toThrow(
+      /revoked and cannot be re-registered/,
+    );
     // Rotation with a NEW keyId works and authenticates:
     const rotated = { ...world.telemetrySource, keyId: 'key-tel-v2' };
     world.registry.register(rotated);
@@ -65,7 +64,9 @@ describe('source credential revocation', () => {
     // Pre-sign an event with the OLD key, revoke BEFORE ingestion:
     const preSigned = signedEvent(world, 1, 1);
     world.registry.revoke(world.telemetrySource.keyId);
-    expect(() => world.service.ingest(world.orgId, preSigned)).toThrow(/UNREGISTERED_SOURCE|not registered/i);
+    expect(() => world.service.ingest(world.orgId, preSigned)).toThrow(
+      /UNREGISTERED_SOURCE|not registered/i,
+    );
   });
 
   it('revoking an unknown keyId is a no-op returning false', () => {
