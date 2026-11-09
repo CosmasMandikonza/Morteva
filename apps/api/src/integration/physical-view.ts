@@ -143,11 +143,17 @@ function projectView(
   const events = [...timeline.events].sort((a, b) => a.journalSeq - b.journalSeq);
   const recent = events.slice(-MAX_RECENT_EVENTS);
 
-  const assetIds = Object.keys(timeline.assets).slice(0, MAX_ASSETS);
+  // The mission's KNOWN inspection asset (the catalog UAV the mandate is
+  // scoped to) is always projected — even before any event is journaled
+  // (S0: "harbor environment and known inspection assets"). Assets that
+  // only appear in journaled events are added alongside it.
+  const assetIdSet = new Set<string>([DECISION_CATALOG.assetId]);
+  for (const assetId of Object.keys(timeline.assets)) assetIdSet.add(assetId);
+  const assetIds = [...assetIdSet].slice(0, MAX_ASSETS);
   const assets = assetIds.map((assetId) => {
-    const state = timeline.assets[assetId]!;
+    const state = timeline.assets[assetId];
     const latest: PhysicalViewPayload['assets'][number]['latest'] = {};
-    for (const [kind, reading] of Object.entries(state.latest)) {
+    for (const [kind, reading] of Object.entries(state?.latest ?? {})) {
       if (!ALLOWED_KINDS.has(kind)) continue;
       latest[kind] = {
         value: String(reading.value),
@@ -166,8 +172,8 @@ function projectView(
       assetId,
       kind: isCatalogAsset ? 'aerial' : 'unknown-domain',
       ...(isCatalogAsset ? { label: 'Inspection UAV' } : {}),
-      comms: state.comms,
-      positionStatus: state.positionStatus,
+      comms: state?.comms ?? null,
+      positionStatus: state?.positionStatus ?? null,
       latest,
     };
   });
@@ -198,7 +204,7 @@ function projectView(
   }));
 
   const constraints = assetIds.map((assetId) =>
-    constraintFor(assetId, timeline.assets[assetId]!.latest, windLimitKt),
+    constraintFor(assetId, timeline.assets[assetId]?.latest ?? {}, windLimitKt),
   );
 
   return {
