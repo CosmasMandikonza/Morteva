@@ -60,8 +60,15 @@ jobs:
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
+      # MTV-14 integrated acceptance: REAL multi-actor journeys against the
+      # shared seeded demo server — run serially and EXCLUDED from the main
+      # smoke step so concurrent journey specs cannot reorder each other's
+      # shared-server state (documented D-3 interference class).
+      - name: Integrated viewer acceptance (playwright, serial)
+        run: npx playwright test e2e/mission-viewer-integrated.spec.ts --workers=1
+
       - name: E2E smoke (playwright, real servers)
-        run: npx playwright test
+        run: npx playwright test --grep-invert "mission-viewer-integrated"
 
       - name: Upload Playwright report on failure
         if: failure()
