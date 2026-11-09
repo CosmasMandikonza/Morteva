@@ -2013,3 +2013,48 @@ a {
   min-width: 0;
   max-width: 100%;
 }
+
+/* ---- Treasury decomposition (MTV-20) ---- */
+.mv-position__concepts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 8px 16px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--mv-surface-sunken);
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+}
+.mv-position__concepts dt {
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+}
+.mv-position__concepts dd {
+  margin: 2px 0 0;
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+  overflow-wrap: anywhere;
+}
+.mv-position__concepts div:last-child dd {
+  color: var(--mv-accent-text);
+  font-weight: 600;
+}
+.mv-ops__exceptions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.mv-hero--halo {
+  border: 1px solid var(--mv-line-strong);
+  border-left: 3px solid var(--mv-accent-fill);
+  box-shadow:
+    var(--mv-shadow-raised),
+    0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.mv-position .mv-progress {
+  margin: 8px 0 4px;
+}

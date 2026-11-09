@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { FinancialOverviewView, OperationListView, OperationReadView } from '@moterva/domain';
 import { StatusChip } from '../components/StatusChip';
+import { HaloBadge, HaloProgress } from '../components/ui';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
 import { OperationInspector } from '../components/OperationInspector';
@@ -434,6 +435,47 @@ export function Treasury({
                         </dd>
                       </div>
                     </dl>
+                    {/* MTV-20: the four monetary concepts, explicitly differentiated. */}
+                    <dl className="mv-position__concepts">
+                      <div>
+                        <dt>Available</dt>
+                        <dd className="mv-num">
+                          {c.balance === null
+                            ? `${c.currency} —`
+                            : `${c.currency} ${moneyAmount(Math.max(0, c.balance.minorUnits - c.protectedFloor.minorUnits))}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Reserved</dt>
+                        <dd className="mv-num">
+                          {`${c.currency} ${moneyAmount(c.commitments.reservedMinor ?? 0)}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Pending / unknown</dt>
+                        <dd className="mv-num">
+                          {`${c.currency} ${moneyAmount(c.commitments.unknownMinor ?? 0)}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Spendable</dt>
+                        <dd className="mv-num mv-position__spendable">
+                          {c.spendable === null
+                            ? `${c.currency} —`
+                            : `${c.currency} ${c.spendable.major}`}
+                        </dd>
+                      </div>
+                    </dl>
+                    <HaloProgress
+                      label={`Protected floor share · ${c.currency}`}
+                      usedMinor={c.protectedFloor.minorUnits}
+                      totalMinor={c.balance === null ? 0 : c.balance.minorUnits}
+                      currency={c.currency}
+                      warn={
+                        c.balance !== null &&
+                        c.protectedFloor.minorUnits > c.balance.minorUnits * 0.8
+                      }
+                    />
                     <p className="mv-position__commitments">
                       Commitments — reserved{' '}
                       <span className="mv-num">{moneyAmount(c.commitments.reservedMinor)}</span> ·
@@ -512,6 +554,22 @@ export function Treasury({
                   No operations recorded for this mission.
                 </p>
               )}
+              {operations.kind === 'ok' && (
+                <div className="mv-ops__exceptions" data-testid="exceptions-strip">
+                  <HaloBadge
+                    tone={operations.data.counts.needsHuman > 0 ? 'danger' : 'neutral'}
+                    glyph={operations.data.counts.needsHuman > 0 ? '✗' : '✓'}
+                    label="needs a human"
+                    count={operations.data.counts.needsHuman}
+                  />
+                  <HaloBadge
+                    tone={operations.data.counts.ambiguous > 0 ? 'hold' : 'neutral'}
+                    glyph={operations.data.counts.ambiguous > 0 ? '?' : '✓'}
+                    label="unknown outcome"
+                    count={operations.data.counts.ambiguous}
+                  />
+                </div>
+              )}
               {operations.kind === 'ok' && operations.data.operations.length > 0 && (
                 <ul className="mv-ops">
                   {operations.data.operations.map((op) => {
@@ -554,7 +612,11 @@ export function Treasury({
 
           <div className="mv-grid__main">
             {selectedMission !== null && (
-              <section className="mv-hero" data-testid="mission-hero" aria-label="Selected mission">
+              <section
+                className="mv-hero mv-hero--halo"
+                data-testid="mission-hero"
+                aria-label="Selected mission"
+              >
                 <div className="mv-hero__head">
                   <h2 className="mv-hero__title">{selectedMission.title}</h2>
                   <span className="mv-hero__id" title={selectedMission.id}>
