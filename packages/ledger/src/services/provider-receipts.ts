@@ -15,6 +15,7 @@ import type { Clock } from '../clock.js';
 import type {
   ProviderReceipt,
   ProviderReceiptEnvironment,
+  ProviderReceiptProvider,
   ProviderReceiptKind,
   ProviderReceiptStore,
 } from '@moterva/providers';
@@ -40,13 +41,14 @@ export class ProviderReceiptService implements ProviderReceiptStore {
         .prepare(
           `INSERT INTO provider_receipts
              (id, org_id, operation_id, request_id, provider, transfer_id, kind, environment, http_status, provider_status, payload_json, recorded_at)
-           VALUES (?, ?, ?, ?, 'airwallex', ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           `rcpt_${randomUUID()}`,
           receipt.orgId,
           receipt.operationId,
           receipt.requestId,
+          receipt.provider satisfies ProviderReceiptProvider,
           receipt.providerResourceId,
           receipt.kind satisfies ProviderReceiptKind,
           receipt.environment,
@@ -70,13 +72,14 @@ export class ProviderReceiptService implements ProviderReceiptStore {
   listByRequestId(requestId: string, orgId: string): readonly ProviderReceipt[] {
     const rows = this.db
       .prepare(
-        `SELECT id, org_id, operation_id, request_id, transfer_id, kind, environment, http_status, provider_status, payload_json, recorded_at
+        `SELECT id, org_id, operation_id, request_id, provider, transfer_id, kind, environment, http_status, provider_status, payload_json, recorded_at
          FROM provider_receipts WHERE request_id = ? AND org_id = ? ORDER BY seq`,
       )
       .all(requestId, orgId);
     return rows.map((row) => {
       const r = row as Record<string, unknown>;
       return {
+        provider: text(r.provider, 'provider') as ProviderReceiptProvider,
         orgId: text(r.org_id, 'org_id'),
         operationId: r.operation_id === null ? null : text(r.operation_id, 'operation_id'),
         requestId: text(r.request_id, 'request_id'),

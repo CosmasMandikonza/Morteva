@@ -21,7 +21,11 @@ export type ProviderReceiptKind =
 
 export type ProviderReceiptEnvironment = 'sandbox' | 'offline-fixture' | 'testnet';
 
+/** Which provider produced the receipt — persisted, never inferred. */
+export type ProviderReceiptProvider = 'airwallex' | 'metal';
+
 export interface ProviderReceipt {
+  readonly provider: ProviderReceiptProvider;
   readonly orgId: string;
   readonly operationId: string | null;
   readonly requestId: string;

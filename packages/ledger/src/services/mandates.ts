@@ -98,7 +98,7 @@ export class MandateService {
         .get() !== undefined &&
       this.db
         .prepare(
-          "SELECT id FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL",
+          'SELECT id FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL',
         )
         .get(input.orgId, currency) !== undefined;
     if (rails.includes('metal') && !tokenCurrency) {

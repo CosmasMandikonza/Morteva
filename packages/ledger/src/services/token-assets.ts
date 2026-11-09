@@ -94,7 +94,10 @@ export class TokenAssetService {
     }
     const contract = input.contractAddress.trim().toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(contract)) {
-      throw new LedgerError('INVALID_INPUT', 'contract address must be a 0x-prefixed 40-hex address');
+      throw new LedgerError(
+        'INVALID_INPUT',
+        'contract address must be a 0x-prefixed 40-hex address',
+      );
     }
     if (!Number.isSafeInteger(input.chainId) || input.chainId <= 0) {
       throw new LedgerError('INVALID_INPUT', 'chain id must be a positive integer');
@@ -106,7 +109,10 @@ export class TokenAssetService {
       .prepare('SELECT id FROM actors WHERE id = ? AND org_id = ? AND revoked_at IS NULL')
       .get(input.createdByActorId, input.orgId);
     if (creator === undefined) {
-      throw new LedgerError('AUTH_ACTOR_NOT_FOUND', 'registration actor not found in this organization');
+      throw new LedgerError(
+        'AUTH_ACTOR_NOT_FOUND',
+        'registration actor not found in this organization',
+      );
     }
     const active = this.db
       .prepare(
@@ -262,22 +268,23 @@ export class TokenAssetService {
       );
     }
     if (!Number.isSafeInteger(input.minorUnits) || input.minorUnits < 0) {
-      throw new LedgerError('INVALID_AMOUNT', 'token balance minor units must be a non-negative integer');
+      throw new LedgerError(
+        'INVALID_AMOUNT',
+        'token balance minor units must be a non-negative integer',
+      );
     }
     if (!Number.isFinite(Date.parse(input.chainReadAt))) {
       throw new LedgerError('INVALID_INPUT', 'chainReadAt must be a valid ISO timestamp');
     }
     createMoney(asset.currency, input.minorUnits);
     const observedAt = input.observedAt ?? this.clock.iso();
-    const expiresAt = input.expiresAt ?? new Date(this.clock.now().getTime() + 5 * 60_000).toISOString();
+    const expiresAt =
+      input.expiresAt ?? new Date(this.clock.now().getTime() + 5 * 60_000).toISOString();
     if (Date.parse(observedAt) > Date.parse(expiresAt)) {
       throw new LedgerError('INVALID_INPUT', 'balance observation timestamps must be ordered');
     }
     if (Date.parse(input.chainReadAt) > this.clock.now().getTime() + 30_000) {
-      throw new LedgerError(
-        'INVALID_INPUT',
-        'future-dated chain reads cannot authorize spending',
-      );
+      throw new LedgerError('INVALID_INPUT', 'future-dated chain reads cannot authorize spending');
     }
     const id = newId('bal');
     this.db

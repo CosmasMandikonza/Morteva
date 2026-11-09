@@ -110,7 +110,10 @@ export class ReservationService {
   ]);
 
   /** Live token-asset registry lookup (migration 0005); null when fiat. */
-  private tokenAssetLookup(orgId: string, currency: string): { id: string; currency: string } | null {
+  private tokenAssetLookup(
+    orgId: string,
+    currency: string,
+  ): { id: string; currency: string } | null {
     // Tolerate pre-migration databases (raw in-memory fixtures): without the
     // table there are no registered token assets, i.e. fiat-only.
     const table = this.db
@@ -118,7 +121,9 @@ export class ReservationService {
       .get() as { name: string } | undefined;
     if (table === undefined) return null;
     const row = this.db
-      .prepare('SELECT id, currency FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL')
+      .prepare(
+        'SELECT id, currency FROM token_assets WHERE org_id = ? AND currency = ? AND revoked_at IS NULL',
+      )
       .get(orgId, currency) as { id: string; currency: string } | undefined;
     return row ?? null;
   }
