@@ -389,9 +389,7 @@ export function DecisionRoom({
           with `availability="ready"` (selection below is already wired to
           the journey's incident event id).
         */}
-        <MissionViewerUnavailableCard
-          reason="The physical-view read for this mission is not available on this build (the sanitized mission-evidence read endpoint is not deployed yet). No scene is shown rather than an unverified one — the admitted incident above carries the exact journal identities."
-        />
+        <MissionViewerUnavailableCard reason="The physical-view read for this mission is not available on this build (the sanitized mission-evidence read endpoint is not deployed yet). No scene is shown rather than an unverified one — the admitted incident above carries the exact journal identities." />
         <div className="mv-decision-room__comparison">
           <DecisionCard title="Before · initial plan" decision={journey?.before ?? null} />
           <DecisionCard title="After · updated constraints" decision={journey?.after ?? null} />

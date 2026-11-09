@@ -7,13 +7,13 @@ Chromium 1440×900 @1x, ZCode in-app browser pane, Windows, Node 24.
 
 ## Frame cost (event-focus framing, forced single-frame renders ×120)
 
-| Metric | Measured |
-|---|---|
-| Median frame render | **3 ms** (≈330 fps ceiling before compositing) |
-| p95 | 13.7 ms (shader/texture state transitions, GC) |
-| Max | 160 ms (first-frame shader compilation — one-time cost) |
-| Triangles / frame | 6,136 |
-| Draw calls / frame | 91 |
+| Metric              | Measured                                                |
+| ------------------- | ------------------------------------------------------- |
+| Median frame render | **3 ms** (≈330 fps ceiling before compositing)          |
+| p95                 | 13.7 ms (shader/texture state transitions, GC)          |
+| Max                 | 160 ms (first-frame shader compilation — one-time cost) |
+| Triangles / frame   | 6,136                                                   |
+| Draw calls / frame  | 91                                                      |
 
 → On real hardware the scene is comfortably within 60 fps; the earlier "12 fps"
 figure is a **SwiftShader (CPU rasterizer)** property and must not be read as
