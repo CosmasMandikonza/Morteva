@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "smoke:balance": "node dist/smoke/balance.js",
-    "smoke:purchase": "node dist/smoke/purchase.js"
+    "smoke:purchase": "node dist/smoke/purchase.js",
+    "smoke:network": "node dist/smoke/network.js"
   },
   "dependencies": {
     "@moterva/domain": "0.1.0",
