@@ -867,6 +867,23 @@ export class MissionViewer3d {
     this.controls.update();
   }
 
+  /**
+   * C3 debug seam: render exactly one frame synchronously and return the
+   * frame stats. Under demand rendering this is also the external trigger
+   * for a guaranteed paint (tests, capture tools).
+   */
+  debugRenderOnce(): { triangles: number; calls: number; ms: number } {
+    const t0 = performance.now();
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+    const info = this.renderer.info.render;
+    return {
+      triangles: info.triangles,
+      calls: info.calls,
+      ms: Math.round((performance.now() - t0) * 100) / 100,
+    };
+  }
+
   simulateContextLoss(): void {
     const ext = this.renderer.getContext().getExtension('WEBGL_lose_context');
     ext?.loseContext();
