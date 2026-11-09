@@ -17,6 +17,9 @@
       "path": "packages/airwallex"
     },
     {
+      "path": "packages/metal"
+    },
+    {
       "path": "apps/api"
     }
   ]
