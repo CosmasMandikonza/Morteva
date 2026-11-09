@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openLedger, TunableClock, type Ledger } from '../src/index.js';
-import { tempDbPath } from './helpers.js';
+import { TEST_PASSWORD, tempDbPath } from './helpers.js';
 
 const DIR = mkdtempSync(join(tmpdir(), 'metal-receipts-'));
 const DB = join(DIR, 'ledger.sqlite');
@@ -58,14 +58,14 @@ describe('metal testnet receipts through the shared channel', () => {
       username: 'owner-r',
       displayName: 'O',
       role: 'owner',
-      password: 'dev-only-fixture',
+      password: TEST_PASSWORD,
     });
     const approver = ledger.authority.createHumanActor({
       orgId: org.id,
       username: 'approver-r',
       displayName: 'A',
       role: 'approver',
-      password: 'dev-only-fixture',
+      password: TEST_PASSWORD,
     });
     ledger.tokenAssets.registerTokenAsset({
       orgId: org.id,
