@@ -32,11 +32,17 @@ describe('runnable fixture demonstration', () => {
     expect(report.financialIsolation.financialTopicEvidenceEvents).toBe(0);
     expect(report.financialIsolation.operationsRows).toBe(0);
     expect(report.financialIsolation.commitmentRows).toBe(0);
-    expect(report.scenarios).toHaveLength(2);
-    const [offshore, warehouse] = report.scenarios;
+    // Three fixtures since MTV-07: the offshore flagship, the warehouse
+    // cycle-count (ingestion breadth) and the warehouse ground-robot
+    // interrupt (decision pathway + governed recovery).
+    expect(report.scenarios).toHaveLength(3);
+    const [offshore, warehouse, warehouseInterrupt] = report.scenarios;
     expect(offshore!.run.acceptedCount).toBeGreaterThan(0);
     expect(warehouse!.run.acceptedCount).toBeGreaterThan(0);
-  }, 120_000);
+    expect(warehouseInterrupt!.run.acceptedCount).toBeGreaterThan(0);
+    expect(warehouseInterrupt!.run.rejectedCount).toBeGreaterThan(0);
+    expect(warehouseInterrupt!.scenarioId).toBe('warehouse-robot-interrupt-v1');
+  }, 180_000);
 
   it('two consecutive full runs reproduce the same meaningful event sequence', async () => {
     const first = await runDemo();

@@ -73,6 +73,10 @@ export type {
 export { SeededRandom, fnv1a32, deterministicEventId, fixtureSourceKey } from './src/rng.js';
 export { offshoreScenario, OFFSHORE_SCENARIO_T0_MS } from './src/scenarios/offshore.js';
 export { warehouseScenario, WAREHOUSE_SCENARIO_T0_MS } from './src/scenarios/warehouse.js';
+export {
+  warehouseInterruptScenario,
+  WAREHOUSE_INTERRUPT_T0_MS,
+} from './src/scenarios/warehouse-interrupt.js';
 export { runScenario } from './src/scenarios/runner.js';
 export { scriptDigest } from './src/scenarios/builder.js';
 export type {
