@@ -5,6 +5,12 @@ import { StatusChip } from '../components/StatusChip';
 import { HaloBadge, HaloProgress } from '../components/ui';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
+import {
+  InvitationAccept,
+  OidcSignIn,
+  probeAuthMode,
+  type AuthModeProbe,
+} from '../components/IdentityPanels';
 import { OperationInspector } from '../components/OperationInspector';
 import {
   ApiError,
@@ -59,6 +65,18 @@ export function Treasury({
   loginError: string | null;
 }): JSX.Element {
   const [missions, setMissions] = useState<Load<MissionRow[]>>({ kind: 'loading' });
+  const [authMode, setAuthMode] = useState<AuthModeProbe>('checking');
+  useEffect(() => {
+    const controller = new AbortController();
+    probeAuthMode(controller.signal)
+      .then((m) => {
+        if (!controller.signal.aborted) setAuthMode(m);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAuthMode('local');
+      });
+    return () => controller.abort();
+  }, []);
   const [mandates, setMandates] = useState<Load<MandateRow[]>>({ kind: 'loading' });
   const [overview, setOverview] = useState<Load<FinancialOverviewView>>({ kind: 'loading' });
   const [operations, setOperations] = useState<Load<OperationListView>>({ kind: 'loading' });
@@ -277,9 +295,31 @@ export function Treasury({
           </div>
         </section>
       )}
-      {session.kind === 'signed-out' && (
-        <SignInPanel onSubmit={onLogin} busy={loginBusy} error={loginError} />
-      )}
+      {session.kind === 'signed-out' && location.hash === '#invite' && <InvitationAccept />}
+      {session.kind === 'signed-out' &&
+        location.hash !== '#invite' &&
+        (authMode === 'oidc' ? (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">organization identity · OIDC</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why">
+              Mission financial data is org-scoped. Sign in through your organization 's identity
+              provider — membership and role are managed by your MOTERVA admins; there is no public
+              sign-up.
+            </p>
+            <div className="mv-signin__form">
+              <OidcSignIn />
+              <p className="mv-governed__note">
+                Invited by an administrator?
+                <a href="#invite">Accept your invitation</a>.
+              </p>
+            </div>
+          </Panel>
+        ) : (
+          <SignInPanel onSubmit={onLogin} busy={loginBusy} error={loginError} />
+        ))}
 
       {/* ------------------------------------------------ missions + mandates */}
       {signedIn && (
