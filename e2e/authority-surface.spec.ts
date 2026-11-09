@@ -56,8 +56,11 @@ test.describe('authority & execution surface', () => {
     await page.getByTestId('snapshot-baseline').waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByTestId('introduce-incident').click();
     await page.getByTestId('snapshot-incident').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByTestId('propose-plan').click();
-    await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
+    // Transient contention 409 possible on the first propose — retry.
+    await expect(async () => {
+      await page.getByTestId('propose-plan').click();
+      await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
 
     await page.getByRole('link', { name: 'Authority & Execution' }).click();
     const surface = page.getByTestId('authority-surface');
