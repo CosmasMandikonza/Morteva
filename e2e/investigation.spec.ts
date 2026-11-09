@@ -85,10 +85,13 @@ test('position spendable math matches the engine across the seeded scenario', as
   // pending observation counted by the engine. We assert the API's own
   // numbers verbatim rather than recomputing them here — the engine is the
   // authority; the UI must not drift from it.
+  // Positive assertions auto-retry (D-2 fix): the panel mounts with static
+  // copy while /api/financial/overview is in flight; a one-shot textContent
+  // read raced the fetch and failed even on CI retries.
+  await expect(position).toContainText('Spendable now');
+  await expect(position).toContainText('Protected floor');
+  await expect(position).toContainText('unknown/held');
   const text = await position.textContent();
-  expect(text).toContain('Spendable now');
-  expect(text).toContain('Protected floor');
-  expect(text).toContain('unknown/held');
   expect(text).not.toContain('NaN');
   expect(text).not.toContain('Infinity');
 });

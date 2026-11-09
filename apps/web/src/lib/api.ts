@@ -1,9 +1,11 @@
 /**
  * Typed client for the REAL MOTERVA API (apps/api/src/routes.ts + app.ts).
- * Read-only: the production UI performs no financial mutations. Financial
- * routes exist only under the server's explicit loopback-only DEMO_AUTH gate;
- * when that gate is off they are simply absent (404) and the UI renders
- * honest unavailable states — never fixture data.
+ * Reads plus the governed onboarding writes (mission + mandate creation) —
+ * every write is role-checked by the SERVER and carries the session's CSRF
+ * token via the X-CSRF-Token header; the UI never relies on hiding buttons
+ * for authorization. Financial routes exist only under the server's explicit
+ * loopback-only DEMO_AUTH gate; when that gate is off they are simply absent
+ * (404) and the UI renders honest unavailable states — never fixture data.
  */
 
 export class ApiError extends Error {
@@ -131,6 +133,54 @@ export function fetchMissions(signal?: AbortSignal): Promise<MissionRow[]> {
   return request<{ missions: MissionRow[] }>('/api/missions', { signal }).then(
     (body) => body.missions,
   );
+}
+
+/** Role of the signed-in actor as the SERVER reports it (never client-guessed). */
+export function actorRole(session: SessionState): string | null {
+  return session.kind === 'signed-in' ? session.session.actor.role : null;
+}
+
+/** Mirrors the server's role matrix (domain/roles) ONLY for UI affordances;
+ *  enforcement is always server-side — a hidden button is not authorization. */
+export function mayManageAuthority(role: string | null): boolean {
+  return role === 'owner' || role === 'admin';
+}
+
+export function mayOperate(role: string | null): boolean {
+  return role === 'owner' || role === 'admin' || role === 'approver' || role === 'operator';
+}
+
+function csrfHeaders(csrfToken: string): Record<string, string> {
+  return { 'content-type': 'application/json', 'x-csrf-token': csrfToken };
+}
+
+/** POST /api/missions — requires the server's `operate` grant. */
+export function createMission(title: string, csrfToken: string): Promise<MissionRow> {
+  return request<{ id: string; org_id: string; title: string; status: string; created_at: string }>(
+    '/api/missions',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ title }) },
+  );
+}
+
+export interface CreateMandateInput {
+  readonly missionId: string;
+  readonly currency: string;
+  readonly maxAmountMinor: number;
+  readonly totalBudgetMinor?: number | undefined;
+  readonly permittedOperationKinds: readonly string[];
+  readonly rails?: readonly string[] | undefined;
+  readonly allowedBeneficiaries?: readonly string[] | undefined;
+  readonly allowedPurposes?: readonly string[] | undefined;
+  readonly expiresAt: string;
+}
+
+/** POST /api/mandates — requires the server's `manageAuthority` grant. */
+export function createMandate(input: CreateMandateInput, csrfToken: string): Promise<MandateRow> {
+  return request<{ mandate: MandateRow }>('/api/mandates', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify(input),
+  }).then((body) => body.mandate);
 }
 
 // ---------------------------------------------------------------- mandates
@@ -321,4 +371,232 @@ export function submitSyntheticStep(
       body: JSON.stringify({ step }),
     },
   );
+}
+
+// --------------------------------------------- governed decision actions
+
+export interface CreatePlanInput {
+  readonly missionId: string;
+  readonly terms: {
+    readonly amountMinor: number;
+    readonly currency: string;
+    readonly beneficiary: string;
+    readonly purpose: string;
+    readonly quote?: string | undefined;
+  };
+}
+
+/** POST /api/plans — requires the server's `propose` grant (operator+). */
+export function createPlan(
+  input: CreatePlanInput,
+  csrfToken: string,
+): Promise<{
+  plan: { id: string; version: number; digest: string };
+}> {
+  return request<{ plan: { id: string; version: number; digest: string } }>('/api/plans', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export interface CreateApprovalInput {
+  readonly missionId: string;
+  readonly planId: string;
+  readonly planVersion: number;
+  readonly kind: 'airwallex_transfer' | 'metal_order' | 'internal_hold';
+  readonly mandateId?: string | undefined;
+  readonly mandateVersion?: number | undefined;
+  readonly evidenceDigest?: string | undefined;
+  readonly expiresAt: string;
+}
+
+/** POST /api/approvals — requires the server's `approve` grant (approver+). */
+export function createApproval(
+  input: CreateApprovalInput,
+  csrfToken: string,
+): Promise<{ approval: { id: string; status: string; expiresAt: string } }> {
+  return request<{ approval: { id: string; status: string; expiresAt: string } }>(
+    '/api/approvals',
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function mayPropose(role: string | null): boolean {
+  return mayOperate(role);
+}
+
+export function mayApprove(role: string | null): boolean {
+  return role === 'owner' || role === 'admin' || role === 'approver';
+}
+
+// -------------------------- durable decision snapshots (#44 contract)
+
+export interface RecordedSnapshotDecision {
+  readonly outcome: 'select' | 'decline' | 'escalate';
+  readonly selected: {
+    readonly candidateId: string;
+    readonly grossMinor: number;
+    readonly currency: string;
+    readonly beneficiary: string;
+    readonly purpose: string;
+    readonly probabilityBps: number;
+    readonly expectedNetMinor: number;
+    readonly evidenceIds: readonly string[];
+  } | null;
+}
+
+export interface RecordedSnapshot {
+  readonly evaluationId: string;
+  readonly stage: 'baseline' | 'incident';
+  readonly recordedAt: string;
+  readonly decision: RecordedSnapshotDecision;
+  readonly linkage: {
+    readonly baselineEvaluationId?: string | null;
+    readonly incidentEventId?: string | null;
+  } | null;
+  readonly seq: number;
+}
+
+/** GET /api/missions/:id/decision-snapshots — READ ONLY; never creates. */
+export function fetchDecisionSnapshots(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<{ missionId: string; integrity: string; snapshots: RecordedSnapshot[] }> {
+  return request<{ missionId: string; integrity: string; snapshots: RecordedSnapshot[] }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots`,
+    { signal },
+  );
+}
+
+export interface SnapshotRecordResult {
+  readonly missionId: string;
+  readonly replayed: boolean;
+  readonly snapshot: {
+    readonly evaluationId: string;
+    readonly stage: 'baseline' | 'incident';
+    readonly recordedAt: string;
+    readonly decision: RecordedSnapshotDecision;
+  };
+}
+
+/** POST /api/missions/:id/decision-snapshots — explicit, operate + CSRF, idempotent. */
+export function recordDecisionSnapshot(
+  missionId: string,
+  stage: 'baseline' | 'incident',
+  csrfToken: string,
+): Promise<SnapshotRecordResult> {
+  return request<SnapshotRecordResult>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots`,
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify({ stage }),
+    },
+  );
+}
+
+/** POST /api/missions/:id/decision-snapshots/:evaluationId/propose-plan —
+ *  BODYLESS apart from request metadata: the selected economic terms come
+ *  ONLY from the saved evaluation / server journal. Never send terms here. */
+export function proposePlanFromEvaluation(
+  missionId: string,
+  evaluationId: string,
+  csrfToken: string,
+): Promise<{
+  plan: {
+    id: string;
+    version: number;
+    digest: string;
+    amountMinor: number;
+    currency: string;
+    beneficiary: string;
+  };
+  replayed: boolean;
+  authorization: string;
+  providerVerified: false;
+}> {
+  return request<{
+    plan: {
+      id: string;
+      version: number;
+      digest: string;
+      amountMinor: number;
+      currency: string;
+      beneficiary: string;
+    };
+    replayed: boolean;
+    authorization: string;
+    providerVerified: false;
+  }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-snapshots/${encodeURIComponent(
+      evaluationId,
+    )}/propose-plan`,
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: '{}' },
+  );
+}
+
+export interface DecisionPlanProposal {
+  readonly evaluationId: string;
+  readonly proposedBy: string;
+  readonly plan: {
+    readonly id: string;
+    readonly version: number;
+    readonly digest: string;
+    readonly createdAt: string;
+    readonly terms: {
+      readonly amountMinor: number;
+      readonly currency: string;
+      readonly beneficiary: string;
+      readonly purpose: string;
+    };
+  };
+  readonly providerVerified: false;
+}
+
+/** GET /api/missions/:id/decision-plans — read-only reviewer handoff. */
+export function fetchDecisionPlans(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<{ missionId: string; plans: DecisionPlanProposal[]; authorization: string }> {
+  return request<{ missionId: string; plans: DecisionPlanProposal[]; authorization: string }>(
+    `/api/missions/${encodeURIComponent(missionId)}/decision-plans`,
+    { signal },
+  );
+}
+
+/** Journal-verified approvals for rebuild-after-reload: filter the real
+ *  financial journal for approval.granted events (server truth, no invention). */
+export interface RecordedApproval {
+  readonly approvalId: string;
+  readonly planId: string;
+  readonly planVersion: number;
+  readonly planDigest: string;
+  readonly decidedBy: string;
+  readonly kind: string;
+  readonly expiresAt: string;
+}
+
+export function approvalsFromEvidence(
+  events: readonly { type: string; payload: Record<string, unknown> }[],
+): RecordedApproval[] {
+  return events
+    .filter((e) => e.type === 'approval.granted')
+    .map((e) => {
+      const p = e.payload as Record<string, unknown>;
+      return {
+        approvalId: String(p.approvalId ?? ''),
+        planId: String(p.planId ?? ''),
+        planVersion: Number(p.planVersion ?? 0),
+        planDigest: String(p.planDigest ?? ''),
+        decidedBy: String(p.decidedBy ?? ''),
+        kind: String(p.kind ?? ''),
+        expiresAt: String(p.expiresAt ?? ''),
+      };
+    })
+    .filter((a) => a.approvalId !== '' && a.planId !== '');
 }

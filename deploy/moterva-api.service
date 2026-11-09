@@ -1,0 +1,50 @@
+# MOTERVA API — systemd unit (bare-metal alternative to docker compose).
+# Install as /etc/systemd/system/moterva-api.service, then:
+#   systemctl daemon-reload && systemctl enable --now moterva-api
+#
+# The API runs as the dedicated non-root `moterva` user from a read-only
+# checkout at /opt/moterva (built with npm ci && npm run build as that user).
+# StateDirectory gives /var/lib/moterva (ledger home) with correct ownership.
+# NODE_ENV=production: the authenticated/financial route family does not
+# exist in this mode — same fail-closed posture as the container deploy.
+
+[Unit]
+Description=MOTERVA API (production, fail-closed public surface)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=moterva
+Group=moterva
+WorkingDirectory=/opt/moterva
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=WEB_ORIGIN=https://moterva-demo.example.org
+Environment=MOTERVA_LEDGER_PATH=/var/lib/moterva/ledger.sqlite
+EnvironmentFile=-/etc/moterva/moterva-api.env
+ExecStart=/usr/bin/node apps/api/dist/index.js
+Restart=on-failure
+RestartSec=3
+StateDirectory=moterva
+StateDirectoryMode=0750
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
