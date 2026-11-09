@@ -45,6 +45,14 @@ const operator = ledger.authority.createHumanActor({
   role: 'operator',
   password: E2E_PASSWORD,
 });
+// A viewer for negative-authorization journeys: may read, never write.
+ledger.authority.createHumanActor({
+  orgId: org.id,
+  username: 'viewer',
+  displayName: 'E2E Viewer',
+  role: 'viewer',
+  password: E2E_PASSWORD,
+});
 
 const missionA = ledger.organizations.createMission(org.id, 'Harbor turbine inspection');
 const missionB = ledger.organizations.createMission(org.id, 'Subsea mooring survey');
@@ -124,7 +132,10 @@ ledger.mandates.issue({
   totalBudgetMinor: 2_000_000,
   permittedOperationKinds: ['internal_hold'],
   byActorId: owner.id,
-  expiresAt: new Date(now.getTime() + 200).toISOString(), // lapsed by clock when rendered
+  // Lapsed-by-clock fixture: read the clock IMMEDIATELY before issuance so a
+  // slow/loaded machine cannot burn the 200ms fuse before the ledger validates
+  // (the expiry is still in the past by the time the UI renders it).
+  expiresAt: new Date(ledger.clock.now().getTime() + 200).toISOString(),
 });
 
 const evidence = ledger.evidence.append({
@@ -369,7 +380,7 @@ const child = spawn(process.execPath, [join(root, 'apps/api/dist/index.js')], {
     NODE_ENV: 'development',
     MOTERVA_DEV_AUTH: '1',
     MOTERVA_LEDGER_PATH: dbPath,
-    PORT: '8787',
+    PORT: process.env.PORT ?? '8787',
   },
   stdio: 'inherit',
 });
