@@ -291,9 +291,14 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   test('evidence continuity: snapshot events are inspectable in Evidence Replay', async ({
     page,
   }) => {
+    // Dedicated mission: parallel specs may drive the default mission's
+    // journey without snapshots, and the server correctly refuses snapshots
+    // once the incident has closed the baseline window.
+    await signIn(page, 'founder');
+    await createMissionViaSheet(page, 'Evidence chain mission');
+    await grantMandateAs(page, '25000', 'Evidence chain mission');
     await signIn(page, 'operator');
-    // A fresh ledger journals no incident until the journey is driven; run it
-    // on the default mission (Harbor) so the evidence chain exists to inspect.
+    await selectMission(page, 'Evidence chain mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
     await runStage(page, 'baseline');
@@ -311,9 +316,14 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   });
 
   test('320px and 390px: governed panels do not overflow', async ({ page }) => {
+    // Dedicated mission: the default mission's journey may already be past the
+    // baseline window (older specs journal its events without snapshots), and
+    // the server correctly refuses snapshots in that state.
+    await signIn(page, 'founder');
+    await createMissionViaSheet(page, 'Viewport panels mission');
+    await grantMandateAs(page, '25000', 'Viewport panels mission');
     await signIn(page, 'operator');
-    // Drive the journey on the default mission so the governed panels render
-    // with real content (snapshots, proposal, journal-verified approval).
+    await selectMission(page, 'Viewport panels mission');
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
     await runStage(page, 'baseline');
