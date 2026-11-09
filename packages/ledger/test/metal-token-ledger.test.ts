@@ -913,6 +913,189 @@ END`,
     // restores a backup — it never silently reverts the token ledger in place.
   });
 
+  it('CTO P0-3 counterexample: a STALE 2020 chain read with a 2035 expiry can never back a reservation', () => {
+    // The exact CTO counterexample, on a FRESH org/mission so no prior
+    // snapshots or cumulative consumption muddy the assertions: chainReadAt
+    // in 2020, observedAt = now, expiresAt in 2035. Every gate must refuse;
+    // zero snapshots, zero ops, and the reservation has nothing to authorize
+    // against.
+    const cOrg = ledger.organizations.createOrganization('Stale Counterexample Org').id;
+    const cMission = ledger.organizations.createMission(cOrg, 'stale counterexample').id;
+    const cOwner = ledger.authority.createHumanActor({
+      orgId: cOrg,
+      username: 'owner-sc',
+      displayName: 'O',
+      role: 'owner',
+      password: TEST_PASSWORD,
+    });
+    const cApprover = ledger.authority.createHumanActor({
+      orgId: cOrg,
+      username: 'approver-sc',
+      displayName: 'A',
+      role: 'approver',
+      password: TEST_PASSWORD,
+    });
+    const cOperator = ledger.authority.createHumanActor({
+      orgId: cOrg,
+      username: 'operator-sc',
+      displayName: 'Op',
+      role: 'operator',
+      password: TEST_PASSWORD,
+    });
+    ledger.tokenAssets.registerTokenAsset({
+      orgId: cOrg,
+      currency: 'USDZ',
+      symbol: 'USDZ',
+      decimals: 2,
+      contractAddress: CONTRACT,
+      chainId: CHAIN,
+      createdByActorId: cOwner.id,
+    });
+    ledger.organizations.createMission;
+    const snapsBefore = (
+      ledger.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM balance_snapshots WHERE org_id = ? AND currency = 'USDZ'",
+        )
+        .get(cOrg) as { c: number }
+    ).c;
+    // Stale chain read (2020): refused outright.
+    expect(() =>
+      ledger.tokenAssets.recordTokenBalanceSnapshot({
+        orgId: cOrg,
+        currency: 'USDZ',
+        minorUnits: 99_000_00,
+        chainId: CHAIN,
+        contractAddress: CONTRACT,
+        chainReadAt: '2020-01-01T00:00:00.000Z',
+      }),
+    ).toThrow(/CHAIN_READ_STALE|older than/);
+    // Fresh chain read but caller-supplied 2035 expiry: refused.
+    expect(() =>
+      ledger.tokenAssets.recordTokenBalanceSnapshot({
+        orgId: cOrg,
+        currency: 'USDZ',
+        minorUnits: 99_000_00,
+        chainId: CHAIN,
+        contractAddress: CONTRACT,
+        chainReadAt: clock.iso(),
+        expiresAt: '2035-01-01T00:00:00.000Z',
+      }),
+    ).toThrow(/BALANCE_EXPIRY_EXCESSIVE|TTL/);
+    // Reversed ordering (observedAt before chainReadAt): refused.
+    expect(() =>
+      ledger.tokenAssets.recordTokenBalanceSnapshot({
+        orgId: cOrg,
+        currency: 'USDZ',
+        minorUnits: 99_000_00,
+        chainId: CHAIN,
+        contractAddress: CONTRACT,
+        chainReadAt: clock.iso(),
+        observedAt: '2020-06-01T00:00:00.000Z',
+        expiresAt: clock.iso(),
+      }),
+    ).toThrow(/reversed temporal ordering|precedes/);
+    const snapsAfter = (
+      ledger.db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM balance_snapshots WHERE org_id = ? AND currency = 'USDZ'",
+        )
+        .get(cOrg) as { c: number }
+    ).c;
+    expect(snapsAfter).toBe(snapsBefore); // zero snapshots from refused reads
+    // And with NO snapshot backing it, a metal_order reservation still cannot
+    // exist: the spendable math has nothing to authorize against.
+    const m = ledger.mandates.issue({
+      orgId: cOrg,
+      missionId: cMission,
+      currency: 'USDZ',
+      maxAmountMinor: 10_000_00,
+      totalBudgetMinor: 10_000_00,
+      permittedOperationKinds: ['metal_order'],
+      rails: ['metal'],
+      allowedBeneficiaries: ['0x' + 'c'.repeat(40)],
+      allowedPurposes: ['harbor inspection'],
+      byActorId: cOwner.id,
+      expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
+    });
+    const plan = ledger.plans.recordVersion({
+      orgId: cOrg,
+      missionId: cMission,
+      proposedBy: cOperator.id,
+      terms: {
+        amountMinor: 1_000_00,
+        currency: 'USDZ',
+        beneficiary: '0x' + 'c'.repeat(40),
+        purpose: 'harbor inspection',
+      },
+    });
+    const approval = ledger.approvals.record({
+      orgId: cOrg,
+      plan,
+      decidedByActorId: cApprover.id,
+      kind: 'metal_order',
+      mandateId: m.id,
+      mandateVersion: m.version,
+      expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString(),
+    });
+    expect(() =>
+      ledger.reservations.reserve({
+        orgId: cOrg,
+        missionId: cMission,
+        kind: 'metal_order',
+        requestId: 'usdz-stale-chain',
+        planId: plan.id,
+        planVersion: plan.version,
+        approvalId: approval.id,
+      }),
+    ).toThrow(/no balance snapshot|INSUFFICIENT_SPENDABLE|STALE_BALANCE|OVERCOMMITTED/);
+    expect(
+      (
+        ledger.db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM operations WHERE org_id = ? AND request_id = 'usdz-stale-chain'",
+          )
+          .get(cOrg) as { c: number }
+      ).c,
+    ).toBe(0);
+  });
+
+  it('TRUST BOUNDARY: viewer/operator creators cannot register a token asset; writes are server-side seams only', () => {
+    const viewer = ledger.authority.createHumanActor({
+      orgId,
+      username: 'viewer-tb',
+      displayName: 'V',
+      role: 'viewer',
+      password: TEST_PASSWORD,
+    });
+    const operatorActor = ledger.authority.createHumanActor({
+      orgId,
+      username: 'operator-tb',
+      displayName: 'Op',
+      role: 'operator',
+      password: TEST_PASSWORD,
+    });
+    for (const untrusted of [viewer, operatorActor]) {
+      expect(() =>
+        ledger.tokenAssets.registerTokenAsset({
+          orgId,
+          currency: 'NOPE',
+          symbol: 'NOPE',
+          decimals: 2,
+          contractAddress: CONTRACT_B,
+          chainId: CHAIN,
+          createdByActorId: untrusted.id,
+        }),
+      ).toThrow(/only owners and admins/);
+    }
+    expect(ledger.tokenAssets.listTokenAssets(orgId).some((a) => a.currency === 'NOPE')).toBe(
+      false,
+    );
+    // No HTTP surface: registration/balance writes are server-side seams —
+    // asserted in apps/api production-startup tests (no /api/token-assets
+    // route exists; the ledger seam is not exported over HTTP).
+  });
+
   it('CROSS-TENANT: another org cannot read, reserve, or register against our token asset', () => {
     const other = ledger.organizations.createOrganization('Other Metal Org').id;
     const otherOwner = ledger.authority.createHumanActor({

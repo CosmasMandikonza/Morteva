@@ -73,7 +73,10 @@ export type LedgerErrorCode =
   | 'TOKEN_ASSET_NOT_REGISTERED'
   | 'TOKEN_ASSET_REVOKED'
   | 'CHAIN_MISMATCH'
-  | 'TOKEN_CONTRACT_MISMATCH';
+  | 'TOKEN_CONTRACT_MISMATCH'
+  | 'OBSERVATION_ORDER_INVALID'
+  | 'CHAIN_READ_STALE'
+  | 'BALANCE_EXPIRY_EXCESSIVE';
 
 export class LedgerError extends Error {
   constructor(
