@@ -1405,7 +1405,7 @@ a {
 
 /* Very narrow viewports: the topbar action row wraps instead of pushing the
    page wide, and long meta tags break inside their pill. */
-@media (max-width: 360px) {
+@media (max-width: 390px) {
   .mv-topbar__ops {
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -1994,4 +1994,22 @@ a {
   gap: 4px;
   font-size: var(--mv-size-sm);
   color: var(--mv-ink-2);
+}
+
+/* Narrow screens: the lens tabs wrap instead of pushing the panel wide; */
+/* grid descendants keep min-width 0 so nothing can force the page wide. */
+@media (max-width: 480px) {
+  .mv-halotabs {
+    width: 100%;
+  }
+  .mv-halotabs__tab {
+    flex: 1 1 auto;
+    padding: 6px 10px;
+  }
+}
+.mv-droom__cards > *,
+.mv-droom__financial .mv-governed,
+.mv-droom__financial .mv-halotabs__panel {
+  min-width: 0;
+  max-width: 100%;
 }
