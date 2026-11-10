@@ -26,6 +26,60 @@ async function signIn(page: Page, username: string): Promise<void> {
   await expect(page.getByTestId('actor-chip')).toContainText(display);
 }
 
+/**
+ * TEST ISOLATION (CI run 42707099406 root-cause follow-up): a RETRY of a
+ * mission-creating test used to re-run against attempt-1's residue — the
+ * duplicate create made `.first()` select the OLD mission, whose mandate
+ * already existed, so `grant-first-mandate` never rendered and the retry
+ * timed out (captured in the run's error-context: two `Viewport panels
+ * mission` rows). Every mission title is therefore unique per worker AND per
+ * retry attempt; no test ever depends on whichever same-named mission is
+ * oldest.
+ */
+function uniqueMissionTitle(base: string): string {
+  const info = test.info();
+  const tag = `${Date.now().toString(36)}w${info.workerIndex}r${info.retry}${Math.random()
+    .toString(36)
+    .slice(2, 6)}`;
+  return `${base} ${tag}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * ID-only propose with AUTHORITATIVE failure surfacing: the click may
+ * legitimately be refused by the server (e.g. a genuine evidence/authority
+ * conflict surfaces `propose-error` with the server code+message). The test
+ * must never paper over that with a blind re-click — it fails LOUDLY with
+ * the server's own words instead.
+ */
+async function proposeFromRecordedEvaluation(page: Page): Promise<void> {
+  await page.getByTestId('propose-plan').click();
+  const row = page.getByTestId('decision-plan-row').first();
+  const error = page.getByTestId('propose-error').first();
+  const outcome = await Promise.race([
+    row
+      .waitFor({ state: 'visible', timeout: 15_000 })
+      .then(() => 'row' as const)
+      .catch(() => null),
+    error
+      .waitFor({ state: 'visible', timeout: 15_000 })
+      .then(() => 'error' as const)
+      .catch(() => null),
+  ]);
+  if (outcome === 'error') {
+    const text = (await error.textContent()) ?? '(no error text)';
+    throw new Error(
+      `PROPOSAL REFUSED BY SERVER — not retried (a financial mutation is never blind-re-clicked): ${text.trim()}`,
+    );
+  }
+  if (outcome === null) {
+    throw new Error('propose produced neither a decision-plan-row nor a propose-error within 15s');
+  }
+}
+
 async function signOut(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByTestId('actor-chip')).toHaveCount(0);
@@ -48,7 +102,7 @@ async function grantMandateAs(page: Page, cap: string, missionTitle: string): Pr
   await signIn(page, 'founder');
   await page
     .getByTestId('missions-panel')
-    .getByRole('button', { name: new RegExp(missionTitle) })
+    .getByRole('button', { name: new RegExp(escapeRegExp(missionTitle)) })
     .first()
     .click();
   await page.getByTestId('grant-first-mandate').click();
@@ -66,7 +120,7 @@ async function grantMandateAs(page: Page, cap: string, missionTitle: string): Pr
 async function selectMission(page: Page, title: string): Promise<void> {
   await page
     .getByTestId('missions-panel')
-    .getByRole('button', { name: new RegExp(title) })
+    .getByRole('button', { name: new RegExp(escapeRegExp(title)) })
     .first()
     .click();
 }
@@ -101,12 +155,13 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     page,
   }) => {
     // ---------- ACTOR 0: founder (authority manager) creates + grants, then leaves
+    const missionTitle = uniqueMissionTitle('Durable two-actor mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Durable two-actor mission');
-    await grantMandateAs(page, '25000', 'Durable two-actor mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     // ---------- ACTOR 1: operator (propose grant, no approve grant)
     await signIn(page, 'operator');
-    await selectMission(page, 'Durable two-actor mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
     await runStage(page, 'baseline');
@@ -121,15 +176,11 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await expect(page.getByTestId('governed-actions')).toContainText(
       'server derives the economic terms',
     );
-    // Transient contention 409 possible on the first propose — retry until
-    // the durable row appears (the server is idempotent on re-proposal).
+    // Durable proposal appears with immutable server terms — a server
+    // refusal surfaces LOUDLY (never blind-retried).
+    await proposeFromRecordedEvaluation(page);
     const plansPanel = page.getByTestId('decision-plans');
-    await expect(async () => {
-      await page.getByTestId('propose-plan').click();
-      await expect(plansPanel.getByTestId('decision-plan-row')).toBeVisible({
-        timeout: 5_000,
-      });
-    }).toPass({ timeout: 30_000 });
+    await expect(plansPanel.getByTestId('decision-plan-row')).toBeVisible({ timeout: 15_000 });
     const terms = plansPanel.getByTestId('plan-terms');
     await expect(terms).toContainText('USD 18,500.00'); // vessel alternative from server catalog
     await expect(terms).toContainText('harbor-marine');
@@ -189,11 +240,12 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   });
 
   test('baseline must be recorded before the incident evaluation', async ({ page }) => {
+    const missionTitle = uniqueMissionTitle('Ordering guard mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Ordering guard mission');
-    await grantMandateAs(page, '25000', 'Ordering guard mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     await signIn(page, 'operator');
-    await selectMission(page, 'Ordering guard mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
 
     // Fresh mission: incident button disabled until baseline stage reached.
@@ -203,11 +255,12 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   });
 
   test('no-action baseline evaluation never proposes a payment', async ({ page }) => {
+    const missionTitle = uniqueMissionTitle('No-action mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'No-action mission');
-    await grantMandateAs(page, '25000', 'No-action mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     await signIn(page, 'operator');
-    await selectMission(page, 'No-action mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
 
@@ -218,11 +271,12 @@ test.describe('governed two-actor journey (durable contracts)', () => {
   });
 
   test('manual plan entry is clearly labeled NOT planner-derived', async ({ page }) => {
+    const missionTitle = uniqueMissionTitle('Manual label mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Manual label mission');
-    await grantMandateAs(page, '25000', 'Manual label mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     await signIn(page, 'operator');
-    await selectMission(page, 'Manual label mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await runStage(page, 'baseline');
     await runStage(page, 'incident');
@@ -299,11 +353,12 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     // Dedicated mission: parallel specs may drive the default mission's
     // journey without snapshots, and the server correctly refuses snapshots
     // once the incident has closed the baseline window.
+    const missionTitle = uniqueMissionTitle('Evidence chain mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Evidence chain mission');
-    await grantMandateAs(page, '25000', 'Evidence chain mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     await signIn(page, 'operator');
-    await selectMission(page, 'Evidence chain mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
     await runStage(page, 'baseline');
@@ -320,29 +375,86 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     });
   });
 
-  test('320px and 390px: governed panels do not overflow', async ({ page }) => {
+  test('responsive widths: governed panels hold an authoritative proposal without overflow', async ({
+    page,
+  }) => {
     // Dedicated mission: the default mission's journey may already be past the
     // baseline window (older specs journal its events without snapshots), and
-    // the server correctly refuses snapshots in that state.
+    // the server correctly refuses snapshots in that state. The title is
+    // unique per worker AND per retry attempt — a retry must never operate on
+    // attempt-1's mission residue (CI 42707099406's exact retry failure).
+    const missionTitle = uniqueMissionTitle('Viewport panels mission');
     await signIn(page, 'founder');
-    await createMissionViaSheet(page, 'Viewport panels mission');
-    await grantMandateAs(page, '25000', 'Viewport panels mission');
+    await createMissionViaSheet(page, missionTitle);
+    await grantMandateAs(page, '25000', missionTitle);
     await signIn(page, 'operator');
-    await selectMission(page, 'Viewport panels mission');
+    await selectMission(page, missionTitle);
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toBeVisible();
     await runStage(page, 'baseline');
     await runStage(page, 'incident');
-    // First propose can hit a transient contention 409; the server is
-    // idempotent on retry — retry until the durable row appears.
-    await expect(async () => {
-      await page.getByTestId('propose-plan').click();
-      await expect(page.getByTestId('decision-plan-row')).toBeVisible({ timeout: 5_000 });
-    }).toPass({ timeout: 30_000 });
-    for (const width of [390, 320]) {
+    // SERVER-AUTHORITATIVE proposal with loud refusal surfacing (a 409 with
+    // its server code fails this test with the code, never a blind re-click).
+    await proposeFromRecordedEvaluation(page);
+    const plansPanel = page.getByTestId('decision-plans');
+    const row = plansPanel.getByTestId('decision-plan-row').first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+
+    // Immutable identity is fully accessible at any width: full id + digest
+    // in the row's title attributes (truncation is presentation-only).
+    const fullPlanId = await row.locator('span.mv-num').first().getAttribute('title');
+    expect(fullPlanId, 'full plan id in title attribute').toMatch(/^plan_[0-9a-f]{24}$/);
+    const fullDigest = await row
+      .locator('span[title]')
+      .evaluateAll((els) =>
+        els.map((el) => el.getAttribute('title') ?? '').find((t) => /^[0-9a-f]{64}$/.test(t)),
+      );
+    expect(fullDigest, 'full immutable plan digest in title attribute').toMatch(/^[0-9a-f]{64}$/);
+    await expect(row).toContainText('USD 18,500.00');
+    await expect(row).toContainText('harbor-marine');
+
+    // Exactly ONE persisted proposal for this evaluation: a viewport resize
+    // must not duplicate a financial row (and the test never re-clicks).
+    const rowCount = async (): Promise<number> =>
+      plansPanel.getByTestId('decision-plan-row').count();
+    const before = await rowCount();
+    expect(before).toBe(1);
+
+    // Responsive ladder (320/390/768/1024/1440): no uncontrolled horizontal
+    // document scrolling, and the authoritative row stays reachable.
+    for (const width of [320, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 844 });
       const sw = await page.evaluate<number>('document.documentElement.scrollWidth');
       expect(sw, `scrollWidth at ${width}`).toBeLessThanOrEqual(width);
+      await row.scrollIntoViewIfNeeded();
+      await expect(row).toBeVisible();
+      // Amounts/currency fully readable at the narrowest width.
+      if (width === 320) {
+        await expect(row).toContainText('USD 18,500.00');
+      }
     }
+    // The persisted proposal survived every resize unchanged.
+    expect(await rowCount()).toBe(1);
+    expect((await row.locator('span.mv-num').first().getAttribute('title')) ?? '').toBe(fullPlanId);
+
+    // Native 200% zoom is not controllable via the Playwright API (documented
+    // in the repo's zoom-reflow decision); the established honest equivalent
+    // is CDP device-metrics at DPR 2 — a 1440 window reflows to 720 CSS px,
+    // and the document must not scroll horizontally beyond that.
+    const cdp = await page.context().newCDPSession(page);
+    const client = {
+      send: (method: string, params: Record<string, unknown>): Promise<unknown> =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cdp as any).send(method, params),
+    };
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 720,
+      height: 844,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    const zoomedSw = await page.evaluate<number>('document.documentElement.scrollWidth');
+    expect(zoomedSw, 'scrollWidth at 200% zoom equivalent (720 CSS px)').toBeLessThanOrEqual(720);
+    await client.send('Emulation.clearDeviceMetricsOverride', {});
   });
 });
