@@ -92,7 +92,9 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
   const viewer = page.locator('[data-testid="decision-room"] [data-testid="mission-viewer"]');
   await page.waitForTimeout(3000);
   if ((await page.getByTestId('mpv-unavailable-reason').count()) > 0) {
-    throw new Error('UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()));
+    throw new Error(
+      'UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()),
+    );
   }
   await expect(viewer).toHaveAttribute('data-availability', 'ready', { timeout: 30_000 });
   await expect(viewer).toHaveAttribute('data-phase', 'S0-initial');
