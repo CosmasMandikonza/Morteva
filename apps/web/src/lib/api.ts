@@ -348,9 +348,11 @@ export interface PhysicalDecisionJourney {
 export function fetchPhysicalDecision(
   missionId: string,
   signal?: AbortSignal,
+  mode: 'local-demo' | 'reviewer-demo' = 'local-demo',
 ): Promise<PhysicalDecisionJourney> {
+  const endpoint = mode === 'reviewer-demo' ? 'reviewer-physical-decision' : 'physical-decision';
   return request<PhysicalDecisionJourney>(
-    `/api/missions/${encodeURIComponent(missionId)}/physical-decision`,
+    `/api/missions/${encodeURIComponent(missionId)}/${endpoint}`,
     { signal },
   );
 }

@@ -87,7 +87,8 @@ function readingSummary(event: {
   return event.observations.map((o) => `${o.kind} ${String(o.value)} ${o.unit}`).join('; ');
 }
 
-function inspect(ledger: Ledger, orgId: string, missionId: string) {
+/** Pure journal-derived decision read shared by local and OIDC reviewer surfaces. */
+export function inspectSyntheticDecision(ledger: Ledger, orgId: string, missionId: string) {
   const timeline = replayServiceFor(ledger, orgId, missionId).replay(orgId, missionId);
   const baselineId = stepEventId(orgId, missionId, 'baseline');
   const incidentId = stepEventId(orgId, missionId, 'incident');
@@ -131,7 +132,7 @@ export function registerDemoDecisionRoutes(app: FastifyInstance, ledger: Ledger)
     const missionId = (request.params as { missionId: string }).missionId;
     try {
       ledger.organizations.getMission(g.actor.orgId, missionId);
-      return inspect(ledger, g.actor.orgId, missionId);
+      return inspectSyntheticDecision(ledger, g.actor.orgId, missionId);
     } catch (error) {
       request.log.error({ err: error }, 'physical decision read failed');
       return reply.code(404).send({ error: { code: 'NOT_FOUND_OR_UNAVAILABLE' } });
@@ -162,7 +163,7 @@ export function registerDemoDecisionRoutes(app: FastifyInstance, ledger: Ledger)
       const existing = service.replay(g.actor.orgId, missionId);
       const id = stepEventId(g.actor.orgId, missionId, step);
       if (existing.events.some((event) => event.eventId === id)) {
-        return inspect(ledger, g.actor.orgId, missionId); // idempotent repeat
+        return inspectSyntheticDecision(ledger, g.actor.orgId, missionId); // idempotent repeat
       }
       if (
         step === 'incident' &&
@@ -204,7 +205,7 @@ export function registerDemoDecisionRoutes(app: FastifyInstance, ledger: Ledger)
         ...event,
         source: { ...event.source, signature: sourceSignature(event, source.secretKey) },
       });
-      return inspect(ledger, g.actor.orgId, missionId);
+      return inspectSyntheticDecision(ledger, g.actor.orgId, missionId);
     } catch (error) {
       request.log.error({ err: error }, 'synthetic step rejected');
       return reply.code(409).send({ error: { code: 'SYNTHETIC_ADMISSION_REJECTED' } });

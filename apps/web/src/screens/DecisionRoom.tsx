@@ -320,10 +320,27 @@ export function DecisionRoom({
       setSheet('none');
       return;
     }
+    // OIDC reviewer mode must never query the devAuth-only physical decision route.
+    if (!session.session.demoAuth && reviewerMode === 'checking') {
+      setJourney(null);
+      setLoading(true);
+      return;
+    }
+    if (!session.session.demoAuth && reviewerMode !== 'enabled') {
+      setJourney(null);
+      setLoading(false);
+      setError('The authorized reviewer decision route is unavailable.');
+      return;
+    }
     const controller = new AbortController();
+    setJourney(null); // never carry another mission's physical stage across selection
     setLoading(true);
     setError(null);
-    fetchPhysicalDecision(mission.id, controller.signal)
+    fetchPhysicalDecision(
+      mission.id,
+      controller.signal,
+      session.session.demoAuth ? 'local-demo' : 'reviewer-demo',
+    )
       .then((result) => {
         if (!controller.signal.aborted) setJourney(result);
       })
@@ -340,7 +357,14 @@ export function DecisionRoom({
     // never create snapshots (the API enforces that too).
     refreshDurableState(mission.id, controller.signal);
     return () => controller.abort();
-  }, [mission?.id, session.kind, onSessionExpired, refreshDurableState]);
+  }, [
+    mission?.id,
+    session.kind,
+    session.kind === 'signed-in' ? session.session.demoAuth : false,
+    reviewerMode,
+    onSessionExpired,
+    refreshDurableState,
+  ]);
 
   // Mandates for the approval step: effective = active AND unexpired (clock-checked,
   // same rule the Treasury applies). Server remains the enforcer at approval time.
@@ -375,7 +399,11 @@ export function DecisionRoom({
     const finish = (): void => {
       // Refresh the live journey view (cards/incident) from the journal.
       const controller = new AbortController();
-      fetchPhysicalDecision(mission.id, controller.signal)
+      fetchPhysicalDecision(
+        mission.id,
+        controller.signal,
+        session.session.demoAuth ? 'local-demo' : 'reviewer-demo',
+      )
         .then((result) => {
           if (!controller.signal.aborted) setJourney(result);
         })

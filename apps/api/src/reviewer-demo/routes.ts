@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { guard, csrfOk } from '../auth.js';
-import { stepEventId } from '../integration/demo-routes.js';
+import { inspectSyntheticDecision, stepEventId } from '../integration/demo-routes.js';
 import { MissionEventIngestService } from '../mission-events/src/ingest.js';
 import { SourceRegistry, type RegisteredSource } from '../mission-events/src/registry.js';
 import { sourceSignature } from '../mission-events/src/digest.js';
@@ -199,6 +199,28 @@ export function registerReviewerDemoRoutes(app: FastifyInstance, ledger: Ledger)
   function usernameOf(ledgerActor: { username: string }): string | null {
     return USERNAME_PATTERN.test(ledgerActor.username) ? ledgerActor.username : null;
   }
+
+  // Reviewer read is OIDC-only and not a public alias for the devAuth route.
+  // Enforce tenant and mission ownership before any evidence read/replay.
+  app.get('/api/missions/:missionId/reviewer-physical-decision', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    const username = usernameOf(g.actor);
+    if (username === null) {
+      return reply.code(403).send({ error: { code: 'REVIEWER_DEMO_USERNAME_UNSUPPORTED' } });
+    }
+    const missionId = (request.params as { missionId: string }).missionId;
+    try {
+      const mission = ledger.organizations.getMission(g.actor.orgId, missionId);
+      if (!mission.title.startsWith(MISSION_TITLE_PREFIX + username + ':')) {
+        return reply.code(403).send({ error: { code: 'NOT_YOUR_REVIEWER_MISSION' } });
+      }
+      return inspectSyntheticDecision(ledger, g.actor.orgId, missionId);
+    } catch (error) {
+      request.log.error({ err: error }, 'reviewer physical decision unavailable');
+      return reply.code(404).send({ error: { code: 'NOT_FOUND_OR_UNAVAILABLE' } });
+    }
+  });
 
   app.get('/api/reviewer-demo/state', async (request, reply) => {
     const g = guard(request, reply, 'read');
