@@ -147,7 +147,9 @@ export function MissionCreateSheet({
   );
 }
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'NOK', 'SGD'] as const;
+// Mirror of the domain supported-currency table (R3 P0-1): every code here
+// has a registered minor-unit precision — JPY 0, KWD/BHD 3, USDZ 2 (token).
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'KWD', 'BHD', 'USDZ', 'NOK', 'SGD'] as const;
 const OPERATION_KINDS = ['airwallex_transfer', 'internal_hold'] as const;
 
 export function MandateCreateSheet({
