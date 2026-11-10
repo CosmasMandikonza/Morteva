@@ -30,7 +30,6 @@ let app: FastifyInstance;
 let orgId = '';
 let missionId = '';
 let cookie = '';
-let csrf = '';
 
 async function login(username: string): Promise<void> {
   const r = await app.inject({
@@ -41,7 +40,6 @@ async function login(username: string): Promise<void> {
   expect(r.statusCode).toBe(200);
   const setCookie = r.headers['set-cookie'] as unknown;
   cookie = (Array.isArray(setCookie) ? (setCookie[0] as string) : String(setCookie)).split(';')[0]!;
-  csrf = (r.json() as { csrfToken: string }).csrfToken;
 }
 
 async function get(url: string) {
