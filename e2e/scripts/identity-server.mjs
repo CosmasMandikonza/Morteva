@@ -211,6 +211,17 @@ const { invitation, secret } = ledger.identity.createInvitation({
   createdByActorId: ownerActor.id,
 });
 
+// A SECOND pending invitation, OPERATOR role for the same reviewer identity,
+// used by the REVIEWER_DEMO browser journey (E3/E4): the reviewer accepts it
+// and can provision/admit the fixed synthetic scenario through the governed
+// routes. Kept separate so the read-only landing test above is undisturbed.
+const operatorInvitation = ledger.identity.createInvitation({
+  orgId,
+  role: 'operator',
+  email: 'reviewer@idp.test',
+  createdByActorId: ownerActor.id,
+});
+
 // Pre-join the operator and approver IdP users through the REAL invitation
 // path (owner-created, hashed single-use secret, identity-linked at
 // redemption) so their browser journeys are plain OIDC sign-ins.
@@ -242,6 +253,8 @@ writeFileSync(
     missionId,
     invitationId: invitation.id,
     invitationSecret: secret,
+    operatorInvitationId: operatorInvitation.invitation.id,
+    operatorInvitationSecret: operatorInvitation.secret,
     issuer,
   }),
 );
@@ -262,6 +275,10 @@ const api = spawn(process.execPath, [join(root, 'apps/api/dist/index.js')], {
     MOTERVA_OIDC_CLIENT_SECRET: CLIENT_SECRET,
     MOTERVA_OIDC_REDIRECT_URI: REDIRECT_URI,
     MOTERVA_OIDC_ALLOW_INSECURE_TRANSPORT: '1',
+    // E3: the hosted reviewer capability under real OIDC sessions (the
+    // browser journey admits the fixed signed synthetic scenario through
+    // the same routes production would mount).
+    MOTERVA_REVIEWER_DEMO: '1',
     LOG_LEVEL: 'silent',
   },
   stdio: ['ignore', 'inherit', 'inherit'],
