@@ -88,11 +88,11 @@ test('reviewer signs in by invitation, exercises the governed synthetic journey,
   const acceptLocation = accept.headers()['location'];
   if (acceptLocation !== undefined) {
     await page.goto(acceptLocation, { waitUntil: 'domcontentloaded' });
-    await idpBrowserSignIn(page, 'reviewer-sub');
+    await idpBrowserSignIn(page, 'demoer-sub');
   } else {
     // Already-accepted state from a prior run against the same server.
     await page.goto(`${SPA}/`);
-    await idpBrowserSignIn(page, 'reviewer-sub');
+    await idpBrowserSignIn(page, 'demoer-sub');
   }
 
   // Signed in as the invited OPERATOR with a real session + CSRF pair.

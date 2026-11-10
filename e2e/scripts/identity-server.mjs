@@ -30,6 +30,10 @@ const users = new Map(
     { subject: 'operator-sub', email: 'operator@idp.test', name: 'IdP Operator' },
     { subject: 'approver-sub', email: 'approver@idp.test', name: 'IdP Approver' },
     { subject: 'reviewer-sub', email: 'reviewer@idp.test', name: 'IdP Reviewer' },
+    // Dedicated identity for the REVIEWER_DEMO journey (e2e/reviewer-demo.spec.ts):
+    // specs run in PARALLEL in CI, and an IdP subject can hold only one
+    // invitation binding — reviewer-sub belongs to the read-only landing test.
+    { subject: 'demoer-sub', email: 'demoer@idp.test', name: 'IdP Demoer' },
   ].map((u) => [u.subject, u]),
 );
 const provider = new Provider(`http://127.0.0.1:${IDP_PORT}`, {
@@ -218,7 +222,7 @@ const { invitation, secret } = ledger.identity.createInvitation({
 const operatorInvitation = ledger.identity.createInvitation({
   orgId,
   role: 'operator',
-  email: 'reviewer@idp.test',
+  email: 'demoer@idp.test',
   createdByActorId: ownerActor.id,
 });
 
