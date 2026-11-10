@@ -2,8 +2,8 @@
   "description": "No admitted evidence — status unknown by design (S0)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_755c28b1-e9df-4962-997a-ebbd8bb115c8",
-    "missionId": "msn_5ecff410-0164-4652-9a2e-79b0af51e470"
+    "orgId": "org_f9665628-a678-4fbe-a463-664b5b7f5809",
+    "missionId": "msn_af706574-309f-4179-bae8-39e762711bf4"
   },
   "asOf": "2026-11-06T09:00:00.000Z",
   "truthLabel": "SIMULATED_OPERATION",

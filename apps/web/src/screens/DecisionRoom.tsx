@@ -31,7 +31,7 @@ import { ApprovePlanSheet, ManualPlanSheet } from '../components/GovernedActions
 // honest unavailable card (no demo fixture substitution, no 3D bundle cost);
 // when Agent A ships the endpoint, switch to `MissionPhysicalViewerLazy`
 // with `snapshotFromServerPayload(json)` — see AGENT-B-HANDOFF.md.
-import { MissionViewerUnavailableCard } from '../mission-viewer/availability-cards.js';
+import { PhysicalMissionViewport } from '../mission-viewer/PhysicalMissionViewport.js';
 
 function money(minor: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(minor / 100);
@@ -379,17 +379,34 @@ export function DecisionRoom({
           </section>
         )}
         {/*
-          MTV-09/12 physical mission viewport (Agent C module). The
-          physical-view read endpoint (planner-endpoint-request.v1) is NOT
-          deployed on this build yet, so this renders the honest UNAVAILABLE
-          card — no demo fixture is substituted in the product shell, and no
-          3D bundle is downloaded for a state with no scene. When Agent A
-          ships the endpoint: load its JSON, validate via
-          `snapshotFromServerPayload`, and mount `MissionPhysicalViewerLazy`
-          with `availability="ready"` (selection below is already wired to
-          the journey's incident event id).
+          MTV-09/12 physical mission viewport (Agent C module) — LIVE. The
+          authenticated sanitized read (Agent A, PR #52 implementation) is
+          fetched per mission, validated by the strict adapter
+          (snapshotFromServerPayload — fails closed on ANY shape deviation),
+          and mounted through the lazy chunk (three.js loads only when
+          evidence exists). Failure states render the honest unavailable
+          card — no fixture is EVER substituted for live data. Selection is
+          seeded from the journey's incident event id; scene state derives
+          only from admitted journal events (no invented positions, no
+          payment implications).
+
+          P1-C: `decisionVerified` is derived ONLY from actual verified
+          financial decision evidence — an authenticated journey read with a
+          recorded incident evaluation (journey.incident AND journey.after
+          both present). A physical wind event alone stays S2; a transient
+          fetch failure implies no financial decision.
         */}
-        <MissionViewerUnavailableCard reason="The physical-view read for this mission is not available on this build (the sanitized mission-evidence read endpoint is not deployed yet). No scene is shown rather than an unverified one — the admitted incident above carries the exact journal identities." />
+        <PhysicalMissionViewport
+          key={`${mission.id}:${journey?.stage ?? 'empty'}`}
+          missionId={mission.id}
+          incidentEventId={journey?.incident?.eventId ?? null}
+          decisionVerified={
+            journey?.incident !== null &&
+            journey?.incident !== undefined &&
+            journey?.after !== null &&
+            journey?.after !== undefined
+          }
+        />
         <div className="mv-decision-room__comparison">
           <DecisionCard title="Before · initial plan" decision={journey?.before ?? null} />
           <DecisionCard title="After · updated constraints" decision={journey?.after ?? null} />

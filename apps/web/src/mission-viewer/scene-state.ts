@@ -97,9 +97,23 @@ function eventsMentionOfflineRecovery(event: PhysicalViewEvent): boolean {
 }
 
 /**
- * Constraint for one asset as of a PREFIX of its journal events (the events
- * list must already be filtered/ordered by journal seq). Pure mirror of the
- * planner bridge's state machine, scoped per domain.
+ * Constraint for one asset as a PREFIX of its journal events (the events
+ * list must already be filtered/ordered by journal seq).
+ *
+ * MATCHED-VERDICT LAW (CTO P0-B): the verdict emitted here MUST equal the
+ * accepted backend `constraintFor` (apps/api/src/integration/physical-view.ts)
+ * and Agent D's `physicalTimelineToPlannerSafety` on the same journal state:
+ *
+ *  - ground/surface: fresh comms OFFLINE → blocked; EVERYTHING else →
+ *    unknown (online comms is NOT a reviewed domain clearance rule — a
+ *    recovered robot is never shown as cleared).
+ *  - aerial precedence: fresh wind-limit → fresh active hold → fresh offline
+ *    comms → degraded comms = unknown → clear ONLY with explicitly fresh
+ *    comms online + hold clear + wind within the modeled limit.
+ *
+ * Matched-verdict tests pin both domains per S-beat and historical replay;
+ * stale/expired evidence never yields clear (the caller filters the current
+ * constraint to planning-valid events; replay uses the as-of-event prefix).
  */
 function constraintFromPrefix(
   assetId: string,
@@ -130,19 +144,12 @@ function constraintFromPrefix(
     }
   }
 
-  if (comms === 'offline') {
-    return { assetId, state: 'blocked', reason: 'comms-offline', basisEventIds: dedupe(basis) };
-  }
-
-  if (kind === 'aerial' && assetId === policy.uavAssetId) {
-    if (windKt !== null && windKt > policy.uavWindLimitKt) {
-      return { assetId, state: 'blocked', reason: 'wind-limit', basisEventIds: dedupe(basis) };
-    }
-    if (hold === 'active') {
-      return { assetId, state: 'blocked', reason: 'weather-hold', basisEventIds: dedupe(basis) };
-    }
-    if (windKt !== null && hold === 'clear' && comms === 'online') {
-      return { assetId, state: 'clear', reason: 'nominal', basisEventIds: dedupe(basis) };
+  // GROUND/SURFACE (any non-aerial asset): matched to the backend ground
+  // branch exactly — fresh offline is the single interrupting condition;
+  // online comms deliberately does NOT clear (no reviewed domain rule).
+  if (kind !== 'aerial' || assetId !== policy.uavAssetId) {
+    if (comms === 'offline') {
+      return { assetId, state: 'blocked', reason: 'comms-offline', basisEventIds: dedupe(basis) };
     }
     return {
       assetId,
@@ -152,8 +159,26 @@ function constraintFromPrefix(
     };
   }
 
-  // surface/ground assets: no modeled wind rule (per-domain scoping).
-  if (comms === 'online') {
+  // AERIAL — matched to the backend aerial precedence exactly:
+  // wind-limit → weather-hold → comms-offline → degraded → clear.
+  if (windKt !== null && windKt > policy.uavWindLimitKt) {
+    return { assetId, state: 'blocked', reason: 'wind-limit', basisEventIds: dedupe(basis) };
+  }
+  if (hold === 'active') {
+    return { assetId, state: 'blocked', reason: 'weather-hold', basisEventIds: dedupe(basis) };
+  }
+  if (comms === 'offline') {
+    return { assetId, state: 'blocked', reason: 'comms-offline', basisEventIds: dedupe(basis) };
+  }
+  if (comms === 'degraded') {
+    return {
+      assetId,
+      state: 'unknown',
+      reason: 'insufficient-evidence',
+      basisEventIds: dedupe(basis),
+    };
+  }
+  if (windKt !== null && hold === 'clear' && comms === 'online') {
     return { assetId, state: 'clear', reason: 'nominal', basisEventIds: dedupe(basis) };
   }
   return {

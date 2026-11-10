@@ -2,8 +2,8 @@
   "description": "Evidence aged to stale — visible as history, not current clearance (S5)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_1123513c-1869-4fa8-9d63-a8743031222b",
-    "missionId": "msn_d1ce0812-272e-4bd1-b2da-dcd64cdbe602"
+    "orgId": "org_ba9ed83f-3ac2-4452-b51e-bba54b89752e",
+    "missionId": "msn_37f43b0e-effa-4d35-a280-6882925bd4b6"
   },
   "asOf": "2026-11-06T09:21:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "c127c318529834fd0fb03d0f5e271b5b54d29feab471de757faa571c797f3a1a",
+      "eventDigest": "fef5ca4d99f06a73e7e677627fe073dc1b57572ccc392d5db21fee8e79379f4f",
       "observations": [
         {
           "kind": "wind_speed",

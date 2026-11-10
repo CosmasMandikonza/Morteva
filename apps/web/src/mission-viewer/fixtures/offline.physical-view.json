@@ -2,8 +2,8 @@
   "description": "Gateway-declared offline; telemetry cannot speak (S5, blocked)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_64a2c56e-6e09-4e36-acf8-911be3b88026",
-    "missionId": "msn_db7b6ab8-be19-44f0-ad34-c44c1a755946"
+    "orgId": "org_a87b430a-9c4b-4aad-9f15-9f86c312443d",
+    "missionId": "msn_a888e98e-1b1b-4b8f-9fdc-cf3d5c8d3158"
   },
   "asOf": "2026-11-06T09:08:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "de53c63e37027098e04bc2ad00e3b791bfeed2062a02da1e545f704e4a187745",
+      "eventDigest": "97911b9c73038510765dac51e91708022ba93dbc8f974c03b4d116ef2b3e2688",
       "observations": [
         {
           "kind": "asset_comms",
@@ -59,7 +59,7 @@
       "observedAt": "2026-11-06T09:05:00.000Z",
       "ingestedAt": "2026-11-06T09:05:02.000Z",
       "recordedAt": "2026-11-06T09:05:02.000Z",
-      "eventDigest": "111666563d942270da659eb6354ed119a57b1eb17aeee6e1963a3ecaecc36a54",
+      "eventDigest": "e7c67f22b5041659e74bc22187465e5a1e0387bebaf98a65b51689334011181b",
       "observations": [
         {
           "kind": "asset_comms",

@@ -2,8 +2,8 @@
   "description": "Baseline clear conditions then the admitted 24.6 kt incident (modeled limit 22 kt)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_a3303312-ac1a-4e0e-a407-b8a9f6a2a350",
-    "missionId": "msn_d36a8ece-381e-40fd-a22a-6005cc4801f3"
+    "orgId": "org_c2b090a4-fc54-458d-af71-f41b81d7692f",
+    "missionId": "msn_134bc0bd-5a34-406c-81d6-e26bdf0dcd7e"
   },
   "asOf": "2026-11-06T09:18:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "1f24d4618d804b7ab28754e546df66816da7504019d4594ab9c95aeb3353b55b",
+      "eventDigest": "7e8b9dcf4ba71c591bc446af17ebc645722bf5126da801650bb146cc9934e323",
       "observations": [
         {
           "kind": "wind_speed",
@@ -74,7 +74,7 @@
       "observedAt": "2026-11-06T09:09:00.000Z",
       "ingestedAt": "2026-11-06T09:09:02.000Z",
       "recordedAt": "2026-11-06T09:09:02.000Z",
-      "eventDigest": "60b5d9decedc1f53a2cc05561f570b53428f6982684bdd255bf07dde371d6265",
+      "eventDigest": "8fe593e8c0ed7e6a43e2d64507882ff52ba46424d1637f3aa25d1100763f1a39",
       "observations": [
         {
           "kind": "wind_speed",
@@ -116,7 +116,7 @@
       "observedAt": "2026-11-06T09:18:00.000Z",
       "ingestedAt": "2026-11-06T09:18:02.000Z",
       "recordedAt": "2026-11-06T09:18:02.000Z",
-      "eventDigest": "78231d656f41a955aabff34f9f1306329a4c791bdad3e0fb74b1e4ab47d6823f",
+      "eventDigest": "b03e02c94d65a6fecf90708522482d60c210caf411e722b720d63c1362ce4140",
       "observations": [
         {
           "kind": "wind_speed",
