@@ -80,6 +80,12 @@ function severityOf(
   const comms = strObservation(event, 'asset_comms');
   if (comms === 'offline') return 'offline';
   if (comms === 'online' && eventsMentionOfflineRecovery(event)) return 'recovery';
+  // Ground interrupts are verdict-relevant facts: obstructed aisle or charger
+  // fault marks the event as a breach-class marker (same class as a wind
+  // breach — a real physical restriction, never a forecast).
+  const aisle = strObservation(event, 'aisle_access');
+  const charger = strObservation(event, 'charger_status');
+  if (aisle === 'obstructed' || charger === 'fault') return 'breach';
   if (event.assetId === policy.uavAssetId) {
     const hold = strObservation(event, 'weather_hold');
     const wind = numObservation(event, 'wind_speed');
@@ -104,9 +110,10 @@ function eventsMentionOfflineRecovery(event: PhysicalViewEvent): boolean {
  * accepted backend `constraintFor` (apps/api/src/integration/physical-view.ts)
  * and Agent D's `physicalTimelineToPlannerSafety` on the same journal state:
  *
- *  - ground/surface: fresh comms OFFLINE → blocked; EVERYTHING else →
- *    unknown (online comms is NOT a reviewed domain clearance rule — a
- *    recovered robot is never shown as cleared).
+ *  - ground/surface (COMPLETED ground contract, extension 1): fresh comms
+ *    OFFLINE → blocked; fresh aisle OBSTRUCTED → blocked; fresh charger
+ *    FAULT → blocked; CLEAR only with fresh comms online + aisle clear +
+ *    charger healthy; everything else → unknown. Wind/hold are INERT.
  *  - aerial precedence: fresh wind-limit → fresh active hold → fresh offline
  *    comms → degraded comms = unknown → clear ONLY with explicitly fresh
  *    comms online + hold clear + wind within the modeled limit.
@@ -125,11 +132,15 @@ function constraintFromPrefix(
   let windKt: number | null = null;
   let hold: 'clear' | 'active' | null = null;
   let comms: string | null = null;
+  let aisle: 'clear' | 'obstructed' | null = null;
+  let charger: 'docked_charging' | 'free' | 'fault' | null = null;
 
   for (const event of prefix) {
     const wind = numObservation(event, 'wind_speed');
     const h = strObservation(event, 'weather_hold');
     const c = strObservation(event, 'asset_comms');
+    const a = strObservation(event, 'aisle_access');
+    const ch = strObservation(event, 'charger_status');
     if (wind !== null) {
       windKt = wind;
       basis.push(event.eventId);
@@ -142,14 +153,39 @@ function constraintFromPrefix(
       comms = c;
       basis.push(event.eventId);
     }
+    if (a === 'clear' || a === 'obstructed') {
+      aisle = a;
+      basis.push(event.eventId);
+    }
+    if (ch === 'docked_charging' || ch === 'free' || ch === 'fault') {
+      charger = ch;
+      basis.push(event.eventId);
+    }
   }
 
   // GROUND/SURFACE (any non-aerial asset): matched to the backend ground
-  // branch exactly — fresh offline is the single interrupting condition;
-  // online comms deliberately does NOT clear (no reviewed domain rule).
+  // branch exactly — the COMPLETED ground contract, same precedence.
   if (kind !== 'aerial' || assetId !== policy.uavAssetId) {
     if (comms === 'offline') {
       return { assetId, state: 'blocked', reason: 'comms-offline', basisEventIds: dedupe(basis) };
+    }
+    if (aisle === 'obstructed') {
+      return {
+        assetId,
+        state: 'blocked',
+        reason: 'aisle-obstructed',
+        basisEventIds: dedupe(basis),
+      };
+    }
+    if (charger === 'fault') {
+      return { assetId, state: 'blocked', reason: 'charger-fault', basisEventIds: dedupe(basis) };
+    }
+    if (
+      comms === 'online' &&
+      aisle === 'clear' &&
+      (charger === 'free' || charger === 'docked_charging')
+    ) {
+      return { assetId, state: 'clear', reason: 'nominal', basisEventIds: dedupe(basis) };
     }
     return {
       assetId,
@@ -309,11 +345,15 @@ export function projectSceneState(
   let phase: SceneState['phase'];
   const anyEvidence = events.length > 0;
   const uavUnknown = uavConstraint === undefined || uavConstraint.state === 'unknown';
+  // Any BLOCKED asset (aerial wind breach OR a ground interrupt — obstructed
+  // aisle, charger fault, offline comms) restricts the mission: S2, escalated
+  // to S3 only by the host's verified decision signal (P1-C law).
+  const anyBlocked = constraints.some((c) => c.state === 'blocked');
   if (!anyEvidence) {
     phase = 'S0-initial';
   } else if (selected !== null && selected.isHistoricalReplay) {
     phase = 'S4-historical';
-  } else if (windBreached) {
+  } else if (anyBlocked) {
     phase = selection.decisionAvailable === true ? 'S3-restricted-escalated' : 'S2-restricted';
   } else if (uavUnknown || Object.values(comms).includes('offline')) {
     phase = 'S5-uncertain';

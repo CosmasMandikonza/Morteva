@@ -93,16 +93,18 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
     });
   });
 
-  it('TODAY’s planner whitelist REFUSES the proposed ground reasons (fail-closed; why Agent A must change the type)', () => {
-    // Build an evidence input carrying the PROPOSED constraint and feed the
-    // existing reviewer: the new reason must be rejected, not silently
-    // accepted — proving no ground rule can ride in without Agent A's change.
-    const proposed = proposedGroundSafety({
+  it('the ACCEPTED ground reasons now pass the reviewer — with domain/reason coherence enforced', () => {
+    // C2: planner extension 1 is ACCEPTED — the proposed ground constraint
+    // (with its domain discriminator) is now a legitimate MissionConstraint.
+    // Cross-domain mislabeling is still refused: a ground verdict carrying
+    // an aerial wind reason (or an aerial verdict carrying a ground reason)
+    // fails validation — domains can never borrow each other's semantics.
+    const accepted = proposedGroundSafety({
       comms: 'online',
       aisle: 'obstructed',
       charger: 'free',
     });
-    const input: MissionEvidenceInput = {
+    const base: MissionEvidenceInput = {
       version: 1,
       tenant: { orgId: 'org-1', missionId: 'msn-1' },
       asset: { id: 'robot-1', kind: 'physical-asset' },
@@ -119,17 +121,53 @@ describe('proposed ground safety mapping (pure function, full matrix)', () => {
         physicalSequence: 1,
         provenance: 'SYNTHETIC',
       },
-      // THE PROPOSAL: this cast is the request itself — the proposed shape
-      // is not yet assignable to MissionConstraint, and the reviewer's
-      // rejection below is the proof that Agent A's type change is required.
       validity: { notAfter: '2026-11-06T09:15:02.000Z' },
-      constraint: proposed as unknown as MissionEvidenceInput['constraint'],
+      constraint: accepted,
     };
-    const review = reviewEvidence([input], new Date('2026-11-06T09:00:02.000Z'), {
+    const review = reviewEvidence([base], new Date('2026-11-06T09:00:02.000Z'), {
       orgId: 'org-1',
       missionId: 'msn-1',
     });
-    expect(review.accepted).toHaveLength(0);
-    expect(review.rejected).toHaveLength(1);
+    expect(review.rejected).toHaveLength(0);
+    expect(review.accepted).toHaveLength(1);
+    expect(review.accepted[0]?.input.constraint).toMatchObject({
+      domain: 'ground',
+      state: 'blocked',
+      reason: 'aisle-obstructed',
+    });
+    // Ground verdict carrying an AERIAL reason → refused.
+    const aerialReasonOnGround = {
+      ...base,
+      event: { ...base.event, id: 'evt-x1' },
+      constraint: {
+        kind: 'asset-safety',
+        domain: 'ground',
+        state: 'blocked',
+        reason: 'wind-limit',
+      } as MissionEvidenceInput['constraint'],
+    };
+    const r2 = reviewEvidence([aerialReasonOnGround], new Date('2026-11-06T09:00:02.000Z'), {
+      orgId: 'org-1',
+      missionId: 'msn-1',
+    });
+    expect(r2.accepted).toHaveLength(0);
+    expect(r2.rejected[0]?.reason).toContain('ground verdicts never carry aerial');
+    // Aerial verdict carrying a GROUND reason → refused.
+    const groundReasonOnAerial = {
+      ...base,
+      event: { ...base.event, id: 'evt-x2' },
+      constraint: {
+        kind: 'asset-safety',
+        domain: 'aerial',
+        state: 'blocked',
+        reason: 'aisle-obstructed',
+      } as MissionEvidenceInput['constraint'],
+    };
+    const r3 = reviewEvidence([groundReasonOnAerial], new Date('2026-11-06T09:00:02.000Z'), {
+      orgId: 'org-1',
+      missionId: 'msn-1',
+    });
+    expect(r3.accepted).toHaveLength(0);
+    expect(r3.rejected[0]?.reason).toContain('aerial verdicts never carry ground');
   });
 });

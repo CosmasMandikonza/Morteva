@@ -37,7 +37,15 @@ import { physicalTimelineToPlannerSafety } from '../../src/integration/physical-
 import { constraintFor } from '../../src/integration/physical-view.js';
 
 const WIND_LIMIT_KT = 22;
-const SAFETY_KINDS = new Set(['wind_speed', 'weather_hold', 'asset_comms']);
+// Ground kinds join the safety kinds: the completed ground contract makes
+// aisle/charger verdict-relevant for ground assets (both engines consume them).
+const SAFETY_KINDS = new Set([
+  'wind_speed',
+  'weather_hold',
+  'asset_comms',
+  'aisle_access',
+  'charger_status',
+]);
 
 interface Verdict {
   state: string;
@@ -130,11 +138,16 @@ function assertVerdictsMatch(input: {
   const { timeline, asOf, domains, traceName } = input;
   const nowMs = asOf.getTime();
   const maxAgeMs = timeline.policy.maxAgeMs;
+  // Wind limit only when aerial semantics exist (ground-only traces carry no
+  // wind rule — the bridge REFUSES one there; C2 domain isolation).
+  const hasAerial =
+    Object.values(domains).includes('aerial') ||
+    [...new Set(timeline.events.map((e) => e.assetId))].some((id) => domains[id] === undefined);
   const bridge = physicalTimelineToPlannerSafety(timeline, {
     orgId: timeline.orgId,
     missionId: timeline.missionId,
     asOf,
-    uavWindLimitKt: WIND_LIMIT_KT,
+    ...(hasAerial ? { uavWindLimitKt: WIND_LIMIT_KT } : {}),
     assetKinds: domains,
   });
 
@@ -227,30 +240,29 @@ describe('P0-2 matched verdicts: physical-view engine ≡ planner bridge on REAL
     }
   });
 
-  it('warehouse ground trace (#54): identical verdicts, never clear, honest post-recovery unknown', () => {
+  it('warehouse ground trace (#54): identical verdicts under the COMPLETED ground contract — full precedence incl. aisle/charger', () => {
     const world = runTraceWithMatchedWalks(warehouseInterruptScenario, 'warehouse-match', {
       'picker-bot-7': 'ground',
     });
     try {
-      // Ground verdicts covered BOTH meaningful states: the comms-offline
-      // interrupt (blocked) and the honest unknown everywhere else —
-      // including degraded comms and the post-recovery steady state.
+      // Ground verdicts cover the FULL completed precedence: the comms-offline
+      // and aisle-obstructed interrupts (blocked), degraded/missing readings
+      // (unknown) and the post-recovery steady state (clear — ALL fresh).
       const reasons = new Set(world.verdicts.map((v) => v.reason));
       expect(reasons).toContain('comms-offline');
+      expect(reasons).toContain('aisle-obstructed');
       expect(reasons).toContain('insufficient-evidence');
-      // A ground asset is NEVER clear and NEVER inherits aerial reasons.
+      expect(reasons).toContain('nominal');
+      // A ground asset NEVER inherits aerial reasons.
       for (const v of world.verdicts) {
         expect(v.assetId).toBe('picker-bot-7');
-        expect(v.state).not.toBe('clear');
         expect(['wind-limit', 'weather-hold']).not.toContain(v.reason);
       }
-      // FINAL steady state (CTO #54 acceptance): comms fresh online, healthy
-      // ground facts journaled — the LAST matched verdict (final beat's walk,
-      // agreed by both engines) and the view's authoritative latest-readings
-      // map both stay honest `unknown/insufficient-evidence`.
+      // FINAL steady state (completed contract): comms fresh online + aisle
+      // clear + charger healthy — BOTH engines agree on clear/nominal.
       expect(
         `${world.verdicts[world.verdicts.length - 1]!.state}/${world.verdicts[world.verdicts.length - 1]!.reason}`,
-      ).toBe('unknown/insufficient-evidence');
+      ).toBe('clear/nominal');
       const lastTimeline = world.lastTimeline;
       const viewLatest = lastTimeline.assets['picker-bot-7']!.latest;
       const fromView = constraintFor({
@@ -259,11 +271,14 @@ describe('P0-2 matched verdicts: physical-view engine ≡ planner bridge on REAL
         latest: viewLatest,
         windLimitKt: WIND_LIMIT_KT,
       });
-      expect(`${fromView.state}/${fromView.reason}`).toBe('unknown/insufficient-evidence');
-      // The view's authoritative comms reading is the fresh online recovery
-      // report — the honest unknown is grounded in the newest journal state.
+      expect(`${fromView.state}/${fromView.reason}`).toBe('clear/nominal');
+      // The view's authoritative readings are the fresh healthy triple — the
+      // clearance is grounded in the newest journal state (recovery was
+      // CONFIRMED by the supervisor source, not inferred by anything).
       expect(viewLatest['asset_comms']!.value).toBe('online');
       expect(viewLatest['asset_comms']!.freshness).toBe('fresh');
+      expect(viewLatest['aisle_access']!.value).toBe('clear');
+      expect(viewLatest['charger_status']!.value).toBe('docked_charging');
     } finally {
       world.ledger.close();
       rmSync(world.dbDir, { recursive: true, force: true });

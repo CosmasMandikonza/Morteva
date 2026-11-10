@@ -75,9 +75,23 @@ export type MissionConstraint =
   | {
       /** Physical safety/availability restriction, never a weather forecast or payment authority. */
       readonly kind: 'asset-safety';
+      /**
+       * Physical domain of the verdict (planner-adapter-request extension 1,
+       * ACCEPTED — Agent D's ground-safety proposal). Absent = historical
+       * aerial-machine semantics (wind/hold/comms). `ground` verdicts NEVER
+       * consume wind or weather-hold readings, and a ground asset must never
+       * inherit aerial clearance or aerial blocking.
+       */
+      readonly domain?: 'aerial' | 'ground';
       readonly state: 'clear' | 'blocked' | 'unknown';
       readonly reason:
-        'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
+        | 'wind-limit'
+        | 'weather-hold'
+        | 'comms-offline'
+        | 'aisle-obstructed'
+        | 'charger-fault'
+        | 'insufficient-evidence'
+        | 'nominal';
       readonly observedWindKt?: number;
       readonly maxWindKt?: number;
     };

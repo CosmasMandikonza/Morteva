@@ -24,6 +24,13 @@ export interface SupplierOffer {
   readonly probabilityOfSuccess: number;
   readonly availability: 'confirmed' | 'unconfirmed';
   readonly quoteExpiresAt?: string;
+  /**
+   * Asset whose operational clearance is required before this offer may be
+   * used (per-asset ASSET_SAFETY gate). A backup robot is gated on ITS OWN
+   * asset — the primary asset's blocked aisle never leaks into the backup's
+   * verdict.
+   */
+  readonly requiresAssetId?: string;
 }
 
 export interface GenerationContext {
@@ -281,6 +288,7 @@ export function generateCandidates(
       id: `hire-${alt.id}`,
       kind: 'hire-alternative',
       label: `Hire ${alt.id} instead`,
+      requiresAssetId: alt.requiresAssetId,
       costMinor: alt.baseCostMinor,
       currency: alt.currency,
       feeMinor: alt.feeMinor,
@@ -294,6 +302,43 @@ export function generateCandidates(
       quoteExpiresAt: alt.quoteExpiresAt,
       evidenceIds: evidenceAll.length > 0 ? evidenceAll : [],
       rationale: assumptions.join('; ') || 'alternative supplier terms',
+    });
+  }
+
+  // ---- ground reroute (aisle-obstructed only). A blocked AISLE is a path
+  // problem, not an asset failure: the same robot may continue on an
+  // alternate route AFTER authoritative confirmation (an admitted, fresh
+  // aisle_access reading from the facility source). Until that confirmation
+  // the candidate is UNCONFIRMED — discounted by policy and forbiddable —
+  // and it is gated on the ASSET's clearance like every other option, so it
+  // can never be selected while the asset verdict is blocked. A charger
+  // fault is NOT reroutable and generates no such candidate.
+  if (
+    safety?.kind === 'asset-safety' &&
+    safety.domain === 'ground' &&
+    safety.state === 'blocked' &&
+    safety.reason === 'aisle-obstructed'
+  ) {
+    candidates.push({
+      id: 'reroute-around-obstruction',
+      kind: 'reschedule',
+      label: `Reroute ${primaryAsset} via a confirmed alternate aisle`,
+      requiresAssetId: primaryAsset,
+      costMinor: 0,
+      currency: ctx.policyCurrency,
+      feeMinor: Math.round(ctx.incumbent.baseCostMinor * 0.05), // reroute overhead (assumption)
+      beneficiary: ctx.incumbent.beneficiary,
+      purpose: ctx.incumbent.purpose,
+      earliestStartAt: addMinutes(ctx.now, ctx.incumbent.leadTimeMinutes),
+      durationMinutes: ctx.incumbent.durationMinutes,
+      deadlineAt: ctx.missionDeadlineAt,
+      // Unconfirmed until the facility source authoritatively re-confirms an
+      // open route; the uncertainty discount (and any policy forbid) applies.
+      probabilityOfSuccess: ctx.incumbent.probabilityOfSuccess,
+      availability: 'unconfirmed',
+      evidenceIds: evidenceAll.length > 0 ? evidenceAll : [],
+      rationale:
+        'ground path obstructed — reroute is proposed UNCONFIRMED and stays asset-gated until an admitted fresh aisle reading re-clears the route',
     });
   }
 
@@ -316,6 +361,7 @@ export function generateCandidates(
       id: `diagnostics-${svc.id}`,
       kind: 'purchase-diagnostics',
       label: `Buy ${svc.id} diagnostic report before deciding`,
+      requiresAssetId: svc.requiresAssetId,
       costMinor: svc.baseCostMinor,
       currency: svc.currency,
       feeMinor: svc.feeMinor,

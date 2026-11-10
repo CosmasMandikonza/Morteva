@@ -124,7 +124,7 @@ describe('P0-A — S0 is server-authoritative; the client fabricates nothing', (
 });
 
 describe('P0-B — matched verdicts: viewer == accepted backend on identical journal state', () => {
-  it('ground/surface ONLINE comms → UNKNOWN in both engines (recovered robot is never cleared)', () => {
+  it('ground/surface ONLINE comms alone → UNKNOWN in both engines (comms is never route clearance)', () => {
     const now = new Date().toISOString();
     const snapshot: PhysicalViewSnapshot = {
       contractVersion: 1 as const,
@@ -176,8 +176,151 @@ describe('P0-B — matched verdicts: viewer == accepted backend on identical jou
     // Matched-verdict law: state AND reason equal the accepted engine.
     expect(viewer.state).toBe(backend.state);
     expect(viewer.reason).toBe(backend.reason);
-    // And the corrected behavior, explicitly: online comms is NOT clearance.
+    // And the completed-contract behavior, explicitly: online comms with no
+    // fresh aisle/charger readings is NOT clearance (a recovered robot with
+    // only comms restored stays unknown — route state is unproven).
     expect(viewer.state).toBe('unknown');
+  });
+
+  it('ground FULL healthy triple → CLEAR/nominal in both engines (completed ground contract)', () => {
+    const now = new Date().toISOString();
+    const snapshot: PhysicalViewSnapshot = {
+      contractVersion: 1 as const,
+      tenant: { orgId: 'org_x', missionId: 'msn_x' },
+      asOf: now,
+      truthLabel: 'SIMULATED_OPERATION',
+      policy: {
+        maxAgeMs: 15 * 60_000,
+        expiredMs: 30 * 60_000,
+        uavAssetId: 'uav-seeker-1',
+        uavWindLimitKt: 22,
+      },
+      assets: [{ assetId: 'robot-counter-3', kind: 'ground' as const }],
+      events: [
+        {
+          eventId: 'mevt_ground_ok',
+          journalSeq: 1,
+          sequence: 1,
+          assetId: 'robot-counter-3',
+          sourceId: 'wms',
+          sourceType: 'warehouse_wms',
+          provenance: 'SYNTHETIC',
+          observedAt: now,
+          ingestedAt: now,
+          recordedAt: now,
+          eventDigest: '1'.repeat(64),
+          observations: [
+            { kind: 'aisle_access', unit: 'state', value: 'clear' },
+            { kind: 'charger_status', unit: 'state', value: 'free' },
+            { kind: 'asset_comms', unit: 'state', value: 'online' },
+          ],
+          freshnessAtSnapshot: 'fresh',
+          planningValidAtSnapshot: true,
+        },
+      ],
+    };
+    const viewer = projectSceneState(snapshot).constraints[0]!;
+    const backend = acceptedConstraintFor({
+      assetId: 'robot-counter-3',
+      domain: 'ground',
+      latest: {
+        aisle_access: {
+          kind: 'aisle_access',
+          unit: 'state',
+          value: 'clear',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        charger_status: {
+          kind: 'charger_status',
+          unit: 'state',
+          value: 'free',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        asset_comms: {
+          kind: 'asset_comms',
+          unit: 'state',
+          value: 'online',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+      },
+      windLimitKt: 22,
+    });
+    expect(viewer.state).toBe('clear');
+    expect(viewer.reason).toBe('nominal');
+    expect(`${backend.state}/${backend.reason}`).toBe('clear/nominal');
+  });
+
+  it('ground aisle-obstructed → BLOCKED in both engines (completed ground precedence)', () => {
+    const now = new Date().toISOString();
+    const snapshot: PhysicalViewSnapshot = {
+      contractVersion: 1 as const,
+      tenant: { orgId: 'org_x', missionId: 'msn_x' },
+      asOf: now,
+      truthLabel: 'SIMULATED_OPERATION',
+      policy: {
+        maxAgeMs: 15 * 60_000,
+        expiredMs: 30 * 60_000,
+        uavAssetId: 'uav-seeker-1',
+        uavWindLimitKt: 22,
+      },
+      assets: [{ assetId: 'robot-counter-3', kind: 'ground' as const }],
+      events: [
+        {
+          eventId: 'mevt_ground_aisle',
+          journalSeq: 1,
+          sequence: 1,
+          assetId: 'robot-counter-3',
+          sourceId: 'wms',
+          sourceType: 'warehouse_wms',
+          provenance: 'SYNTHETIC',
+          observedAt: now,
+          ingestedAt: now,
+          recordedAt: now,
+          eventDigest: '2'.repeat(64),
+          observations: [
+            { kind: 'aisle_access', unit: 'state', value: 'obstructed' },
+            { kind: 'asset_comms', unit: 'state', value: 'online' },
+          ],
+          freshnessAtSnapshot: 'fresh',
+          planningValidAtSnapshot: true,
+        },
+      ],
+    };
+    const viewer = projectSceneState(snapshot).constraints[0]!;
+    const backend = acceptedConstraintFor({
+      assetId: 'robot-counter-3',
+      domain: 'ground',
+      latest: {
+        aisle_access: {
+          kind: 'aisle_access',
+          unit: 'state',
+          value: 'obstructed',
+          eventId: 'mevt_ground_aisle',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        asset_comms: {
+          kind: 'asset_comms',
+          unit: 'state',
+          value: 'online',
+          eventId: 'mevt_ground_aisle',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+      },
+      windLimitKt: 22,
+    });
+    // Restored comms must NOT imply route clearance while the aisle reading
+    // says obstructed (C2 law) — and both engines agree on the verdict.
+    expect(viewer.state).toBe('blocked');
+    expect(viewer.reason).toBe('aisle-obstructed');
+    expect(`${backend.state}/${backend.reason}`).toBe('blocked/aisle-obstructed');
   });
 
   it('ground OFFLINE → blocked in both engines', () => {

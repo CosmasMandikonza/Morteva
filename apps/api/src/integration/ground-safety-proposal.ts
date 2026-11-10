@@ -1,23 +1,18 @@
 /**
- * ISOLATED TYPED PROPOSAL — ground-domain asset safety (MTV-07, issue #9;
- * audit gap G5). This module implements the exact planner-contract extension
- * requested in `contract/planner-adapter-request.v1.md` (extension 1) as a
- * PURE, side-effect-free function over journaled ground readings, so Agent A
- * can accept the type change against proven behavior instead of a sketch.
+ * GROUND-DOMAIN ASSET SAFETY — now ACCEPTED and WIRED (MTV-07, issue #9;
+ * audit gap G5; completed in the general-mission work, Nov 10 2026). This
+ * module's proposed constraint shape (extension 1 of
+ * `contract/planner-adapter-request.v1.md`) is now part of the planner's
+ * `MissionConstraint`: the `domain` discriminator and the
+ * `aisle-obstructed` / `charger-fault` reasons pass `reviewEvidence`, and
+ * the SAME precedence lives in the live bridge (`physical-to-planner.ts`),
+ * the physical-view engine (`physical-view.ts::constraintFor`) and the
+ * viewer (`scene-state.ts::constraintFromPrefix`) — matched-verdict law.
  *
- * It is deliberately NOT wired into the live decision path: the planner's
- * `MissionConstraint` whitelist currently admits only
- * {wind-limit, weather-hold, comms-offline, insufficient-evidence, nominal},
- * so a ground constraint with a NEW reason would be REFUSED by
- * `reviewEvidence` (see ground-safety-proposal.test.ts — that refusal is the
- * fail-closed proof that the type change is required). Until Agent A accepts
- * the change, the live bridge keeps ground verdicts at
- * `unknown/insufficient-evidence` and never `clear`.
- *
- * This is a REQUEST, not a second permission engine: the module computes a
- * safety STATE only. It grants no spending, approval, reservation or provider
- * authority; the planner's existing ASSET_SAFETY gate remains the sole
- * arbiter of whether asset-dependent spend may proceed.
+ * STILL NOT A SECOND PERMISSION ENGINE: the module computes a safety STATE
+ * only. It grants no spending, approval, reservation or provider authority;
+ * the planner's ASSET_SAFETY gate remains the sole arbiter of whether
+ * asset-dependent spend may proceed.
  */
 
 export interface GroundSafetyReadings {
