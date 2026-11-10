@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { FinancialOverviewView, OperationListView, OperationReadView } from '@moterva/domain';
 import { StatusChip } from '../components/StatusChip';
+import { HaloBadge, HaloProgress } from '../components/ui';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
+import {
+  InvitationAccept,
+  OidcSignIn,
+  probeAuthMode,
+  type AuthModeProbe,
+} from '../components/IdentityPanels';
 import { OperationInspector } from '../components/OperationInspector';
 import {
   ApiError,
@@ -41,6 +48,7 @@ export function Treasury({
   onSessionExpired,
   onInspectEvidence,
   csrfToken,
+  onMissionsChanged,
   loginBusy,
   loginError,
 }: {
@@ -54,10 +62,26 @@ export function Treasury({
   onInspectEvidence: (operationId: string, missionId: string) => void;
   /** Session CSRF token for governed writes (server enforces roles regardless). */
   csrfToken: string | null;
+  /** Invoked after mission creation so the App-level mission context list
+   *  refreshes — without it, non-Treasury surfaces execute against the
+   *  previously selected (wrong) mission. */
+  onMissionsChanged: () => void;
   loginBusy: boolean;
   loginError: string | null;
 }): JSX.Element {
   const [missions, setMissions] = useState<Load<MissionRow[]>>({ kind: 'loading' });
+  const [authMode, setAuthMode] = useState<AuthModeProbe>('checking');
+  useEffect(() => {
+    const controller = new AbortController();
+    probeAuthMode(controller.signal)
+      .then((m) => {
+        if (!controller.signal.aborted) setAuthMode(m);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAuthMode('unavailable');
+      });
+    return () => controller.abort();
+  }, []);
   const [mandates, setMandates] = useState<Load<MandateRow[]>>({ kind: 'loading' });
   const [overview, setOverview] = useState<Load<FinancialOverviewView>>({ kind: 'loading' });
   const [operations, setOperations] = useState<Load<OperationListView>>({ kind: 'loading' });
@@ -225,6 +249,7 @@ export function Treasury({
           onClose={() => setSheet('none')}
           onCreated={(missionId) => {
             setSheet('none');
+            onMissionsChanged();
             // Read-after-write from the real API, then select the new mission.
             setMissions({ kind: 'loading' });
             void fetchMissions()
@@ -276,9 +301,61 @@ export function Treasury({
           </div>
         </section>
       )}
-      {session.kind === 'signed-out' && (
-        <SignInPanel onSubmit={onLogin} busy={loginBusy} error={loginError} />
-      )}
+      {session.kind === 'signed-out' && location.hash === '#invite' && <InvitationAccept />}
+      {session.kind === 'signed-out' &&
+        location.hash !== '#invite' &&
+        (authMode === 'checking' ? (
+          <Panel title="Operator sign-in" testId="signin-panel">
+            <p role="status" className="mv-governed__note">
+              Reading authentication capabilities…
+            </p>
+          </Panel>
+        ) : authMode === 'oidc' ? (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">organization identity · OIDC</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why">
+              Mission financial data is org-scoped. Sign in through your organization 's identity
+              provider — membership and role are managed by your MOTERVA admins; there is no public
+              sign-up.
+            </p>
+            <div className="mv-signin__form">
+              <OidcSignIn />
+              <p className="mv-governed__note">
+                Invited by an administrator?
+                <a href="#invite">Accept your invitation</a>.
+              </p>
+            </div>
+          </Panel>
+        ) : authMode === 'demo' ? (
+          <SignInPanel onSubmit={onLogin} busy={loginBusy} error={loginError} />
+        ) : authMode === 'none' ? (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">no authentication configured</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why">
+              This deployment has no authentication mode configured (neither production identity nor
+              the loopback demo gate). There is no sign-in path to offer — no local form is rendered
+              because none exists here.
+            </p>
+          </Panel>
+        ) : (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">unavailable</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why" role="alert">
+              The authentication capability read failed (network, 429 or server error). Which
+              sign-in methods exist cannot be verified, so NO sign-in form is offered — never a
+              fallback login that the deployment may not have. Retry by reloading.
+            </p>
+          </Panel>
+        ))}
 
       {/* ------------------------------------------------ missions + mandates */}
       {signedIn && (
@@ -434,17 +511,62 @@ export function Treasury({
                         </dd>
                       </div>
                     </dl>
+                    {/* MTV-20: the four monetary concepts, explicitly differentiated. */}
+                    <dl className="mv-position__concepts">
+                      <div>
+                        <dt>Available</dt>
+                        <dd className="mv-num">
+                          {c.balance === null
+                            ? `${c.currency} —`
+                            : `${c.currency} ${moneyAmount(c.currency, Math.max(0, c.balance.minorUnits - c.protectedFloor.minorUnits))}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Reserved</dt>
+                        <dd className="mv-num">
+                          {`${c.currency} ${moneyAmount(c.currency, c.commitments.reservedMinor ?? 0)}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Pending / unknown</dt>
+                        <dd className="mv-num">
+                          {`${c.currency} ${moneyAmount(c.currency, c.commitments.unknownMinor ?? 0)}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Spendable</dt>
+                        <dd className="mv-num mv-position__spendable">
+                          {c.spendable === null
+                            ? `${c.currency} —`
+                            : `${c.currency} ${c.spendable.major}`}
+                        </dd>
+                      </div>
+                    </dl>
+                    <HaloProgress
+                      label={`Protected floor share · ${c.currency}`}
+                      usedMinor={c.protectedFloor.minorUnits}
+                      totalMinor={c.balance === null ? 0 : c.balance.minorUnits}
+                      currency={c.currency}
+                      warn={
+                        c.balance !== null &&
+                        c.protectedFloor.minorUnits > c.balance.minorUnits * 0.8
+                      }
+                    />
                     <p className="mv-position__commitments">
                       Commitments — reserved{' '}
-                      <span className="mv-num">{moneyAmount(c.commitments.reservedMinor)}</span> ·
-                      unknown/held{' '}
-                      <span className="mv-num">{moneyAmount(c.commitments.unknownMinor)}</span>
+                      <span className="mv-num">
+                        {moneyAmount(c.currency, c.commitments.reservedMinor)}
+                      </span>{' '}
+                      · unknown/held{' '}
+                      <span className="mv-num">
+                        {moneyAmount(c.currency, c.commitments.unknownMinor)}
+                      </span>
                       {c.commitments.settledPendingObservationMinor !== null && (
                         <>
                           {' '}
                           · settled pending observation{' '}
                           <span className="mv-num">
-                            {moneyAmount(c.commitments.settledPendingObservationMinor)}
+                            {moneyAmount(c.currency, c.commitments.settledPendingObservationMinor)}
                           </span>
                         </>
                       )}
@@ -453,7 +575,7 @@ export function Treasury({
                           {' '}
                           · total outstanding{' '}
                           <span className="mv-num">
-                            {moneyAmount(c.commitments.totalOutstandingMinor)}
+                            {moneyAmount(c.currency, c.commitments.totalOutstandingMinor)}
                           </span>
                         </>
                       )}
@@ -512,6 +634,22 @@ export function Treasury({
                   No operations recorded for this mission.
                 </p>
               )}
+              {operations.kind === 'ok' && (
+                <div className="mv-ops__exceptions" data-testid="exceptions-strip">
+                  <HaloBadge
+                    tone={operations.data.counts.needsHuman > 0 ? 'danger' : 'neutral'}
+                    glyph={operations.data.counts.needsHuman > 0 ? '✗' : '✓'}
+                    label="needs a human"
+                    count={operations.data.counts.needsHuman}
+                  />
+                  <HaloBadge
+                    tone={operations.data.counts.ambiguous > 0 ? 'hold' : 'neutral'}
+                    glyph={operations.data.counts.ambiguous > 0 ? '?' : '✓'}
+                    label="unknown outcome"
+                    count={operations.data.counts.ambiguous}
+                  />
+                </div>
+              )}
               {operations.kind === 'ok' && operations.data.operations.length > 0 && (
                 <ul className="mv-ops">
                   {operations.data.operations.map((op) => {
@@ -554,7 +692,11 @@ export function Treasury({
 
           <div className="mv-grid__main">
             {selectedMission !== null && (
-              <section className="mv-hero" data-testid="mission-hero" aria-label="Selected mission">
+              <section
+                className="mv-hero mv-hero--halo"
+                data-testid="mission-hero"
+                aria-label="Selected mission"
+              >
                 <div className="mv-hero__head">
                   <h2 className="mv-hero__title">{selectedMission.title}</h2>
                   <span className="mv-hero__id" title={selectedMission.id}>
@@ -568,7 +710,8 @@ export function Treasury({
                         {money(currency, Math.max(0, t.total - t.consumed))}
                       </span>
                       <span className="mv-hero__label">
-                        envelope remaining · {moneyAmount(t.total)} {currency} effective authority
+                        envelope remaining · {moneyAmount(currency, t.total)} {currency} effective
+                        authority
                       </span>
                     </div>
                   ))}
@@ -647,7 +790,7 @@ export function Treasury({
                               {money(mandate.currency, mandate.remaining_minor)}
                             </span>
                             <span className="mv-num mv-mandate__total">
-                              of {moneyAmount(total)} envelope
+                              of {moneyAmount(mandate.currency, total)} envelope
                             </span>
                             <span className="mv-mandate__pct mv-num">{used}% committed</span>
                           </div>
@@ -726,7 +869,8 @@ export function Treasury({
                                 {money(mandate.currency, mandate.remaining_minor)}
                               </span>
                               <span className="mv-num mv-mandate__total">
-                                historical envelope {moneyAmount(total)} · {used}% committed
+                                historical envelope {moneyAmount(mandate.currency, total)} · {used}%
+                                committed
                               </span>
                             </div>
                             <div

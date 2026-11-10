@@ -36,12 +36,14 @@ export function buildApp(
   ledger?: Ledger,
   airwallexFacts?: () => AirwallexRailFacts,
   metalStatus?: () => MetalAdapterStatusInput,
+
   /**
    * Test seam ONLY: a pre-built OIDC client (e.g. pointed at the local test
    * IdP) so hermetic suites can exercise production posture without live
    * discovery. Production boots ALWAYS discover the configured issuer —
    * config validation and the identity===null gate still apply regardless.
    */
+
   identityClient?: OidcClient,
 ): FastifyInstance {
   const app = Fastify({

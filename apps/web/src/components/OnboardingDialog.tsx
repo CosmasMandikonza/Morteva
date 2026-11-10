@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { JSX } from 'react';
 import { ApiError, createMission, createMandate, type MandateRow } from '../lib/api';
-import { formatDate, money } from '../lib/format';
+import { formatDate, money, parseMajorToMinor } from '../lib/format';
 
 /**
  * Accessible onboarding sheet (role="dialog", focus trapped to the sheet,
@@ -147,7 +147,9 @@ export function MissionCreateSheet({
   );
 }
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'NOK', 'SGD'] as const;
+// Mirror of the domain supported-currency table (R3 P0-1): every code here
+// has a registered minor-unit precision — JPY 0, KWD/BHD 3, USDZ 2 (token).
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'KWD', 'BHD', 'USDZ', 'NOK', 'SGD'] as const;
 const OPERATION_KINDS = ['airwallex_transfer', 'internal_hold'] as const;
 
 export function MandateCreateSheet({
@@ -176,10 +178,11 @@ export function MandateCreateSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
+  // Exponent-aware exact parse (R3 P0-1): rejects extra decimals instead of
+  // rounding, and works for any currency the mandate allows (JPY/KWD/USDZ…).
   const parseMajor = (value: string): number | null => {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.round(n * 100);
+    const minor = parseMajorToMinor(currency, value);
+    return minor !== null && minor > 0 ? minor : null;
   };
   const maxMinor = parseMajor(maxMajor);
   const budgetMinor = budgetMajor.trim() === '' ? null : parseMajor(budgetMajor);
@@ -242,6 +245,20 @@ export function MandateCreateSheet({
           this request — the button below exists so the refusal is observable, not to bypass it.
         </p>
       )}
+      {/* Cult UI Onboarding pattern: explicit step indicator with gating. */}
+      <ol className="mv-wizard__steps" aria-label="Mandate wizard steps">
+        <li className={step === 'form' ? 'is-active' : 'is-done'}>
+          <span className="mv-wizard__num">1</span> Constraints
+        </li>
+        <li
+          className={step === 'review' ? 'is-active' : step === 'form' ? 'is-pending' : 'is-done'}
+        >
+          <span className="mv-wizard__num">2</span> Exact review
+        </li>
+        <li className="is-pending">
+          <span className="mv-wizard__num">3</span> Server grant
+        </li>
+      </ol>
       {step === 'form' ? (
         <form
           className="mv-sheet__form"

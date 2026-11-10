@@ -39,8 +39,14 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
   }
   await expect(page.getByTestId('physical-incident')).toContainText('24.6 kt');
   await expect(page.getByTestId('physical-incident')).toContainText('SYNTHETIC');
+  // MTV-20 composition: alternatives/reasons live in the expandable After
+  // card — expand it to expose the blocked-alternative verdict.
+  const afterCard = page.getByRole('button', { name: /After · updated constraints/ });
+  await afterCard.click();
   await expect(page.getByTestId('decision-room')).toContainText('ASSET_SAFETY_BLOCKED');
   await expect(page.getByTestId('decision-room')).toContainText('Hire vessel-inspection');
+  // Provenance/disclaimer lives on the Evidence lens in the new composition.
+  await page.getByTestId('halotab-evidence').click();
   await expect(page.getByTestId('decision-provenance')).toContainText('No money sent');
 
   const mission = await page.evaluate(async () => {

@@ -260,3 +260,136 @@ test.describe('browser OIDC identity journeys', () => {
     await page.close();
   });
 });
+
+// ---------------------------------------------------------------- MTV-20/R3
+// UI-driven journeys for the InvitationAccept component and the read-only
+// capabilities discovery (R3 P0-2/P0-3): the tests below use the ACTUAL
+// visible UI — they never POST to the API directly on the happy path.
+
+test('capabilities discovery is read-only and offers ONLY the IdP entry (OIDC deployment)', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let oidcLoginHits = 0;
+  let writeHits = 0;
+  page.on('request', (r) => {
+    const u = r.url();
+    if (u.includes('/api/auth/oidc/login')) oidcLoginHits += 1;
+    if (r.method() !== 'GET' && u.includes('/api/')) writeHits += 1;
+  });
+  await page.goto(`${SPA}/`);
+  await page.waitForTimeout(800);
+  // OIDC deployment → the IdP entry, NOT a local username/password form.
+  await expect(page.getByTestId('oidc-signin')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('signin-panel')).toContainText('identity provider');
+  await expect(page.locator('input[name="username"]')).toHaveCount(0);
+  // Discovery side effects: only the capabilities read — zero OIDC flow
+  // starts, zero financial/membership writes.
+  expect(oidcLoginHits).toBe(0);
+  expect(writeHits).toBe(0);
+  // The capabilities read itself:
+  const caps = await page.evaluate(async () => {
+    const r = await fetch('/api/auth/capabilities', { credentials: 'include' });
+    return { status: r.status, body: (await r.json()) as { authMode: string } };
+  });
+  expect(caps.status).toBe(200);
+  expect(caps.body.authMode).toBe('oidc');
+  await context.close();
+});
+
+test('invitation acceptance through the REAL visible UI — one POST, IdP continuation', async ({
+  browser,
+  request,
+}) => {
+  // Provision a FRESH invitation via the owner API (this is admin setup, not
+  // the redemption under test — the redemption below goes through the UI).
+  const owner = await browser.newContext().then((c) => c.newPage());
+  await owner.goto(`${API}/api/auth/oidc/login`);
+  await idpBrowserSignIn(owner, 'owner-sub');
+  const created = await apiFetch(owner, 'POST', '/api/invitations', {
+    role: 'viewer',
+    email: 'ui-invitee@idp.test',
+  });
+  expect(created.status).toBe(200);
+  const { invitation, secret } = JSON.parse(created.body) as {
+    invitation: { id: string };
+    secret: string;
+  };
+  await owner.close();
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let acceptPosts = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/auth/invitations/accept')) {
+      acceptPosts += 1;
+    }
+  });
+
+  // The REAL visible UI at the #invite entry.
+  await page.goto(`${SPA}/#invite`);
+  const panel = page.getByTestId('invite-accept');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await panel.getByLabel('Invitation id').fill(invitation.id);
+  await panel.getByLabel('One-time secret').fill(secret);
+  await panel.getByRole('button', { name: 'Accept invitation' }).click();
+
+  // Exactly ONE redemption POST; the browser follows the server-issued IdP URL.
+  await page.waitForURL(`${API.replace(':8788', ':18995')}/**`, { timeout: 30_000 });
+  expect(acceptPosts).toBe(1);
+  // The secret never appears in any URL.
+  expect(page.url()).not.toContain(secret);
+  expect(page.url()).not.toContain(invitation.id);
+
+  // Complete the IdP journey → invited role lands.
+  await idpBrowserSignIn(page, 'ui-invitee-sub');
+  const session = await page.evaluate(async () => {
+    const r = await fetch('/api/auth/session', { credentials: 'include' });
+    return { status: r.status, body: (await r.json()) as { actor: { role: string } } };
+  });
+  expect(session.status).toBe(200);
+  expect(session.body.actor.role).toBe('viewer');
+  await context.close();
+  // Cleanup: revoke so later suites see a clean slate is unnecessary — the
+  // invitation is redeemed exactly once by this test.
+  void request;
+});
+
+test('invitation UI renders the server refusal inline for a wrong secret (no second POST)', async ({
+  browser,
+}) => {
+  const owner = await browser.newContext().then((c) => c.newPage());
+  await owner.goto(`${API}/api/auth/oidc/login`);
+  await idpBrowserSignIn(owner, 'owner-sub');
+  const created = await apiFetch(owner, 'POST', '/api/invitations', {
+    role: 'operator',
+    email: `wrong-secret-${Date.now()}@idp.test`,
+  });
+  expect(created.status).toBe(200);
+  const { invitation } = JSON.parse(created.body) as { invitation: { id: string } };
+  await owner.close();
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let acceptPosts = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/auth/invitations/accept')) {
+      acceptPosts += 1;
+    }
+  });
+  await page.goto(`${SPA}/#invite`);
+  const panel = page.getByTestId('invite-accept');
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  await panel.getByLabel('Invitation id').fill(invitation.id);
+  await panel.getByLabel('One-time secret').fill('not-the-secret');
+  await panel.getByRole('button', { name: 'Accept invitation' }).click();
+  // Server refusal renders inline in useful language; input re-enabled.
+  await expect(page.getByTestId('invite-error')).toContainText('INVITATION_SECRET_INVALID', {
+    timeout: 15_000,
+  });
+  await expect(page.getByTestId('invite-error')).toContainText('do not match');
+  // Exactly one POST for the failed attempt (no phantom retries).
+  expect(acceptPosts).toBe(1);
+  await context.close();
+});
