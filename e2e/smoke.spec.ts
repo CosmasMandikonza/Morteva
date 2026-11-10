@@ -80,13 +80,18 @@ test.describe('app shell smoke', () => {
     await expect(page.getByTestId('authority-surface')).toContainText('Sign in');
   });
 
-  test('capabilities discovery (demo deployment) offers the controlled demo form only', async ({ page }) => {
-NaN/');
+  test('capabilities discovery (demo deployment) offers the controlled demo form only', async ({
+    page,
+  }) => {
+    await page.goto('/');
     // R3 P0-2: the demo form renders ONLY when the server reports
     // authMode=demo with demoLogin=true via the read-only capabilities read.
     const caps = await page.evaluate(async () => {
       const r = await fetch('/api/auth/capabilities', { credentials: 'same-origin' });
-      return { status: r.status, body: (await r.json()) as { authMode: string; demoLogin: boolean } };
+      return {
+        status: r.status,
+        body: (await r.json()) as { authMode: string; demoLogin: boolean },
+      };
     });
     expect(caps.status).toBe(200);
     expect(caps.body.authMode).toBe('demo');
