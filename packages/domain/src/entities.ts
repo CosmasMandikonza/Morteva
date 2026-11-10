@@ -290,6 +290,25 @@ export interface OperationListView {
 }
 
 /**
+ * One redacted provider receipt in an operation's provider-evidence chain
+ * (read-only; GET /api/operations/:id/provider-evidence). Identity and
+ * settlement-progress fields ONLY — the stored receipt payload JSON is never
+ * disclosed through this view (the journal's own disclosure projection
+ * remains the replayable record).
+ */
+export interface ProviderEvidenceView {
+  readonly seq: number;
+  readonly provider: string;
+  readonly environment: string;
+  readonly kind: string;
+  readonly requestId: string;
+  readonly transferId: string | null;
+  readonly httpStatus: number | null;
+  readonly providerStatus: string | null;
+  readonly recordedAt: string;
+}
+
+/**
  * One append-only journal event. `payload` is a PROJECTED public view, not the
  * stored journal JSON: the API discloses only per-event-type allowlisted
  * scalar fields (see the API's evidence projection); unrecognized event types
