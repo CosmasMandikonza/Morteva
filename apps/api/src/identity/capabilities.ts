@@ -25,6 +25,10 @@ export function registerAuthCapabilitiesRoute(app: FastifyInstance, config: AppC
       // Demo username/password login affordance is only rendered when the
       // DEMO_AUTH gate is actually active (loopback, non-production).
       demoLogin: config.devAuth,
+      // REVIEWER_DEMO (E3): hosted fixed-synthetic-scenario capability.
+      // True only when explicitly enabled AND identity is configured — the
+      // same condition under which the reviewer-demo routes are mounted.
+      reviewerDemo: config.reviewerDemo && config.identity !== null,
     };
   });
 }

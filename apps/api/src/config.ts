@@ -90,6 +90,13 @@ export interface AppConfig {
    */
   readonly devAuth: boolean;
   /**
+   * REVIEWER_DEMO (issues #17/#19): hosted, explicitly-enabled reviewer
+   * capability admitting the FIXED signed synthetic scenario under a real
+   * OIDC session. Requires identity; refuses startup when requested without
+   * it, and the routes are never mounted when disabled (fail-closed 404).
+   */
+  readonly reviewerDemo: boolean;
+  /**
    * Production identity (MTV-19): OIDC configuration, or null when no
    * MOTERVA_OIDC_* variable is set (identity simply not deployed — the rest
    * of the server still boots). Partial configuration fails startup.
@@ -151,6 +158,15 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
   // DEMO_AUTH is deliberately local-only, not merely "non-production".
   // NODE_ENV is often left at development in preview/cloud deployments.
   const devAuthRequested = (env.MOTERVA_DEV_AUTH ?? '') === '1';
+  // REVIEWER_DEMO (issues #17/#19): explicitly-enabled hosted reviewer
+  // capability admitting the FIXED signed synthetic scenario. Off by
+  // default; when enabled it requires a configured production identity
+  // (OIDC) — the routes never exist anonymously or under dev auth alone.
+  const reviewerDemoRaw = (env.MOTERVA_REVIEWER_DEMO ?? '').trim();
+  const reviewerDemoRequested = reviewerDemoRaw === '1';
+  if (reviewerDemoRaw !== '' && !reviewerDemoRequested) {
+    issues.push('MOTERVA_REVIEWER_DEMO: only "1" or unset are accepted.');
+  }
   if (devAuthRequested && parsed.success) {
     if (parsed.data.NODE_ENV === 'production') {
       issues.push(
@@ -173,8 +189,19 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
   if (providerMode === undefined || !parsed.success || issues.length > 0) {
     throw new StartupConfigError(issues);
   }
+  const reviewerDemo = reviewerDemoRequested && identity !== null;
+  if (reviewerDemoRequested && identity === null) {
+    throw new StartupConfigError([
+      'MOTERVA_REVIEWER_DEMO: the hosted reviewer demo requires a configured production identity (set the MOTERVA_OIDC_* variables) — the capability must never exist without authenticated OIDC sessions. Remove MOTERVA_REVIEWER_DEMO or configure identity.',
+    ]);
+  }
   const devAuth = devAuthRequested && parsed.data.NODE_ENV !== 'production';
   const warnings: string[] = [];
+  if (reviewerDemo) {
+    warnings.push(
+      'REVIEWER_DEMO is ACTIVE (MOTERVA_REVIEWER_DEMO=1 with a configured identity): the fixed signed synthetic reviewer scenario is enabled for authenticated org members. It admits SYNTHETIC evidence only and moves no money.',
+    );
+  }
   if (devAuth) {
     warnings.push(
       'DEMO_AUTH is ACTIVE (MOTERVA_DEV_AUTH=1 in non-production): username/password login and one-time dev bootstrap are enabled for local development only. Never use this mode in a deployed configuration.',
@@ -200,6 +227,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     ledgerPath: parsed.data.MOTERVA_LEDGER_PATH,
     sessionTtlMs: parsed.data.MOTERVA_SESSION_TTL_MS,
     devAuth,
+    reviewerDemo,
     identity,
     trustProxy: parsed.data.MOTERVA_TRUST_PROXY === '1',
     gitSha: parsed.data.GIT_SHA,
