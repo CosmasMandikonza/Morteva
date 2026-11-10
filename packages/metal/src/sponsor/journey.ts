@@ -69,9 +69,7 @@ export interface SponsorVendorClient {
     url: string,
   ): Promise<{ ok: boolean; status: number | null; payload: unknown | null; error?: string }>;
   /** Fetches the x402 offer for the diagnostic (server-side, unpaid). */
-  fetchOffer(
-    url: string,
-  ): Promise<{
+  fetchOffer(url: string): Promise<{
     ok: boolean;
     status: number | null;
     offer: SponsorDiagnosticOffer | null;
