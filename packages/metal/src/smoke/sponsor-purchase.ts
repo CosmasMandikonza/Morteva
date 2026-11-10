@@ -22,7 +22,6 @@ import { join } from 'node:path';
 import {
   loadSponsorConfig,
   sponsorSecretPaths,
-  SPONSOR_DEMO_PAYEE_URL,
   SPONSOR_CONSOLE_URL,
 } from '../sponsor/config.js';
 import { NpxAgentCliRunner } from '../sponsor/agent-cli.js';
