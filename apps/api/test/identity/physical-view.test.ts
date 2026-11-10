@@ -113,18 +113,22 @@ describe('physical-view contract shape', () => {
     const body = v.json as {
       contractVersion: number;
       truthLabel: string;
+      policy: { uavAssetId: string; uavWindLimitKt: number; maxAgeMs: number; expiredMs: number };
       assets: {
         assetId: string;
-        comms: string | null;
+        kind: string;
         latest: Record<string, { freshness: string }>;
       }[];
-      recentEvents: { eventId: string; provenance: string; observations: { kind: string }[] }[];
+      events: { eventId: string; provenance: string; observations: { kind: string }[] }[];
       constraints: { state: string; reason: string }[];
     };
     expect(body.contractVersion).toBe(1);
     expect(body.truthLabel).toContain('SIMULATED_OPERATION');
+    expect(body.policy.uavAssetId).toBe('uav-seeker-1');
+    expect(body.policy.uavWindLimitKt).toBe(22);
+    expect(body.assets[0]!.kind).toBe('aerial');
     expect(body.assets.length).toBeGreaterThanOrEqual(1);
-    expect(body.recentEvents.length).toBeGreaterThanOrEqual(1);
+    expect(body.events.length).toBeGreaterThanOrEqual(1);
     // Baseline readings are fresh → constraint clear/nominal.
     expect(['clear', 'unknown']).toContain(body.constraints[0]!.state);
     // No raw payload JSON keys anywhere.
@@ -134,8 +138,8 @@ describe('physical-view contract shape', () => {
 
   it('allowlist: only typed observation kinds appear; no free-form injection surface', async () => {
     const v = await physicalView(VIEWER);
-    const body = v.json as { recentEvents: { observations: { kind: string }[] }[] };
-    for (const event of body.recentEvents) {
+    const body = v.json as { events: { observations: { kind: string }[] }[] };
+    for (const event of body.events) {
       for (const o of event.observations) {
         expect(['wind_speed', 'weather_hold', 'asset_comms']).toContain(o.kind);
       }
@@ -158,11 +162,11 @@ describe('freshness distinction', () => {
     // is covered by the ledger freshness unit tests.)
     const v = await physicalView(VIEWER);
     const body = v.json as {
-      recentEvents: { freshness: string; planningValid: boolean }[];
+      events: { freshnessAtSnapshot: string; planningValidAtSnapshot: boolean }[];
       constraints: { state: string; basis: string }[];
     };
-    for (const event of body.recentEvents) {
-      if (event.freshness !== 'fresh') expect(event.planningValid).toBe(false);
+    for (const event of body.events) {
+      if (event.freshnessAtSnapshot !== 'fresh') expect(event.planningValidAtSnapshot).toBe(false);
     }
     for (const constraint of body.constraints) {
       if (constraint.state === 'unknown') {
@@ -238,8 +242,8 @@ describe('access and isolation', () => {
 
   it('unknown event ids never appear in the projection', async () => {
     const v = await physicalView(OPERATOR);
-    const body = v.json as { recentEvents: { eventId: string }[] };
-    for (const event of body.recentEvents) {
+    const body = v.json as { events: { eventId: string }[] };
+    for (const event of body.events) {
       expect(event.eventId).toMatch(/^evt_demo_/); // only real journaled ids
     }
   });

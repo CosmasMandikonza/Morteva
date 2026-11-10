@@ -1,0 +1,670 @@
+{
+  "scenarioId": "warehouse-robot-interrupt-v1",
+  "seed": "moterva-warehouse-interrupt-2026-11-07",
+  "provenance": "SIMULATED_OPERATION: fully SYNTHETIC reference trace; regenerates deterministically from this seed with the scenario builders (see module README).",
+  "world": {
+    "orgId": "org_fixture_reference",
+    "missionId": "msn_fixture_reference"
+  },
+  "scriptDigest": "6ca163b59c0366a539ca9c6f5c9d790edf270e53fe4dd3a3566d5079b78b6fb0",
+  "envelopes": [
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_59c57a99b617",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:00:00.000Z",
+      "ingestedAt": "2026-11-07T22:00:02.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "889f2af5c3eb8b6ae9b87679115787882cabfe77449ad06dd544644689185b12"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        },
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "free"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_e77f0ec6d6d9",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:04:00.000Z",
+      "ingestedAt": "2026-11-07T22:04:03.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "909ec3d0595fb3f2034b2796c1a87ab7263cb032a595346b170ea70caef77a69"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 12
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 95
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_544179d1361e",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:10:00.000Z",
+      "ingestedAt": "2026-11-07T22:10:03.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ef79d5581cd3e72ec0c764daadf621c84367abed28bd1f0d5bd037230ac6789e"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 24
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 84
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_747b22fb30b9",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:16:00.000Z",
+      "ingestedAt": "2026-11-07T22:16:02.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "e18cc4ffb46c68a4253ae7bc25930b2581d748eec513cd82fc522c272972d858"
+      },
+      "observations": [
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "obstructed"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 77
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_fee655f16b38",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:20:00.000Z",
+      "ingestedAt": "2026-11-07T22:20:04.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "b67d110a53225dcfef0db642e3c577835ef0bca8bd7872761c846f6205414680"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 27
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 68
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "degraded"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_4707a03b8a4d",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:24:00.000Z",
+      "ingestedAt": "2026-11-07T22:24:02.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "04c27c0b9da99a3753af6e0695a804108efeb01281c67c23e17d55a821caee24"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "offline"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_4dee35daabf5",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:28:00.000Z",
+      "ingestedAt": "2026-11-07T22:28:01.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "0a9a7a8879f984e43e7b1efd8122e41093369bb9c1d1cbce7c9c3182ecfff0ed"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 30
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 62
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_bfd4a1f0f9aa",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:30:00.000Z",
+      "ingestedAt": "2026-11-07T22:30:05.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "1a1ee3d412664ebf7fd68c3b6c48353a39f92a331b3e4266aca654e5087ea776"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_4dee35daabf5",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:28:00.000Z",
+      "ingestedAt": "2026-11-07T22:28:01.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "0a9a7a8879f984e43e7b1efd8122e41093369bb9c1d1cbce7c9c3182ecfff0ed"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 30
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 62
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_65a4fd9b7184",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:32:00.000Z",
+      "ingestedAt": "2026-11-07T22:32:05.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ba9b66edd4a510b117456ef518020fe492a9a1095c0784faf2aa7dc867617599"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_826bf654796e",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:34:00.000Z",
+      "ingestedAt": "2026-11-07T22:34:02.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "91d836ebfa4677a714624635f72490a9b705c04015f7fd461e48e586d1a175c7"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_a09f52fb6906",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:36:00.000Z",
+      "ingestedAt": "2026-11-07T22:36:01.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "8277aec751ef17063001040a07fbce2bbf38073d4836ace20b7b8c4e541baf29"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_826bf654796e",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:34:00.000Z",
+      "ingestedAt": "2026-11-07T22:34:04.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "2c000ee058b123fe03eb228f98ed14cea22854ecc6c3cd68b439fae5253e281c"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_baac92a0f788",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "release-recovery-payment",
+      "observedAt": "2026-11-07T22:38:00.000Z",
+      "ingestedAt": "2026-11-07T22:38:03.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ca20120da4f3b6b8cdf48da4a240be8428349fdc7fa0a1aa3c4e32fb7a3f717b"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_ab095bcfaf6e",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:49:00.000Z",
+      "ingestedAt": "2026-11-07T22:39:00.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "d3b025bd0f105bbe84a329d387575b1e3a8fadf9e2885d2467f6b47a53ef2e03"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_ab095bcfaf6e",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:49:00.000Z",
+      "ingestedAt": "2026-11-07T22:49:03.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "4a32ceaef39c655753932100fab0ec2ee1249011907f292ad49052851b6add7c"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 31
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_955df26a18f6",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:21:00.000Z",
+      "ingestedAt": "2026-11-07T22:21:04.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "08ab3d5637429d525055b86e0c3e1f7b22a8bfc3f9791db218cd02959354a172"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 28
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_93f341b3ba5d",
+      "sequence": 6,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:53:00.000Z",
+      "ingestedAt": "2026-11-07T22:53:03.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "dfa0f71dbe910719f9ac313e824b34c088983025ccc28ddefdb9d6e88b32375f"
+      },
+      "observations": [
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "free"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_f1de76025664",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:54:00.000Z",
+      "ingestedAt": "2026-11-07T22:54:01.000Z",
+      "source": {
+        "sourceId": "bot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_bot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "23bac04d420602c2e428e21e0867ca6e4fde0135ab4545513081fc5c70ecbbe7"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 33
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 64
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_b3c25d7d368a",
+      "sequence": 7,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:55:00.000Z",
+      "ingestedAt": "2026-11-07T22:55:02.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "9e1f9a9dc83ada19ad64e8dde90cceeeee6ff6328be881818515e3ff31c61304"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        },
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "docked_charging"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 45
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_10946fe29db2",
+      "sequence": 8,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:56:00.000Z",
+      "ingestedAt": "2026-11-07T22:56:05.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "5d51623e33ad9dbb9a051098c380655c53d622648f18b0bb1a0839e64fa3ab32"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "kilowatt_hour",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_44311805e55b",
+      "sequence": 8,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "picker-bot-7",
+      "observedAt": "2026-11-07T22:57:00.000Z",
+      "ingestedAt": "2026-11-07T22:57:04.000Z",
+      "source": {
+        "sourceId": "wms-supervisor",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_sup_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "7f23b42ffbaf5158571e4e45fb8ab3c7b532558c88e83c91f9d891a38bfd878d"
+      },
+      "observations": [
+        {
+          "kind": "forklift_proximity",
+          "unit": "state",
+          "value": "near"
+        }
+      ]
+    }
+  ]
+}

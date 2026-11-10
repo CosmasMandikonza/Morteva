@@ -9,6 +9,20 @@
  * the Metal adapter's `discoverToken` reads `decimals()`/`symbol()` on-chain
  * before connecting (Agent D) — the ledger never invents it.
  *
+ * Trust boundary: registration is a SERVER-SIDE operation restricted to
+ * owner/admin creators (never an HTTP route, never viewer/operator input) —
+ * a token asset is verified adapter configuration, not user-supplied data.
+ * Balance snapshots are recorded only by trusted server-side code from
+ * VERIFIED adapter chain reads (the adapter proves decimals/symbol on-chain
+ * at connect; the ledger re-checks chain/contract against the registry).
+ *
+ * Chain-read freshness (CTO R3 P0-3): a chain read older than
+ * CHAIN_READ_MAX_AGE_MS is refused — a stale claimed balance can never back
+ * reservations for years; observedAt must not precede chainReadAt (reversed
+ * temporal ordering refused); the snapshot expiry is capped at
+ * CHAIN_SNAPSHOT_MAX_TTL_MS past the observation, so SpendableService's
+ * freshness check can never be satisfied by an old read with future expiry.
+ *
  * Token balance snapshots are ordinary `balance_snapshots` rows for the
  * token's currency with source 'metal-testnet' and MANDATORY chain-read
  * provenance (chain_id + contract + chain_read_at), so the existing
@@ -23,6 +37,19 @@ import type { Clock } from '../clock.js';
 import { newId } from './identity.js';
 import type { EvidenceService } from './evidence.js';
 import { createMoney } from '@moterva/domain';
+
+/**
+ * Maximum age of a verified chain read that may back a balance snapshot —
+ * a chainReadAt older than this (e.g. a replayed 2020 read) is refused.
+ */
+export const CHAIN_READ_MAX_AGE_MS = 15 * 60_000;
+/**
+ * Maximum lifetime of a token balance snapshot past its observation time —
+ * a caller-supplied `expiresAt` years in the future (the 2035
+ * counterexample) is capped/refused, so SpendableService's freshness check
+ * can never be satisfied by an old read with future expiry.
+ */
+export const CHAIN_SNAPSHOT_MAX_TTL_MS = 30 * 60_000;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -106,12 +133,20 @@ export class TokenAssetService {
       throw new LedgerError('INVALID_INPUT', "only the 'testnet' environment is supported");
     }
     const creator = this.db
-      .prepare('SELECT id FROM actors WHERE id = ? AND org_id = ? AND revoked_at IS NULL')
-      .get(input.createdByActorId, input.orgId);
+      .prepare('SELECT id, role FROM actors WHERE id = ? AND org_id = ? AND revoked_at IS NULL')
+      .get(input.createdByActorId, input.orgId) as { id: string; role: string } | undefined;
     if (creator === undefined) {
       throw new LedgerError(
         'AUTH_ACTOR_NOT_FOUND',
         'registration actor not found in this organization',
+      );
+    }
+    // Trust boundary (CTO R3 P0-3): only owners/admins may register a token
+    // asset — verified adapter configuration, never viewer/operator input.
+    if (creator.role !== 'owner' && creator.role !== 'admin') {
+      throw new LedgerError(
+        'AUTH_ROLE_FORBIDDEN',
+        'only owners and admins may register token assets; a token asset is verified adapter configuration, not user-supplied data',
       );
     }
     const active = this.db
@@ -273,18 +308,65 @@ export class TokenAssetService {
         'token balance minor units must be a non-negative integer',
       );
     }
-    if (!Number.isFinite(Date.parse(input.chainReadAt))) {
+    if (typeof input.chainReadAt !== 'string' || !Number.isFinite(Date.parse(input.chainReadAt))) {
       throw new LedgerError('INVALID_INPUT', 'chainReadAt must be a valid ISO timestamp');
     }
+    const chainReadMs = Date.parse(input.chainReadAt);
     createMoney(asset.currency, input.minorUnits);
     const observedAt = input.observedAt ?? this.clock.iso();
-    const expiresAt =
-      input.expiresAt ?? new Date(this.clock.now().getTime() + 5 * 60_000).toISOString();
-    if (Date.parse(observedAt) > Date.parse(expiresAt)) {
-      throw new LedgerError('INVALID_INPUT', 'balance observation timestamps must be ordered');
+    if (typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))) {
+      throw new LedgerError('INVALID_INPUT', 'observedAt must be a valid ISO timestamp');
     }
-    if (Date.parse(input.chainReadAt) > this.clock.now().getTime() + 30_000) {
+    const observedMs = Date.parse(observedAt);
+    // Future-dating refused first (30s skew window) — then temporal
+    // ordering: the observation cannot precede the chain read it derives
+    // from.
+    const nowMs = this.clock.now().getTime();
+    if (chainReadMs > nowMs + 30_000) {
       throw new LedgerError('INVALID_INPUT', 'future-dated chain reads cannot authorize spending');
+    }
+    if (observedMs > nowMs + 30_000) {
+      throw new LedgerError(
+        'INVALID_INPUT',
+        'future-dated balance observations cannot authorize spending',
+      );
+    }
+    if (observedMs < chainReadMs) {
+      throw new LedgerError(
+        'OBSERVATION_ORDER_INVALID',
+        'balance observedAt precedes its chainReadAt — reversed temporal ordering',
+      );
+    }
+    // Bounded chain-read freshness: a read older than CHAIN_READ_MAX_AGE_MS
+    // is stale evidence — it can never back a "fresh" spendable (the 2020
+    // counterexample).
+    if (nowMs - chainReadMs > CHAIN_READ_MAX_AGE_MS) {
+      throw new LedgerError(
+        'CHAIN_READ_STALE',
+        `chain read is older than ${CHAIN_READ_MAX_AGE_MS} ms — a fresh verified read is required before the token balance can authorize spending`,
+      );
+    }
+    // Snapshot expiry: caller-supplied expiry is capped — a 2035 expiry on a
+    // today-observed snapshot would keep a stale read "fresh" for years.
+    const maxExpiresMs = observedMs + CHAIN_SNAPSHOT_MAX_TTL_MS;
+    let expiresAt: string;
+    if (input.expiresAt === undefined) {
+      expiresAt = new Date(Math.min(observedMs + 5 * 60_000, maxExpiresMs)).toISOString();
+    } else {
+      if (!Number.isFinite(Date.parse(input.expiresAt))) {
+        throw new LedgerError('INVALID_INPUT', 'expiresAt must be a valid ISO timestamp');
+      }
+      const expiresMs = Date.parse(input.expiresAt);
+      if (expiresMs <= observedMs) {
+        throw new LedgerError('INVALID_INPUT', 'balance observation timestamps must be ordered');
+      }
+      if (expiresMs > maxExpiresMs) {
+        throw new LedgerError(
+          'BALANCE_EXPIRY_EXCESSIVE',
+          `token snapshot expiry exceeds the ${CHAIN_SNAPSHOT_MAX_TTL_MS} ms TTL — a stale chain read must never stay "fresh" for years`,
+        );
+      }
+      expiresAt = input.expiresAt;
     }
     const id = newId('bal');
     this.db

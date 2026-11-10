@@ -39,9 +39,13 @@ proven by `metal-receipts.test.ts` incl. restart).
   (org, chain, contract). Opens a dedicated `kind='token'` account.
 - **Balances:** `recordTokenBalanceSnapshot` — ordinary balance_snapshots
   rows with source `'metal-testnet'` and MANDATORY chain provenance
-  (chain_id + contract + chain_read_at; future-dated reads refused), feeding
-  the UNCHANGED spendable/reservation math. Wrong chain/contract/unregistered
-  currency refused with zero writes.
+  (chain_id + contract + chain_read_at), feeding the UNCHANGED
+  spendable/reservation math. Insertion-time gates (zero writes on refusal):
+  future-dated reads refused; a read older than 15 min refused
+  (`CHAIN_READ_STALE`); observed-before-read ordering refused
+  (`OBSERVATION_ORDER_INVALID`); caller-supplied expiry capped to
+  observation + 30 min (`BALANCE_EXPIRY_EXCESSIVE`). Wrong
+  chain/contract/unregistered currency refused with zero writes.
 - **Mandates:** `metal` rail authorized ONLY for a registered token-asset
   currency, then exclusively — no `airwallex` rail, permitted kinds
   `metal_order` only. Fiat envelopes can never carry metal; token envelopes
@@ -50,6 +54,12 @@ proven by `metal-receipts.test.ts` incl. restart).
   any other kind against a token currency refused (`RAIL_ASSET_UNSUPPORTED`).
   Spendable/concurrency/atomicity machinery is the reviewed fiat code path —
   parallel token reservations of the last funds elect exactly one winner.
+  **Chain-read freshness holds THROUGH reservation:** `SpendableService`
+  re-checks the age of the winning snapshot's underlying chain read at
+  reservation time — a snapshot whose `expiresAt` is still future but whose
+  chain read has aged past 15 min refuses with `CHAIN_READ_STALE` and leaves
+  ZERO new operations/commitments (clock-advance proof in
+  `metal-token-ledger.test.ts`).
 - **Your adapter boundary preserved:** the ledger authorizes the ORIGINAL
   economic identity only (requestId, plan digest, exact terms, merchant
   allowlist unchanged); nonce/tx-hash/recovery stay YOUR durable-identity
@@ -82,7 +92,9 @@ ledger.providerReceipts.append({ provider: 'metal', environment: 'testnet', … 
 ## New error codes your adapter may observe
 
 `CURRENCY_COLLISION`, `TOKEN_ASSET_DUPLICATE`, `TOKEN_ASSET_NOT_REGISTERED`,
-`TOKEN_ASSET_REVOKED`, `CHAIN_MISMATCH`, `TOKEN_CONTRACT_MISMATCH` (plus the
-existing `RAIL_ASSET_UNSUPPORTED` / `MANDATE_*` / `INSUFFICIENT_SPENDABLE`
-family). All fail closed with zero unauthorized writes — asserted by
-`metal-token-ledger.test.ts` (16 tests) and `metal-receipts.test.ts` (4).
+`TOKEN_ASSET_REVOKED`, `CHAIN_MISMATCH`, `TOKEN_CONTRACT_MISMATCH`,
+`CHAIN_READ_STALE`, `BALANCE_EXPIRY_EXCESSIVE`, `OBSERVATION_ORDER_INVALID`
+(plus the existing `RAIL_ASSET_UNSUPPORTED` / `MANDATE_*` /
+`INSUFFICIENT_SPENDABLE` family). All fail closed with zero unauthorized
+writes — asserted by `metal-token-ledger.test.ts` (19 tests) and
+`metal-receipts.test.ts` (4).

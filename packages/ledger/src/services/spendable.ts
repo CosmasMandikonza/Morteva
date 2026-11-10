@@ -23,6 +23,21 @@ import { type AccountService } from './accounts.js';
 import { addMoney, createMoney, subMoney } from '@moterva/domain';
 import type { BalanceSource, SpendableView } from '@moterva/domain';
 
+/**
+ * Maximum age of a verified metal-testnet chain read that may back a
+ * reservation (CTO R3 P0-3): the freshness window is enforced THROUGH
+ * reservation time, not only at snapshot insertion — an old chain read with
+ * a future expiry can never satisfy spendable math.
+ */
+const CHAIN_READ_MAX_AGE_MS = 15 * 60_000;
+
+function isStaleChainRead(chainReadAt: string | null | undefined, nowMs: number): boolean {
+  if (chainReadAt === null || chainReadAt === undefined) return true;
+  const ms = Date.parse(chainReadAt);
+  if (!Number.isFinite(ms)) return true;
+  return nowMs - ms > CHAIN_READ_MAX_AGE_MS;
+}
+
 const OUTSTANDING_SQL = `
   SELECT COALESCE(SUM(amount_minor), 0) AS total
   FROM commitments
@@ -64,6 +79,26 @@ export class SpendableService {
           source: latest.snapshot.source,
         },
       );
+    }
+    // Token chain-read freshness THROUGH reservation (CTO R3 P0-3): a
+    // metal-testnet snapshot whose underlying chain read has aged past the
+    // token freshness window is stale evidence even if its expiresAt is
+    // still in the future (the "old read + future expiry" counterexample:
+    // chainReadAt 11:46, observedAt 12:00, expiresAt 12:30 would otherwise
+    // authorize at 12:29 with a 43-minute-old read).
+    if (latest.snapshot.source === 'metal-testnet') {
+      const chainReadAt = (
+        this.db
+          .prepare('SELECT chain_read_at FROM balance_snapshots WHERE id = ?')
+          .get(latest.snapshot.id) as { chain_read_at: string | null } | undefined
+      )?.chain_read_at;
+      if (isStaleChainRead(chainReadAt, now.getTime())) {
+        throw new LedgerError(
+          'CHAIN_READ_STALE',
+          `metal-testnet chain read for ${currency} is older than ${CHAIN_READ_MAX_AGE_MS} ms — a fresh verified read is required before the balance can authorize spending (read at ${chainReadAt ?? 'unknown'})`,
+          { chainReadAt: chainReadAt },
+        );
+      }
     }
     const snapshot = latest.snapshot;
 

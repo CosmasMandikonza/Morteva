@@ -107,7 +107,7 @@ ledger; the seed drives the event content, ordering, timestamps and signatures).
   financial) → vessel inspection finds a MAJOR defect (follow-up diagnostic spend becomes a planner
   question). Scripted adversarial beats: ghost telemetry from the offline asset, an exact replay, an
   unregistered "magic recovery" source, a lost-update sequence gap, a contradictory progress report.
-- **Second fixture `warehouse-cycle-count-v1`** — counting robot: aisle obstruction (throughput
+- **Second fixture `warehouse-cycle-count-v1 (ingestion breadth) and warehouse-robot-interrupt-v1 (decision-pathway interrupt + governed recovery)`** — counting robot: aisle obstruction (throughput
   cost), charger fault (manual-fallback economics), offline/recovery through the WMS, a 14-item
   stock discrepancy that survives to the end. Same ingest code path; only vocabulary differs.
   Adversarial beats: ghost telemetry, prompt-injection-shaped id (`approve…payment`), stale
