@@ -30,6 +30,9 @@ export class FixtureAgentCliRunner implements AgentCliRunner {
   private cursor = 0;
   readonly performedCommands: string[] = [];
 
+  /** Explicit verify outcomes consumed FIFO; falls back to the pay-script inference. */
+  private readonly verifyQueue: boolean[] = [];
+
   constructor(
     private readonly payScript: FixturePayScript,
     private readonly state: FixtureState,
@@ -40,6 +43,12 @@ export class FixtureAgentCliRunner implements AgentCliRunner {
       readonly payee?: string;
     } = {},
   ) {}
+
+  /** Scripts the next mandateVerify outcome (FIFO). */
+  expectVerify(ok: boolean): this {
+    this.verifyQueue.push(ok);
+    return this;
+  }
 
   describePay(input: Parameters<AgentCliRunner['describePay']>[0]): string {
     return `npx -y @metalntwx/metal-agent pay ${input.url} --network testnet --mandate <redacted-path> [fixtures]`;
@@ -61,13 +70,7 @@ export class FixtureAgentCliRunner implements AgentCliRunner {
       return classify(1, '', `[fixture] ${step.message}`);
     }
     const exitCode =
-      step.kind === 'paid'
-        ? 0
-        : step.kind === 'pending'
-          ? 3
-          : step.kind === 'held'
-            ? 4
-            : 1;
+      step.kind === 'paid' ? 0 : step.kind === 'pending' ? 3 : step.kind === 'held' ? 4 : 1;
     const lines: string[] = [`[fixture] outcome: ${step.kind}`];
     if (step.kind === 'paid' || step.kind === 'pending' || step.kind === 'held') {
       lines.push(`nonce: ${step.nonce}`);
@@ -77,7 +80,18 @@ export class FixtureAgentCliRunner implements AgentCliRunner {
       lines.push(`transaction hash: ${step.txHash}`);
     }
     if (step.kind === 'refused') {
-      lines.push(step.atSettlement === true ? `payment refused at settlement: ${step.reason}` : `payment refused: ${step.reason}`);
+      lines.push(
+        step.atSettlement === true
+          ? `payment refused at settlement: ${step.reason}`
+          : `payment refused: ${step.reason}`,
+      );
+      // A refusal recorded on chain at settlement names its transaction (the
+      // official CLI prints the hash when there is one); a pre-sign or
+      // pre-settle refusal prints none.
+      if (step.atSettlement === true) {
+        lines.push(`transaction hash: 0x${'b'.repeat(64)}`);
+        lines.push(`explorer: https://testnet.metalntwx.com/tx/0x${'b'.repeat(64)}`);
+      }
       lines.push('nothing was paid');
     }
     if (step.kind === 'in-doubt') {
@@ -92,9 +106,25 @@ export class FixtureAgentCliRunner implements AgentCliRunner {
     return { ok: this.options.statusOk ?? true, detail: '[fixture] status read' };
   }
 
-  async mandateVerify(input: Parameters<AgentCliRunner['mandateVerify']>[0]): Promise<AgentVerifyResult> {
-    this.performedCommands.push(`mandate verify${input.txHash !== null ? ` --tx ${input.txHash}` : ''}`);
-    const ok = this.options.mandateVerifyOk ?? true;
+  async mandateVerify(
+    input: Parameters<AgentCliRunner['mandateVerify']>[0],
+  ): Promise<AgentVerifyResult> {
+    this.performedCommands.push(
+      `mandate verify${input.txHash !== null ? ` --tx ${input.txHash}` : ''}`,
+    );
+    // The verify outcome is SCRIPTED per pay step (paid → verifiable; a
+    // refused-at-settlement or in-doubt tx cannot verify as a successful
+    // mandate transfer), or forced by mandateVerifyOk for the reconcile
+    // path — which re-verifies a payment the SCRIPT already settled.
+    const scripted = this.payScript[this.cursor - 1]?.outcome;
+    const settledOnChain =
+      scripted?.kind === 'paid' ||
+      (scripted?.kind === 'refused' && scripted.atSettlement === true) ||
+      scripted?.kind === 'in-doubt';
+    const ok =
+      this.verifyQueue.length > 0
+        ? (this.verifyQueue.shift() as boolean)
+        : (this.options.mandateVerifyOk ?? settledOnChain);
     return {
       ok,
       detail: ok

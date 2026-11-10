@@ -24,7 +24,16 @@
  * payment identity.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  openSync,
+  closeSync,
+  unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { canonicalJson } from '@moterva/domain';
 import type { SponsorConfig, SponsorSecretPaths } from './config.js';
@@ -56,9 +65,18 @@ export interface SponsorDecisionInput {
 }
 
 export interface SponsorVendorClient {
-  fetchReport(url: string): Promise<{ ok: boolean; status: number | null; payload: unknown | null; error?: string }>;
+  fetchReport(
+    url: string,
+  ): Promise<{ ok: boolean; status: number | null; payload: unknown | null; error?: string }>;
   /** Fetches the x402 offer for the diagnostic (server-side, unpaid). */
-  fetchOffer(url: string): Promise<{ ok: boolean; status: number | null; offer: SponsorDiagnosticOffer | null; error?: string }>;
+  fetchOffer(
+    url: string,
+  ): Promise<{
+    ok: boolean;
+    status: number | null;
+    offer: SponsorDiagnosticOffer | null;
+    error?: string;
+  }>;
 }
 
 export interface SponsorPurchaseEvidence {
@@ -81,7 +99,11 @@ export interface SponsorPurchaseEvidence {
   readonly amountBaseUnits: string | null;
   readonly amountUsdz: string | null;
   readonly environment: 'sponsor-testnet' | 'disabled';
-  readonly settlement: { readonly verified: boolean; readonly how: string | null; readonly verifiedAt: string | null } | null;
+  readonly settlement: {
+    readonly verified: boolean;
+    readonly how: string | null;
+    readonly verifiedAt: string | null;
+  } | null;
   readonly delivery: {
     readonly delivered: boolean;
     readonly reportDigest: string | null;
@@ -137,7 +159,12 @@ export function sponsorOfferDigest(offer: SponsorDiagnosticOffer): string {
  * purchases of one offer under two identities are two payments; the same
  * identity re-run never signs again (the CLI reports `already paid`).
  */
-function paymentIdentityFor(orgId: string, missionId: string, offerDigest: string, runSalt: string): string {
+function paymentIdentityFor(
+  orgId: string,
+  missionId: string,
+  offerDigest: string,
+  runSalt: string,
+): string {
   return (
     'pmt_' +
     createHash('sha256')
@@ -195,10 +222,7 @@ export interface SponsorJourneyInput {
   readonly issuerPublicKeyFile: string | null;
 }
 
-function blocked(
-  evidenceBase: Record<string, unknown>,
-  reason: string,
-): SponsorPurchaseEvidence {
+function blocked(evidenceBase: Record<string, unknown>, reason: string): SponsorPurchaseEvidence {
   return {
     ...(evidenceBase as unknown as SponsorPurchaseEvidence),
     outcome: 'blocked',
@@ -210,7 +234,9 @@ function blocked(
   };
 }
 
-export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Promise<SponsorPurchaseEvidence> {
+export async function runSponsorPurchaseJourney(
+  input: SponsorJourneyInput,
+): Promise<SponsorPurchaseEvidence> {
   const { config, clock } = input;
   const evidenceBase = {
     sellerId: null,
@@ -249,7 +275,10 @@ export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Pro
       try {
         prior = JSON.parse(readFileSync(statePath, 'utf8')) as SponsorIntentState;
       } catch {
-        return blocked(evidenceBase, 'BLOCKED: corrupt state.json — resolve manually; a corrupt state never authorizes a new payment');
+        return blocked(
+          evidenceBase,
+          'BLOCKED: corrupt state.json — resolve manually; a corrupt state never authorizes a new payment',
+        );
       }
       if (prior.version !== INTENT_VERSION) {
         return blocked(evidenceBase, 'BLOCKED: unknown state version — resolve manually');
@@ -304,14 +333,24 @@ export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Pro
         `the offer's price is not a valid positive *USDZ amount: ${error instanceof UsdzError ? error.message : String(error)}`,
       );
     }
-    if (offer.sellerId.trim() === '' || offer.assetCaseId.trim() === '' || offer.payee.trim() === '') {
-      return decline('OFFER_INCOMPLETE', 'the offer is missing seller, asset/case or payee identity; refusing to price an unnamed purchase');
+    if (
+      offer.sellerId.trim() === '' ||
+      offer.assetCaseId.trim() === '' ||
+      offer.payee.trim() === ''
+    ) {
+      return decline(
+        'OFFER_INCOMPLETE',
+        'the offer is missing seller, asset/case or payee identity; refusing to price an unnamed purchase',
+      );
     }
     gatesPassed.push('offer-wellformed');
     // A cap of zero (unset) means the configured max is the only limit; the
     // config default is the official client's 1 *USDZ.
     if (BigInt(config.maxPaymentBaseUnits) < price) {
-      return decline('PER_PAYMENT_CAP_EXCEEDED', `the quoted price ${offer.priceBaseUnits} base units exceeds the configured per-payment cap ${config.maxPaymentBaseUnits}`);
+      return decline(
+        'PER_PAYMENT_CAP_EXCEEDED',
+        `the quoted price ${offer.priceBaseUnits} base units exceeds the configured per-payment cap ${config.maxPaymentBaseUnits}`,
+      );
     }
     gatesPassed.push('cap-ok');
     if (Date.parse(offer.quoteExpiresAt) <= clock.now().getTime()) {
@@ -330,7 +369,10 @@ export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Pro
     }
     gatesPassed.push('economics-ok');
     if (!config.hasMandateCredential) {
-      return blocked(evidenceBase, 'BLOCKED: no mandate credential configured — a payment without an on-chain mandate is not authorized');
+      return blocked(
+        evidenceBase,
+        'BLOCKED: no mandate credential configured — a payment without an on-chain mandate is not authorized',
+      );
     }
     gatesPassed.push('mandate-credential-present');
 
@@ -432,7 +474,8 @@ export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Pro
       return {
         ...(evidenceBase as unknown as SponsorPurchaseEvidence),
         outcome: 'unverified',
-        reason: 'the CLI reports paid but independent settlement verification did not confirm it; content is NOT fetched until verified',
+        reason:
+          'the CLI reports paid but independent settlement verification did not confirm it; content is NOT fetched until verified',
         sellerId: offer.sellerId,
         offerDigest,
         paymentIdentity: identity,
@@ -447,7 +490,16 @@ export async function runSponsorPurchaseJourney(input: SponsorJourneyInput): Pro
       };
     }
     writeStateAtomic(input.stateDir, { ...state, stage: 'settled' });
-    return await deliverSponsorContent(input, state, evidenceBase, trace, payment, identity, offerDigest, verification);
+    return await deliverSponsorContent(
+      input,
+      state,
+      evidenceBase,
+      trace,
+      payment,
+      identity,
+      offerDigest,
+      verification,
+    );
   } finally {
     try {
       closeSync(lock);
@@ -469,7 +521,8 @@ async function verifySponsorSettlement(
   // mandate key's own signed per-payment mandate, rebuilt from its transaction.
   const verify = await input.cli.mandateVerify({
     mandateCredentialPath: input.paths.mandateCredential,
-    issuerPublicKeyFile: input.issuerPublicKeyFile ?? input.paths.mandateCredential + '.issuer.public.json',
+    issuerPublicKeyFile:
+      input.issuerPublicKeyFile ?? input.paths.mandateCredential + '.issuer.public.json',
     txHash: payment.txHash,
     signedOffer: state.offer.signedOffer,
     rpcUrl: input.paths.rpcUrl,
@@ -563,7 +616,8 @@ async function reconcileSponsorIntent(
     return {
       ...(evidenceBase as unknown as SponsorPurchaseEvidence),
       outcome: 'unverified',
-      reason: 'the stored intent has a submitted payment whose settlement is not yet verifiable from the chain; reconcile later — NEVER re-sign this identity',
+      reason:
+        'the stored intent has a submitted payment whose settlement is not yet verifiable from the chain; reconcile later — NEVER re-sign this identity',
       sellerId: state.offer.sellerId,
       offerDigest: state.offerDigest,
       paymentIdentity: state.paymentIdentity,
@@ -588,4 +642,3 @@ async function reconcileSponsorIntent(
     verification,
   );
 }
-

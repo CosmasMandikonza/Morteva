@@ -60,7 +60,11 @@ export interface AgentCliRunner {
     readonly network: 'testnet';
   }): Promise<AgentPaymentResult>;
   /** `metal-agent status <txHash> --network testnet --rpc-url <endpoint>` */
-  status(input: { readonly txHash: string; readonly rpcUrl: string; readonly network: 'testnet' }): Promise<AgentVerifyResult>;
+  status(input: {
+    readonly txHash: string;
+    readonly rpcUrl: string;
+    readonly network: 'testnet';
+  }): Promise<AgentVerifyResult>;
   /** `metal-agent mandate verify --credential <c> --issuer <pub> [--tx <hash> --signed-offer <text>] --rpc-url <endpoint>` */
   mandateVerify(input: {
     readonly mandateCredentialPath: string;
@@ -79,19 +83,13 @@ export interface AgentCliRunner {
   }): string;
 }
 
-function classify(
-  exitCode: number,
-  stdout: string,
-  stderr: string,
-): AgentPaymentResult {
+function classify(exitCode: number, stdout: string, stderr: string): AgentPaymentResult {
   const output = `${stdout}\n${stderr}`;
   const nonceMatch = /nonce[:= ]+([0-9a-fx-]+)/i.exec(output);
   const explorerMatch = /explorer[: ]+(\S+)/i.exec(output);
   const txMatch =
     /(?:transaction hash|tx|hash)[:= ]+((0x)?[0-9a-fA-F]{64})/i.exec(output) ??
-    /((0x)?[0-9a-fA-F]{64})/.exec(
-      stdout.includes('refused at settlement') ? stdout : '',
-    );
+    /((0x)?[0-9a-fA-F]{64})/.exec(stdout.includes('refused at settlement') ? stdout : '');
   const refusedMatch = /payment refused(?: at settlement)?: (.+)$/im.exec(output);
   const inDoubtMatch = /payment in doubt at settlement: (.+)$/im.exec(output);
 
@@ -122,7 +120,9 @@ function classify(
     txHash: txMatch?.[1]?.toLowerCase() ?? null,
     explorerUrl: explorerMatch?.[1] ?? null,
     refusalReason:
-      refusedMatch?.[1]?.trim() ?? inDoubtMatch?.[1]?.trim() ?? (phase === 'failed' ? output.slice(0, 400) : null),
+      refusedMatch?.[1]?.trim() ??
+      inDoubtMatch?.[1]?.trim() ??
+      (phase === 'failed' ? output.slice(0, 400) : null),
     movedValue,
     rawOutput: output.slice(0, 4000),
   };
@@ -136,7 +136,16 @@ function buildPayArgs(input: {
   readonly body?: string;
   readonly network: 'testnet';
 }): readonly string[] {
-  const args = ['-y', SPONSOR_AGENT_PACKAGE, 'pay', input.url, '--network', input.network, '--mandate', input.mandateCredentialPath];
+  const args = [
+    '-y',
+    SPONSOR_AGENT_PACKAGE,
+    'pay',
+    input.url,
+    '--network',
+    input.network,
+    '--mandate',
+    input.mandateCredentialPath,
+  ];
   if (input.rpcUrl !== null && input.rpcUrl !== '') args.push('--rpc-url', input.rpcUrl);
   if (input.method !== undefined) args.push('--method', input.method);
   if (input.body !== undefined) args.push('--body', input.body);
@@ -154,9 +163,7 @@ export function payCommandLine(input: {
   const args = buildPayArgs(input);
   const printable = args
     .map((arg) =>
-      arg === input.mandateCredentialPath || arg === input.rpcUrl
-        ? '<redacted-path>'
-        : arg,
+      arg === input.mandateCredentialPath || arg === input.rpcUrl ? '<redacted-path>' : arg,
     )
     .join(' ');
   return `npx ${printable}`;
@@ -174,7 +181,10 @@ export class NpxAgentCliRunner implements AgentCliRunner {
     return payCommandLine(input);
   }
 
-  private run(args: readonly string[], timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string }> {
+  private run(
+    args: readonly string[],
+    timeoutMs: number,
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       const child = spawn('npx', args, {
         env: this.options.env ?? process.env,
@@ -184,7 +194,11 @@ export class NpxAgentCliRunner implements AgentCliRunner {
       let stderr = '';
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error(`metal-agent timed out after ${String(timeoutMs)}ms — no outcome is known; treat the payment as IN DOUBT`));
+        reject(
+          new Error(
+            `metal-agent timed out after ${String(timeoutMs)}ms — no outcome is known; treat the payment as IN DOUBT`,
+          ),
+        );
       }, timeoutMs);
       child.stdout?.on('data', (chunk: Buffer) => {
         stdout += chunk.toString();
@@ -211,12 +225,23 @@ export class NpxAgentCliRunner implements AgentCliRunner {
   }
 
   async status(input: Parameters<AgentCliRunner['status']>[0]): Promise<AgentVerifyResult> {
-    const args = ['-y', SPONSOR_AGENT_PACKAGE, 'status', input.txHash, '--network', input.network, '--rpc-url', input.rpcUrl];
+    const args = [
+      '-y',
+      SPONSOR_AGENT_PACKAGE,
+      'status',
+      input.txHash,
+      '--network',
+      input.network,
+      '--rpc-url',
+      input.rpcUrl,
+    ];
     const { code, stdout, stderr } = await this.run(args, this.options.timeoutMs ?? 60_000);
     return { ok: code === 0, detail: `${stdout}\n${stderr}`.slice(0, 4000) };
   }
 
-  async mandateVerify(input: Parameters<AgentCliRunner['mandateVerify']>[0]): Promise<AgentVerifyResult> {
+  async mandateVerify(
+    input: Parameters<AgentCliRunner['mandateVerify']>[0],
+  ): Promise<AgentVerifyResult> {
     const args = [
       '-y',
       SPONSOR_AGENT_PACKAGE,
