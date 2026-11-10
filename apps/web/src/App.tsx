@@ -84,9 +84,16 @@ export function App(): JSX.Element {
   const [evidenceOperationFilter, setEvidenceOperationFilter] = useState<string | null>(null);
   type MissionContext = Pick<MissionRow, 'id' | 'title' | 'status' | 'created_at'>;
   const [missionTitles, setMissionTitles] = useState<readonly MissionContext[]>([]);
+  // Fail-closed mission context (R-final B1): when the operator has selected
+  // a mission, surfaces NEVER fall back to another mission while the context
+  // list is loading or the selection is absent — executing on the wrong
+  // mission is worse than showing the honest selector.
   const missionsForContext =
-    missionTitles.find((m) => m.id === selectedMissionId) ??
-    (missionTitles.length > 0 && missionTitles[0] !== undefined ? missionTitles[0] : null);
+    selectedMissionId !== null
+      ? (missionTitles.find((m) => m.id === selectedMissionId) ?? null)
+      : missionTitles.length > 0 && missionTitles[0] !== undefined
+        ? missionTitles[0]
+        : null;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -168,19 +175,30 @@ export function App(): JSX.Element {
   }, []);
 
   // Keep a light mission context for surfaces beyond the Treasury
-  // (Evidence Replay) without duplicating the Treasury's data loading.
+  // (Evidence Replay) without duplicating the Treasury
+  // —s data loading. Refetchable: mission creation must refresh
+  // this list, or missionsForContext silently falls back to the FIRST mission
+  // and subsequent journeys execute against the WRONG mission (R-final B1
+  // acceptance defect).
+  const refreshMissionTitles = useCallback((signal?: AbortSignal): void => {
+    import('./lib/api')
+      .then(({ fetchMissions }) => fetchMissions(signal))
+      .then((rows) => setMissionTitles(rows))
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     if (session.kind !== 'signed-in') {
       setMissionTitles([]);
       return;
     }
     const controller = new AbortController();
-    import('./lib/api')
-      .then(({ fetchMissions }) => fetchMissions(controller.signal))
-      .then((rows) => setMissionTitles(rows))
-      .catch(() => undefined);
+    refreshMissionTitles(controller.signal);
     return () => controller.abort();
-  }, [session.kind, session.kind === 'signed-in' ? session.session.actor.id : null]);
+  }, [
+    session.kind,
+    session.kind === 'signed-in' ? session.session.actor.id : null,
+    refreshMissionTitles,
+  ]);
 
   const active = NAV_ITEMS.find((item) => item.id === section) ?? NAV_ITEMS[0];
   if (!active) throw new Error('navigation table is empty');
@@ -285,6 +303,7 @@ export function App(): JSX.Element {
               setSection('evidence');
             }}
             csrfToken={csrfToken}
+            onMissionsChanged={refreshMissionTitles}
             loginBusy={loginBusy}
             loginError={loginError}
           />

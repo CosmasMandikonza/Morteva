@@ -48,6 +48,7 @@ export function Treasury({
   onSessionExpired,
   onInspectEvidence,
   csrfToken,
+  onMissionsChanged,
   loginBusy,
   loginError,
 }: {
@@ -61,6 +62,10 @@ export function Treasury({
   onInspectEvidence: (operationId: string, missionId: string) => void;
   /** Session CSRF token for governed writes (server enforces roles regardless). */
   csrfToken: string | null;
+  /** Invoked after mission creation so the App-level mission context list
+   *  refreshes — without it, non-Treasury surfaces execute against the
+   *  previously selected (wrong) mission. */
+  onMissionsChanged: () => void;
   loginBusy: boolean;
   loginError: string | null;
 }): JSX.Element {
@@ -244,6 +249,7 @@ export function Treasury({
           onClose={() => setSheet('none')}
           onCreated={(missionId) => {
             setSheet('none');
+            onMissionsChanged();
             // Read-after-write from the real API, then select the new mission.
             setMissions({ kind: 'loading' });
             void fetchMissions()
