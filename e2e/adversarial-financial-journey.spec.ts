@@ -302,13 +302,16 @@ test.describe('adversarial financial journey (durable contracts)', () => {
     const plansPanel = page.getByTestId('decision-plans');
     await expect(plansPanel).not.toContainText('not-an-allowed-payee');
     await expect(plansPanel).toContainText('Provider verification: none');
-    const decisionPlans = await page.evaluate(async (scopedMissionId) => {
-      const listResponse = await fetch(
-        `/api/missions/${encodeURIComponent(scopedMissionId)}/decision-plans`,
-        { credentials: 'same-origin' },
-      );
-      return (await listResponse.json()) as { plans: Array<{ plan: { id: string } }> };
-    }, (await page.evaluate(() => window.sessionStorage.getItem('moterva-selected-mission'))) ?? '');
+    const decisionPlans = await page.evaluate(
+      async (scopedMissionId) => {
+        const listResponse = await fetch(
+          `/api/missions/${encodeURIComponent(scopedMissionId)}/decision-plans`,
+          { credentials: 'same-origin' },
+        );
+        return (await listResponse.json()) as { plans: Array<{ plan: { id: string } }> };
+      },
+      (await page.evaluate(() => window.sessionStorage.getItem('moterva-selected-mission'))) ?? '',
+    );
     expect(
       decisionPlans.plans.some((p) => p.plan.id === created.plan.id),
       'the off-mandate manual plan must never enter the decision-flow proposal list',
@@ -319,7 +322,8 @@ test.describe('adversarial financial journey (durable contracts)', () => {
 /** Clicks propose and resolves with the HTTP status of the propose response. */
 async function clickProposeCapture(page: Page): Promise<{ status: number }> {
   const responsePromise = page.waitForResponse(
-    (response) => response.url().includes('/propose-plan') && response.request().method() === 'POST',
+    (response) =>
+      response.url().includes('/propose-plan') && response.request().method() === 'POST',
     { timeout: 20_000 },
   );
   await page.getByTestId('propose-plan').click();
