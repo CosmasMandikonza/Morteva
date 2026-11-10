@@ -510,12 +510,19 @@ function proposePlanUnchecked(
   const selected = decision.selected;
 
   // ---- physical world must still support the cited evidence NOW.
+  // asOf is the REPLAY instant — sampled once by service.replay() and reused
+  // here verbatim. Sampling ledger.clock.now() a second time races the
+  // millisecond boundary between the two samples, and the bridge's exact
+  // asOf-equality guard then throws INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY
+  // (a plain Error → the route's catch-all 409 PROPOSAL_REJECTED). Proven in
+  // CI + local reproduction: 3 of 6 full E2E runs hit exactly this stack
+  // (run 42707099406's governed-decision :318 failure; server logs captured).
   const service = snapshotServiceFor(ledger, orgId, missionId);
   const timeline = service.replay(orgId, missionId);
   const bridge = physicalTimelineToPlannerSafety(timeline, {
     orgId,
     missionId,
-    asOf: ledger.clock.now(),
+    asOf: new Date(timeline.asOf),
     uavWindLimitKt: DECISION_CATALOG.windLimitKt,
   });
   const admittedNow = new Set(bridge.evidence.map((e) => e.event.id));

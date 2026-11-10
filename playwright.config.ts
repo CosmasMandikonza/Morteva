@@ -30,7 +30,13 @@ export default defineConfig({
     {
       // Seeded throwaway ledger + DEMO_AUTH gate so browser tests exercise
       // the real authenticated journey. Requires `npm run build` first.
+      // stdout is piped deliberately: the API logs thrown errors behind
+      // demo-route 409s server-side ('plan proposal failed') — without the
+      // pipe, CI can never see WHY a proposal was rejected and reliability
+      // work degenerates into guesswork.
       command: 'node e2e/scripts/demo-auth-server.mjs',
+      stdout: 'pipe',
+      stderr: 'pipe',
       url: `http://127.0.0.1:${String(apiPort)}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
