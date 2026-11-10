@@ -23,7 +23,7 @@ import {
   type RecordedSnapshotDecision,
   type SessionState,
 } from '../lib/api';
-import { money as moneyOf } from '../lib/format';
+import { money as moneyOf, moneyAmount } from '../lib/format';
 import { ApprovePlanSheet, ManualPlanSheet } from '../components/GovernedActions';
 import {
   CopyButton,
@@ -42,8 +42,10 @@ import {
 // with `snapshotFromServerPayload(json)` — see AGENT-B-HANDOFF.md.
 import { MissionViewerUnavailableCard } from '../mission-viewer/availability-cards.js';
 
+// USD catalog amounts via the shared exact formatter (exponent from the
+// domain table — never a local /100).
 function money(minor: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(minor / 100);
+  return moneyAmount('USD', minor);
 }
 
 /** Candidate decision card — Cult UI Expandable pattern: the collapsed row

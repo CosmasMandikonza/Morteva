@@ -482,19 +482,19 @@ export function Treasury({
                         <dd className="mv-num">
                           {c.balance === null
                             ? `${c.currency} —`
-                            : `${c.currency} ${moneyAmount(Math.max(0, c.balance.minorUnits - c.protectedFloor.minorUnits))}`}
+                            : `${c.currency} ${moneyAmount(c.currency, Math.max(0, c.balance.minorUnits - c.protectedFloor.minorUnits))}`}
                         </dd>
                       </div>
                       <div>
                         <dt>Reserved</dt>
                         <dd className="mv-num">
-                          {`${c.currency} ${moneyAmount(c.commitments.reservedMinor ?? 0)}`}
+                          {`${c.currency} ${moneyAmount(c.currency, c.commitments.reservedMinor ?? 0)}`}
                         </dd>
                       </div>
                       <div>
                         <dt>Pending / unknown</dt>
                         <dd className="mv-num">
-                          {`${c.currency} ${moneyAmount(c.commitments.unknownMinor ?? 0)}`}
+                          {`${c.currency} ${moneyAmount(c.currency, c.commitments.unknownMinor ?? 0)}`}
                         </dd>
                       </div>
                       <div>
@@ -518,15 +518,19 @@ export function Treasury({
                     />
                     <p className="mv-position__commitments">
                       Commitments — reserved{' '}
-                      <span className="mv-num">{moneyAmount(c.commitments.reservedMinor)}</span> ·
-                      unknown/held{' '}
-                      <span className="mv-num">{moneyAmount(c.commitments.unknownMinor)}</span>
+                      <span className="mv-num">
+                        {moneyAmount(c.currency, c.commitments.reservedMinor)}
+                      </span>{' '}
+                      · unknown/held{' '}
+                      <span className="mv-num">
+                        {moneyAmount(c.currency, c.commitments.unknownMinor)}
+                      </span>
                       {c.commitments.settledPendingObservationMinor !== null && (
                         <>
                           {' '}
                           · settled pending observation{' '}
                           <span className="mv-num">
-                            {moneyAmount(c.commitments.settledPendingObservationMinor)}
+                            {moneyAmount(c.currency, c.commitments.settledPendingObservationMinor)}
                           </span>
                         </>
                       )}
@@ -535,7 +539,7 @@ export function Treasury({
                           {' '}
                           · total outstanding{' '}
                           <span className="mv-num">
-                            {moneyAmount(c.commitments.totalOutstandingMinor)}
+                            {moneyAmount(c.currency, c.commitments.totalOutstandingMinor)}
                           </span>
                         </>
                       )}
@@ -670,7 +674,8 @@ export function Treasury({
                         {money(currency, Math.max(0, t.total - t.consumed))}
                       </span>
                       <span className="mv-hero__label">
-                        envelope remaining · {moneyAmount(t.total)} {currency} effective authority
+                        envelope remaining · {moneyAmount(currency, t.total)} {currency} effective
+                        authority
                       </span>
                     </div>
                   ))}
@@ -749,7 +754,7 @@ export function Treasury({
                               {money(mandate.currency, mandate.remaining_minor)}
                             </span>
                             <span className="mv-num mv-mandate__total">
-                              of {moneyAmount(total)} envelope
+                              of {moneyAmount(mandate.currency, total)} envelope
                             </span>
                             <span className="mv-mandate__pct mv-num">{used}% committed</span>
                           </div>
@@ -828,7 +833,8 @@ export function Treasury({
                                 {money(mandate.currency, mandate.remaining_minor)}
                               </span>
                               <span className="mv-num mv-mandate__total">
-                                historical envelope {moneyAmount(total)} · {used}% committed
+                                historical envelope {moneyAmount(mandate.currency, total)} · {used}%
+                                committed
                               </span>
                             </div>
                             <div

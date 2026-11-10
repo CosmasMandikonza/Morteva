@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { JSX } from 'react';
 import { ApiError, createApproval, createPlan, mayApprove, type MandateRow } from '../lib/api';
-import { formatDate, money } from '../lib/format';
+import { formatDate, money, parseMajorToMinor, safeMoney } from '../lib/format';
 import { Sheet } from './OnboardingDialog';
 
 /**
@@ -43,13 +43,11 @@ export function ManualPlanSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
-  const amountMinor =
-    amountMajor.trim() === ''
-      ? null
-      : Number.isFinite(Number(amountMajor)) && Number(amountMajor) > 0
-        ? Math.round(Number(amountMajor) * 100)
-        : null;
-  const formValid = amountMinor !== null && beneficiary.trim() !== '' && purpose.trim() !== '';
+  // Exact exponent-aware parse (R3 P0-1): more decimals than the currency
+  // allows is rejected, never rounded; no floating point.
+  const amountMinor = parseMajorToMinor(currency, amountMajor);
+  const formValid =
+    amountMinor !== null && amountMinor > 0 && beneficiary.trim() !== '' && purpose.trim() !== '';
 
   const submit = (): void => {
     if (busy || csrfToken === null || !formValid || amountMinor === null) return;
@@ -185,7 +183,7 @@ export function ManualPlanSheet({
             </div>
             <div>
               <dt>Amount</dt>
-              <dd className="mv-num">{money(currency, amountMinor ?? 0)}</dd>
+              <dd className="mv-num">{safeMoney(currency, amountMinor ?? 0)}</dd>
             </div>
             <div>
               <dt>Currency</dt>
@@ -409,7 +407,7 @@ export function ApprovePlanSheet({
               <>
                 <div>
                   <dt>Amount (server-recorded terms)</dt>
-                  <dd className="mv-num">{money(terms.currency, terms.amountMinor)}</dd>
+                  <dd className="mv-num">{safeMoney(terms.currency, terms.amountMinor)}</dd>
                 </div>
                 <div>
                   <dt>Beneficiary / purpose</dt>
@@ -432,7 +430,9 @@ export function ApprovePlanSheet({
                 <dt>Mandate</dt>
                 <dd>
                   {chosen.currency} v{String(chosen.version)} · cap{' '}
-                  <span className="mv-num">{money(chosen.currency, chosen.max_amount_minor)}</span>{' '}
+                  <span className="mv-num">
+                    {safeMoney(chosen.currency, chosen.max_amount_minor)}
+                  </span>{' '}
                   · expires {formatDate(chosen.expires_at)}
                 </dd>
               </div>

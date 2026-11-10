@@ -14,7 +14,7 @@ import {
   type RecordedApproval,
   type SessionState,
 } from '../lib/api';
-import { formatDate, money } from '../lib/format';
+import { formatDate, safeMoney } from '../lib/format';
 import { StatusChip } from '../components/StatusChip';
 import { operationPresentation } from '../status/statusMap';
 import { ApprovePlanSheet } from '../components/GovernedActions';
@@ -162,7 +162,7 @@ export function AuthorityExecution({
                 <div className="mv-auth__mandatehead">
                   <HaloBadge tone="verified" glyph="◆" label={`active · v${String(m.version)}`} />
                   <span className="mv-num mv-auth__mandatecap">
-                    {money(m.currency, m.max_amount_minor)} per action
+                    {safeMoney(m.currency, m.max_amount_minor)} per action
                   </span>
                   <span className="mv-hud">expires {formatDate(m.expires_at)}</span>
                 </div>
@@ -217,7 +217,7 @@ export function AuthorityExecution({
                 <li key={`${p.plan.id}:${String(p.plan.version)}`} className="mv-auth__plan">
                   <div className="mv-auth__planterms">
                     <span className="mv-auth__amount mv-num">
-                      {money(p.plan.terms.currency, p.plan.terms.amountMinor)}
+                      {safeMoney(p.plan.terms.currency, p.plan.terms.amountMinor)}
                     </span>
                     <span className="mv-auth__terms">
                       {p.plan.terms.beneficiary} · {p.plan.terms.purpose} · {p.plan.terms.currency}

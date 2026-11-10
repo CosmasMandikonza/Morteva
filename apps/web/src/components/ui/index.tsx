@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { JSX } from 'react';
+import { moneyAmount } from '../../lib/format';
 
 /**
  * MTV-20 UI primitives — original implementations of the Cult UI component
@@ -199,11 +200,8 @@ export function HaloProgress({
   warn?: boolean;
 }): JSX.Element {
   const pct = totalMinor > 0 ? Math.min(100, Math.round((usedMinor / totalMinor) * 100)) : 0;
-  const fmt = (m: number): string =>
-    `${currency} ${new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(m / 100)}`;
+  // Shared exact minor-unit formatter (R3 P0-1) — exponent-aware, BigInt-exact.
+  const fmt = (m: number): string => moneyAmount(currency, m);
   return (
     <div className={`mv-progress${warn === true ? ' mv-progress--warn' : ''}`}>
       <div className="mv-progress__head">
