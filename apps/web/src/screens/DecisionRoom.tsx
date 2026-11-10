@@ -9,11 +9,14 @@ import {
   fetchMandates,
   fetchMissionEvidence,
   fetchPhysicalDecision,
+  fetchReviewerDemoCapability,
   mayApprove,
   mayPropose,
   proposePlanFromEvaluation,
+  provisionReviewerMission,
   recordDecisionSnapshot,
   submitSyntheticStep,
+  submitReviewerSyntheticStep,
   type DecisionPlanProposal,
   type MandateRow,
   type PhysicalDecisionJourney,
@@ -204,11 +207,13 @@ export function DecisionRoom({
   mission,
   csrfToken,
   onSessionExpired,
+  onReviewerMissionReady,
 }: {
   session: SessionState;
   mission: { id: string; title: string } | null;
   csrfToken: string | null;
   onSessionExpired: () => void;
+  onReviewerMissionReady: (missionId: string) => void;
 }): JSX.Element {
   const [journey, setJourney] = useState<PhysicalDecisionJourney | null>(null);
   const [loading, setLoading] = useState(false);
@@ -225,6 +230,59 @@ export function DecisionRoom({
   const [mandates, setMandates] = useState<readonly MandateRow[]>([]);
   const [lens, setLens] = useState<'finance' | 'operations' | 'evidence'>('finance');
   const role = session.kind === 'signed-in' ? session.session.actor.role : null;
+  const [reviewerMode, setReviewerMode] = useState<
+    'checking' | 'enabled' | 'disabled' | 'unavailable'
+  >('checking');
+  const [reviewerBusy, setReviewerBusy] = useState(false);
+  const [reviewerError, setReviewerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (session.kind !== 'signed-in') {
+      setReviewerMode('disabled');
+      return;
+    }
+    const controller = new AbortController();
+    setReviewerMode('checking');
+    fetchReviewerDemoCapability(controller.signal)
+      .then((available) => {
+        if (!controller.signal.aborted) setReviewerMode(available ? 'enabled' : 'disabled');
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setReviewerMode('unavailable');
+      });
+    return () => controller.abort();
+  }, [session.kind, session.kind === 'signed-in' ? session.session.actor.id : null]);
+
+  const canAdmitSynthetic =
+    session.kind === 'signed-in' &&
+    (session.session.demoAuth ||
+      (reviewerMode === 'enabled' && mission?.title.startsWith('reviewer-demo:') === true));
+
+  const beginReviewerMission = (): void => {
+    if (
+      session.kind !== 'signed-in' ||
+      reviewerMode !== 'enabled' ||
+      csrfToken === null ||
+      reviewerBusy
+    )
+      return;
+    setReviewerBusy(true);
+    setReviewerError(null);
+    provisionReviewerMission(csrfToken)
+      .then(({ mission: provisioned }) => onReviewerMissionReady(provisioned.id))
+      .catch((reason: unknown) => {
+        if (reason instanceof ApiError && reason.status === 401) {
+          onSessionExpired();
+        } else {
+          setReviewerError(
+            reason instanceof ApiError
+              ? `${reason.code} — ${reason.message}`
+              : 'Could not open the authenticated reviewer mission.',
+          );
+        }
+      })
+      .finally(() => setReviewerBusy(false));
+  };
 
   const refreshDurableState = useCallback((missionId: string, signal: AbortSignal): void => {
     fetchDecisionSnapshots(missionId, signal)
@@ -303,7 +361,14 @@ export function DecisionRoom({
   }, [mission?.id, session.kind]);
 
   const runStep = (step: 'baseline' | 'incident'): void => {
-    if (session.kind !== 'signed-in' || mission === null || csrfToken === null || busy) return;
+    if (
+      session.kind !== 'signed-in' ||
+      mission === null ||
+      csrfToken === null ||
+      busy ||
+      !canAdmitSynthetic
+    )
+      return;
     setBusy(true);
     setError(null);
     setSnapshotNotice(null);
@@ -352,7 +417,10 @@ export function DecisionRoom({
     };
     // 1) journal the physical event (explicit POST); DUPLICATE_EVENT means it
     //    is already journaled — recovery, not failure. 2) record the snapshot.
-    submitSyntheticStep(mission.id, step, csrfToken)
+    const admit = session.session.demoAuth
+      ? submitSyntheticStep(mission.id, step, csrfToken)
+      : submitReviewerSyntheticStep(mission.id, step, csrfToken);
+    admit
       .then(() => proceedToSnapshot())
       .catch((reason: unknown) => {
         if (reason instanceof ApiError && reason.status === 401) {
@@ -411,6 +479,18 @@ export function DecisionRoom({
     return (
       <Panel title="Physical-to-financial decisions" testId="decision-room">
         <p>Select an inspection mission in Mission Treasury first.</p>
+        {reviewerMode === 'enabled' && (
+          <button
+            type="button"
+            className="mv-btn mv-btn--primary"
+            data-testid="reviewer-demo-start"
+            disabled={csrfToken === null || reviewerBusy}
+            onClick={beginReviewerMission}
+          >
+            {reviewerBusy ? 'Preparing mission…' : 'Start guided reviewer mission'}
+          </button>
+        )}
+        {reviewerError !== null && <p role="alert">{reviewerError}</p>}
       </Panel>
     );
   }
@@ -666,6 +746,23 @@ export function DecisionRoom({
         </div>
       </header>
 
+      {reviewerMode === 'enabled' && (
+        <div className="mv-droom__actions" data-testid="reviewer-demo-controls">
+          <button
+            type="button"
+            className="mv-btn mv-btn--primary"
+            data-testid="reviewer-demo-start"
+            disabled={csrfToken === null || reviewerBusy}
+            onClick={beginReviewerMission}
+          >
+            {reviewerBusy ? 'Preparing mission…' : 'Open guided reviewer mission'}
+          </button>
+          <p className="mv-droom__note">
+            Signed, fixed SYNTHETIC observations only. No provider payment is triggered.
+          </p>
+          {reviewerError !== null && <p role="alert">{reviewerError}</p>}
+        </div>
+      )}
       <div className="mv-droom">
         {/* ================= LEFT — physical mission column (≈7 cols) */}
         <section className="mv-droom__physical" aria-label="Physical mission context">
@@ -706,7 +803,13 @@ export function DecisionRoom({
               type="button"
               className="mv-btn mv-btn--primary"
               data-testid="start-synthetic"
-              disabled={busy || loading || journey?.stage !== 'empty' || csrfToken === null}
+              disabled={
+                busy ||
+                loading ||
+                journey?.stage !== 'empty' ||
+                csrfToken === null ||
+                !canAdmitSynthetic
+              }
               onClick={() => runStep('baseline')}
             >
               Start signed synthetic inspection
@@ -715,7 +818,13 @@ export function DecisionRoom({
               type="button"
               className="mv-btn"
               data-testid="introduce-incident"
-              disabled={busy || loading || journey?.stage !== 'baseline' || csrfToken === null}
+              disabled={
+                busy ||
+                loading ||
+                journey?.stage !== 'baseline' ||
+                csrfToken === null ||
+                !canAdmitSynthetic
+              }
               onClick={() => runStep('incident')}
             >
               Introduce wind incident (24.6 kt)

@@ -29,6 +29,15 @@ const MISSION_STORAGE_KEY = 'moterva-selected-mission';
  */
 function readStoredCsrf(): string | null {
   try {
+    // OIDC sign-in is a full-page redirect: its session-bound double-submit
+    // CSRF companion is provided in a readable same-site cookie, not a JSON
+    // login result. Never read the HttpOnly session credential here.
+    const cookie = document.cookie
+      .split('; ')
+      .find((part) => part.startsWith('moterva_csrf='));
+    if (cookie !== undefined) {
+      return decodeURIComponent(cookie.slice('moterva_csrf='.length));
+    }
     return window.localStorage.getItem(CSRF_STORAGE_KEY);
   } catch {
     return null;
@@ -320,6 +329,10 @@ export function App(): JSX.Element {
             mission={missionsForContext}
             csrfToken={csrfToken}
             onSessionExpired={handleSessionExpired}
+            onReviewerMissionReady={(missionId) => {
+              setSelectedMissionId(missionId);
+              refreshMissionTitles();
+            }}
           />
         ) : active.id === 'authority' ? (
           <AuthorityExecution

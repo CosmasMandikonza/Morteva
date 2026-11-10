@@ -373,6 +373,39 @@ export function submitSyntheticStep(
   );
 }
 
+// ------------------------- production OIDC reviewer demonstration (E3/E4)
+
+/** Pure configuration read: never guesses that a signed synthetic route exists. */
+export function fetchReviewerDemoCapability(signal?: AbortSignal): Promise<boolean> {
+  return request<{ reviewerDemo?: unknown }>('/api/auth/capabilities', { signal }).then(
+    (body) => body.reviewerDemo === true,
+  );
+}
+
+/** Server provisions the signed-in reviewer's own fixed SYNTHETIC mission. */
+export function provisionReviewerMission(
+  csrfToken: string,
+): Promise<{ mission: { id: string; title: string }; replayed: boolean }> {
+  return request('/api/reviewer-demo/mission', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: '{}',
+  });
+}
+
+/** Only step identity crosses the wire; the server owns measurements and authority. */
+export function submitReviewerSyntheticStep(
+  missionId: string,
+  step: 'baseline' | 'incident',
+  csrfToken: string,
+): Promise<{ replayed: boolean; stage: 'baseline' | 'incident' }> {
+  return request(`/api/missions/${encodeURIComponent(missionId)}/reviewer-synthetic-step`, {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify({ step }),
+  });
+}
+
 // --------------------------------------------- governed decision actions
 
 export interface CreatePlanInput {

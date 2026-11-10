@@ -121,6 +121,21 @@ test('reviewer signs in by invitation, exercises the governed synthetic journey,
       { path, payload, csrf },
     );
 
+  // P0 UI acceptance: a real operator must complete the physical incident
+  // from the visible Decision Room, not only from direct fetch() helpers.
+  await page.getByRole('link', { name: 'Decision Room' }).click();
+  await expect(page.getByTestId('reviewer-demo-start')).toBeVisible();
+  await page.getByTestId('reviewer-demo-start').click();
+  await expect(page.getByTestId('decision-room')).toContainText('reviewer-demo:', {
+    timeout: 15_000,
+  });
+  await expect(page.getByTestId('start-synthetic')).toBeEnabled();
+  await page.getByTestId('start-synthetic').click();
+  await expect(page.getByTestId('snapshot-baseline')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('introduce-incident')).toBeEnabled();
+  await page.getByTestId('introduce-incident').click();
+  await expect(page.getByTestId('snapshot-incident')).toBeVisible({ timeout: 15_000 });
+
   // (1) Provision the reviewer's own sandbox mission (idempotent).
   const provisioned = await post('/api/reviewer-demo/mission', {});
   expect(provisioned.status).toBe(200);
