@@ -19,11 +19,7 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  loadSponsorConfig,
-  sponsorSecretPaths,
-  SPONSOR_CONSOLE_URL,
-} from '../sponsor/config.js';
+import { loadSponsorConfig, sponsorSecretPaths, SPONSOR_CONSOLE_URL } from '../sponsor/config.js';
 import { NpxAgentCliRunner } from '../sponsor/agent-cli.js';
 import { runSponsorPurchaseJourney } from '../sponsor/journey.js';
 
