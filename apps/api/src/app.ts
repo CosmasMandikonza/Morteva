@@ -44,7 +44,6 @@ export function buildApp(
    * config validation and the identity===null gate still apply regardless.
    */
 
-
   identityClient?: OidcClient,
 ): FastifyInstance {
   const app = Fastify({

@@ -7,7 +7,6 @@ import {
   safeMoney,
 } from '../src/lib/format';
 
-
 /**
  * R3 P0-1 regression contract: ONE exact minor-unit formatter with the
  * domain's fail-closed exponent table (USD 2, JPY 0, KWD/BHD 3, USDZ 2).

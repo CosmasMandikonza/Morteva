@@ -300,7 +300,9 @@ export function Treasury({
         location.hash !== '#invite' &&
         (authMode === 'checking' ? (
           <Panel title="Operator sign-in" testId="signin-panel">
-            <p role="status" className="mv-governed__note">Reading authentication capabilities…</p>
+            <p role="status" className="mv-governed__note">
+              Reading authentication capabilities…
+            </p>
           </Panel>
         ) : authMode === 'oidc' ? (
           <Panel

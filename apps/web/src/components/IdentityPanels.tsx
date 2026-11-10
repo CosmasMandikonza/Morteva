@@ -30,31 +30,29 @@ export function probeAuthMode(signal?: AbortSignal): Promise<AuthModeProbe> {
   })
     .then((r) => {
       if (!r.ok) return 'unavailable' as const;
-      return r
-        .json()
-        .then(
-          (body: unknown): AuthModeProbe => {
-            if (
-              body !== null &&
-              typeof body === 'object' &&
-              'authMode' in body &&
-              ((body as { authMode: unknown }).authMode === 'oidc' ||
-                (body as { authMode: unknown }).authMode === 'demo' ||
-                (body as { authMode: unknown }).authMode === 'none')
-            ) {
-              const mode = (body as { authMode: 'oidc' | 'demo' | 'none' }).authMode;
-              if (mode === 'demo') {
-                // The demo form is offered ONLY when the demo login affordance
-                // is actually enabled server-side (R3: never on demoLogin=false).
-                const demoLogin = (body as { demoLogin?: unknown }).demoLogin;
-                return demoLogin === true ? 'demo' : 'none';
-              }
-              return mode;
+      return r.json().then(
+        (body: unknown): AuthModeProbe => {
+          if (
+            body !== null &&
+            typeof body === 'object' &&
+            'authMode' in body &&
+            ((body as { authMode: unknown }).authMode === 'oidc' ||
+              (body as { authMode: unknown }).authMode === 'demo' ||
+              (body as { authMode: unknown }).authMode === 'none')
+          ) {
+            const mode = (body as { authMode: 'oidc' | 'demo' | 'none' }).authMode;
+            if (mode === 'demo') {
+              // The demo form is offered ONLY when the demo login affordance
+              // is actually enabled server-side (R3: never on demoLogin=false).
+              const demoLogin = (body as { demoLogin?: unknown }).demoLogin;
+              return demoLogin === true ? 'demo' : 'none';
             }
-            return 'unavailable'; // unexpected enum/shape — fail closed
-          },
-          () => 'unavailable' as const, // invalid JSON
-        );
+            return mode;
+          }
+          return 'unavailable'; // unexpected enum/shape — fail closed
+        },
+        () => 'unavailable' as const, // invalid JSON
+      );
     })
     .catch(() => 'unavailable' as const); // network error / 429 / 5xx / abort
 }
@@ -163,9 +161,8 @@ export function InvitationAccept(): JSX.Element {
     >
       <p className="mv-signin__why">
         MOTERVA membership exists only by invitation. Enter the invitation id and the one-time
-        secret exactly as delivered by your organization&rsquo;s owner or admin — after
-        validation you will sign in through your identity provider and land with the invited
-        role.
+        secret exactly as delivered by your organization&rsquo;s owner or admin — after validation
+        you will sign in through your identity provider and land with the invited role.
       </p>
       {redirecting ? (
         <p role="status" data-testid="invite-redirecting">
@@ -206,11 +203,7 @@ export function InvitationAccept(): JSX.Element {
               onChange={(e) => setSecret(e.target.value)}
             />
           </label>
-          <button
-            className="mv-btn mv-btn--primary"
-            type="submit"
-            disabled={busy || submittedOnce}
-          >
+          <button className="mv-btn mv-btn--primary" type="submit" disabled={busy || submittedOnce}>
             {busy ? 'Validating…' : 'Accept invitation'}
           </button>
           {submittedOnce && busy && (
