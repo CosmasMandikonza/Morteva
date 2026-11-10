@@ -73,7 +73,7 @@ export function Treasury({
         if (!controller.signal.aborted) setAuthMode(m);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setAuthMode('local');
+        if (!controller.signal.aborted) setAuthMode('unavailable');
       });
     return () => controller.abort();
   }, []);
@@ -298,7 +298,11 @@ export function Treasury({
       {session.kind === 'signed-out' && location.hash === '#invite' && <InvitationAccept />}
       {session.kind === 'signed-out' &&
         location.hash !== '#invite' &&
-        (authMode === 'oidc' ? (
+        (authMode === 'checking' ? (
+          <Panel title="Operator sign-in" testId="signin-panel">
+            <p role="status" className="mv-governed__note">Reading authentication capabilities…</p>
+          </Panel>
+        ) : authMode === 'oidc' ? (
           <Panel
             title="Operator sign-in"
             meta={<span className="mv-tag">organization identity · OIDC</span>}
@@ -317,8 +321,32 @@ export function Treasury({
               </p>
             </div>
           </Panel>
-        ) : (
+        ) : authMode === 'demo' ? (
           <SignInPanel onSubmit={onLogin} busy={loginBusy} error={loginError} />
+        ) : authMode === 'none' ? (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">no authentication configured</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why">
+              This deployment has no authentication mode configured (neither production identity nor
+              the loopback demo gate). There is no sign-in path to offer — no local form is rendered
+              because none exists here.
+            </p>
+          </Panel>
+        ) : (
+          <Panel
+            title="Operator sign-in"
+            meta={<span className="mv-tag">unavailable</span>}
+            testId="signin-panel"
+          >
+            <p className="mv-signin__why" role="alert">
+              The authentication capability read failed (network, 429 or server error). Which
+              sign-in methods exist cannot be verified, so NO sign-in form is offered — never a
+              fallback login that the deployment may not have. Retry by reloading.
+            </p>
+          </Panel>
         ))}
 
       {/* ------------------------------------------------ missions + mandates */}

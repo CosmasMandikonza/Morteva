@@ -58,6 +58,7 @@ export function registerProductionIdentityRoutes(
   async function startFlow(
     reply: FastifyReply,
     options: { orgId?: string | null; invitationId?: string | null },
+    wantsJson = false,
   ): Promise<unknown> {
     const redirectUri = config.identity?.redirectUri;
     if (redirectUri === undefined) {
@@ -73,6 +74,16 @@ export function registerProductionIdentityRoutes(
       invitationId: options.invitationId ?? null,
       ttlMs: config.identity?.flowTtlMs,
     });
+    // COORDINATED CONTRACT ADDITION (Agent A review requested, MTV-20 R3 P0-3):
+    // a caller that POSTs the invitation secret via fetch cannot follow a 303
+    // (the browser hides Location for opaque redirects), and a native second
+    // form POST would resubmit the secret. When the client explicitly asks
+    // for JSON, return the exact redirect target as data — the flow row is
+    // still created exactly ONCE here, and default behavior (303) is
+    // unchanged for every other caller.
+    if (wantsJson) {
+      return void reply.code(200).send({ redirectUrl: flow.authorizationUrl });
+    }
     return redirect(reply, flow.authorizationUrl);
   }
 
@@ -124,7 +135,8 @@ export function registerProductionIdentityRoutes(
     try {
       const invitation = ledger.identity.preverifyInvitation(invitationId, secret);
       loginLimiter.recordSuccess(`invite:${request.ip}`);
-      return startFlow(reply, { invitationId: invitation.id });
+      const wantsJson = String(request.headers['accept'] ?? '').includes('application/json');
+      return startFlow(reply, { invitationId: invitation.id }, wantsJson);
     } catch (error) {
       if (isLedgerError(error)) {
         // Failed secret guesses feed the per-IP limiter: 10 failures earn a
