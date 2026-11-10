@@ -23,7 +23,7 @@ export interface FixtureState {
   /** Payment identities the fixture has already settled (already-paid semantics). */
   readonly settledIdentities: ReadonlySet<string>;
   /** Payment identities the mandate account has refused (re-sent allowed with new values). */
-  readonly refusedIdentities: ReadonlySet<string>;
+  readonly refusedIdentities?: ReadonlySet<string>;
 }
 
 export class FixtureAgentCliRunner implements AgentCliRunner {

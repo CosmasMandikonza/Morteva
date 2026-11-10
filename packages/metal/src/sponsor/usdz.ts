@@ -10,11 +10,7 @@
 export class UsdzError extends Error {
   constructor(
     readonly code:
-      | 'INVALID_DECIMAL'
-      | 'TOO_MANY_DECIMALS'
-      | 'NOT_POSITIVE'
-      | 'NEGATIVE'
-      | 'NOT_BASE_UNITS',
+      'INVALID_DECIMAL' | 'TOO_MANY_DECIMALS' | 'NOT_POSITIVE' | 'NEGATIVE' | 'NOT_BASE_UNITS',
     message: string,
   ) {
     super(message);
@@ -40,8 +36,9 @@ export function usdzToBaseUnits(amount: string): string {
     );
   }
   return (
-    (BigInt(whole) * 10n ** BigInt(USDZ_DECIMALS) + BigInt(fraction.padEnd(USDZ_DECIMALS, '0') || '0')).toString()
-  );
+    BigInt(whole) * 10n ** BigInt(USDZ_DECIMALS) +
+    BigInt(fraction.padEnd(USDZ_DECIMALS, '0') || '0')
+  ).toString();
 }
 
 /** Exact base-unit decimal string → human *USDZ decimal (trailing zeros trimmed). */

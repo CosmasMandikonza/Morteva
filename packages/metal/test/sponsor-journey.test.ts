@@ -377,7 +377,6 @@ describe('sponsor purchase journey — mandate and settlement failures (D4)', ()
   });
 
   it('an on-chain-recorded refusal at settlement keeps the tx hash and moves nothing', async () => {
-    const refusalTx = '0x' + 'b'.repeat(64);
     const cli = new FixtureAgentCliRunner(
       [
         {

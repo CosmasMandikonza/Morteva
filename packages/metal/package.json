@@ -21,7 +21,8 @@
     "test": "vitest run",
     "smoke:balance": "node dist/smoke/balance.js",
     "smoke:purchase": "node dist/smoke/purchase.js",
-    "smoke:network": "node dist/smoke/network.js"
+    "smoke:network": "node dist/smoke/network.js",
+    "smoke:sponsor-purchase": "node dist/smoke/sponsor-purchase.js"
   },
   "dependencies": {
     "@moterva/domain": "0.1.0",

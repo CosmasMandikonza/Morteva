@@ -44,7 +44,9 @@ describe('sponsor config gate (verified constants)', () => {
 
   it('rejects any other environment tag and names the legacy Tahoe path as not-a-substitute', () => {
     expect(() => loadSponsorConfig({ METAL_SPEND_ENV: 'testnet' })).toThrow(/sponsor-testnet/);
-    expect(() => loadSponsorConfig({ METAL_SPEND_ENV: 'testnet' })).toThrow(/NOT the sponsor network/);
+    expect(() => loadSponsorConfig({ METAL_SPEND_ENV: 'testnet' })).toThrow(
+      /NOT the sponsor network/,
+    );
   });
 
   it('refuses a half-configured sponsor rail, naming each missing credential input', () => {
@@ -143,24 +145,45 @@ describe('*USDZ money semantics (mirrors the official metal-pay baseUnits)', () 
 
 describe('official CLI outcome classification (the README taxonomy)', () => {
   it('classifies paid (exit 0), refused, refused-at-settlement and in-doubt', () => {
-    const paid = classify(0, 'nonce: 0xabc\nexplorer: https://testnet.metalntwx.com/tx/0x' + 'a'.repeat(64) + '\ntransaction hash: 0x' + 'a'.repeat(64), '');
+    const paid = classify(
+      0,
+      'nonce: 0xabc\nexplorer: https://testnet.metalntwx.com/tx/0x' +
+        'a'.repeat(64) +
+        '\ntransaction hash: 0x' +
+        'a'.repeat(64),
+      '',
+    );
     expect(paid).toMatchObject({ phase: 'paid', movedValue: true });
     expect(paid.nonce).toBe('0xabc');
     expect(paid.txHash).toBe('0x' + 'a'.repeat(64));
     expect(paid.explorerUrl).toContain('testnet.metalntwx.com/tx/');
 
-    const refused = classify(1, 'payment refused: mandate_cap_exceeded (1.50 > cap 1.00)\nnothing was paid', '');
-    expect(refused).toMatchObject({ phase: 'refused', movedValue: false, refusalReason: 'mandate_cap_exceeded (1.50 > cap 1.00)' });
+    const refused = classify(
+      1,
+      'payment refused: mandate_cap_exceeded (1.50 > cap 1.00)\nnothing was paid',
+      '',
+    );
+    expect(refused).toMatchObject({
+      phase: 'refused',
+      movedValue: false,
+      refusalReason: 'mandate_cap_exceeded (1.50 > cap 1.00)',
+    });
 
     const refusedSettled = classify(
       1,
-      'payment refused at settlement: seller check failed\ntransaction hash: 0x' + 'b'.repeat(64) + '\nnothing was paid',
+      'payment refused at settlement: seller check failed\ntransaction hash: 0x' +
+        'b'.repeat(64) +
+        '\nnothing was paid',
       '',
     );
     expect(refusedSettled).toMatchObject({ phase: 'refused-at-settlement', movedValue: false });
     expect(refusedSettled.txHash).toBe('0x' + 'b'.repeat(64)); // refusal recorded on chain, nothing moved
 
-    const inDoubt = classify(1, 'payment in doubt at settlement: the answer was lost\ntransaction hash: 0x' + 'c'.repeat(64), '');
+    const inDoubt = classify(
+      1,
+      'payment in doubt at settlement: the answer was lost\ntransaction hash: 0x' + 'c'.repeat(64),
+      '',
+    );
     expect(inDoubt).toMatchObject({ phase: 'in-doubt-at-settlement', movedValue: true });
   });
 

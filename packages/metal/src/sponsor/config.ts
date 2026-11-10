@@ -61,7 +61,12 @@ export interface SponsorConfig {
   readonly environment: 'sponsor-testnet' | 'disabled';
   readonly chainId: number;
   readonly caip2: string;
-  readonly usdz: { readonly address: string; readonly symbol: string; readonly decimals: number; readonly eip712Version: string };
+  readonly usdz: {
+    readonly address: string;
+    readonly symbol: string;
+    readonly decimals: number;
+    readonly eip712Version: string;
+  };
   readonly facilitatorUrl: string;
   readonly consoleUrl: string;
   readonly explorerUrl: string;
@@ -107,9 +112,18 @@ export function loadSponsorConfig(env: SponsorEnv = process.env): SponsorConfig 
 
   if (wantsSponsor) {
     const missing: string[] = [];
-    if (rpcUrl === '') missing.push('METAL_RPC_URL (create an endpoint at ' + SPONSOR_CONSOLE_URL + ' — the URL is credential-bearing; set it only in the server environment)');
-    if (agentKeyFile === '') missing.push('METAL_AGENT_KEY_FILE (the AGENT key file path — the owner key must never be given to the agent)');
-    if (mandateCredential === '') missing.push('METAL_MANDATE_CREDENTIAL (the bound mandate credential path)');
+    if (rpcUrl === '')
+      missing.push(
+        'METAL_RPC_URL (create an endpoint at ' +
+          SPONSOR_CONSOLE_URL +
+          ' — the URL is credential-bearing; set it only in the server environment)',
+      );
+    if (agentKeyFile === '')
+      missing.push(
+        'METAL_AGENT_KEY_FILE (the AGENT key file path — the owner key must never be given to the agent)',
+      );
+    if (mandateCredential === '')
+      missing.push('METAL_MANDATE_CREDENTIAL (the bound mandate credential path)');
     if (missing.length > 0) {
       throw new Error(
         `METAL_SPEND_ENV=sponsor-testnet requires ${missing.join('; ')}. ` +
@@ -124,15 +138,22 @@ export function loadSponsorConfig(env: SponsorEnv = process.env): SponsorConfig 
   let maxPaymentBaseUnits = (1n * 10n ** 18n).toString(); // sponsor default 1 *USDZ
   if (maxPaymentUsdz !== '') {
     if (!/^\d+(\.\d+)?$/.test(maxPaymentUsdz)) {
-      throw new Error(`METAL_MAX_PAYMENT_USDZ must be a decimal *USDZ amount (got "${maxPaymentUsdz}")`);
+      throw new Error(
+        `METAL_MAX_PAYMENT_USDZ must be a decimal *USDZ amount (got "${maxPaymentUsdz}")`,
+      );
     }
     const parts = maxPaymentUsdz.split('.');
     const whole = parts[0] ?? '0';
     const fraction = parts[1] ?? '';
     if (fraction.length > 18) {
-      throw new Error(`METAL_MAX_PAYMENT_USDZ has more than 18 fractional digits (${maxPaymentUsdz}) — money is never rounded`);
+      throw new Error(
+        `METAL_MAX_PAYMENT_USDZ has more than 18 fractional digits (${maxPaymentUsdz}) — money is never rounded`,
+      );
     }
-    maxPaymentBaseUnits = (BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0') || '0')).toString();
+    maxPaymentBaseUnits = (
+      BigInt(whole) * 10n ** 18n +
+      BigInt(fraction.padEnd(18, '0') || '0')
+    ).toString();
   }
 
   let infoValueBaseUnits: string | null = null;
@@ -140,7 +161,9 @@ export function loadSponsorConfig(env: SponsorEnv = process.env): SponsorConfig 
     const cents = Number(infoValueCents);
     // Integer cents only: a fractional cent is not a money amount we price.
     if (!Number.isInteger(cents) || cents <= 0) {
-      throw new Error(`METAL_INFO_VALUE_CENTS must be a positive integer number of cents (got "${infoValueCents}")`);
+      throw new Error(
+        `METAL_INFO_VALUE_CENTS must be a positive integer number of cents (got "${infoValueCents}")`,
+      );
     }
     infoValueBaseUnits = parseBaseUnitsFromCents(cents);
   }
@@ -182,7 +205,10 @@ export interface SponsorSecretPaths {
   readonly mandateCredential: string;
 }
 
-export function sponsorSecretPaths(config: SponsorConfig, env: SponsorEnv = process.env): SponsorSecretPaths | null {
+export function sponsorSecretPaths(
+  config: SponsorConfig,
+  env: SponsorEnv = process.env,
+): SponsorSecretPaths | null {
   if (!config.enabled) return null;
   const rpcUrl = (env.METAL_RPC_URL ?? '').trim();
   const agentKeyFile = (env.METAL_AGENT_KEY_FILE ?? '').trim();

@@ -94,3 +94,9 @@ export type {
 } from './journey.js';
 
 export { FileReceiptStore } from './file-receipt-store.js';
+
+export * from './sponsor/config.js';
+export * from './sponsor/usdz.js';
+export * from './sponsor/agent-cli.js';
+export * from './sponsor/fixture-runner.js';
+export * from './sponsor/journey.js';
