@@ -41,42 +41,65 @@ import { SourceRegistry } from '../mission-events/src/registry.js';
 import { fixtureSourceKey } from '../mission-events/src/rng.js';
 import type { MissionTimelineView } from '../mission-events/src/view.js';
 import { physicalTimelineToPlannerSafety } from './physical-to-planner.js';
+import { loadModelInterpretations, loadLatestModelAttempt } from './model-adapter.js';
+import {
+  currentMissionSpec,
+  missionSpecDigest,
+  type MissionSpecification,
+} from './mission-spec.js';
+import { harborMissionSpec, warehouseBaselineEventIds } from './mission-catalogs.js';
 import { stepEventId } from './demo-routes.js';
 
 export const SNAPSHOT_TYPE = 'planner.decision.snapshot';
 export const PLAN_PROPOSED_TYPE = 'planner.plan.proposed';
 const SNAPSHOT_VERSION = 1;
 
-// Catalog mirrors the demo-routes constants (single source of truth would be
-// nicer, but demo-routes is C-reviewed frozen scope; values are asserted
-// equal by test to prevent drift).
-export const DECISION_CATALOG = {
-  assetId: 'uav-seeker-1',
-  /**
-   * Fixed SYNTHETIC demo-catalog domain — the ONLY asset-domain mapping
-   * wired in this repo (never name-guessed). This is a demo scope, not
-   * general physical-domain support: any asset outside this catalog
-   * fail-closes ASSET_DOMAIN_UNAVAILABLE, and a general per-mission
-   * asset-domain registry is a separate contract request.
-   */
-  assetDomain: 'aerial' as const,
-  windLimitKt: 22,
-  incumbent: {
-    id: 'uav-inspection',
-    beneficiary: 'harbor-diagnostics',
-    purpose: 'harbor inspection',
-    currency: 'USD',
-    baseCostMinor: 1_200_000,
-  },
-  alternative: {
-    id: 'vessel-inspection',
-    beneficiary: 'harbor-marine',
-    purpose: 'harbor inspection',
-    currency: 'USD',
-    baseCostMinor: 1_800_000,
-    feeMinor: 50_000,
-  },
-} as const;
+// The historical harbor catalog now DERIVES from the registered general
+// mission-spec contract (C1): the values are the harbor spec's, unchanged.
+// Demo-routes' frozen constants remain asserted equal to these by the drift
+// test. Industry values live ONLY in mission-catalogs.ts.
+export const DECISION_CATALOG = (() => {
+  const spec = harborMissionSpec('catalog', 'catalog');
+  const incumbent = spec.offers.incumbent;
+  const alternative = spec.offers.alternatives[0]!;
+  return {
+    assetId: spec.assets[0]!.assetId,
+    assetDomain: spec.assets[0]!.domainKind,
+    windLimitKt: spec.safetyPolicy.uavWindLimitKt!,
+    incumbent: {
+      id: incumbent.id,
+      beneficiary: incumbent.beneficiary,
+      purpose: incumbent.purpose,
+      currency: incumbent.currency,
+      baseCostMinor: incumbent.baseCostMinor,
+    },
+    alternative: {
+      id: alternative.id,
+      beneficiary: alternative.beneficiary,
+      purpose: alternative.purpose,
+      currency: alternative.currency,
+      baseCostMinor: alternative.baseCostMinor,
+      feeMinor: alternative.feeMinor,
+    },
+  } as const;
+})();
+
+/**
+ * Resolve the CURRENT mission specification: the latest journaled
+ * registration for the mission, or the harbor demo default for pre-spec
+ * missions (the accepted experience is preserved bit-for-bit). The digest
+ * rides with every decision snapshot for replay lineage.
+ */
+export function resolveMissionSpec(
+  ledger: Ledger,
+  orgId: string,
+  missionId: string,
+): { spec: MissionSpecification; digest: string } {
+  const registered = currentMissionSpec(ledger, orgId, missionId);
+  if (registered !== null) return registered;
+  const spec = harborMissionSpec(orgId, missionId);
+  return { spec, digest: missionSpecDigest(spec) };
+}
 
 function sha(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -84,19 +107,42 @@ function sha(value: string): string {
 
 export function snapshotServiceFor(ledger: Ledger, orgId: string, missionId: string) {
   const registry = new SourceRegistry();
+  const { spec } = resolveMissionSpec(ledger, orgId, missionId);
   const suffix = sha(orgId + ':' + missionId).slice(0, 16);
-  registry.register({
-    orgId,
-    missionId,
-    sourceId: 'ops-console',
-    sourceType: 'mission_control',
-    keyId: 'key_demo_' + suffix,
-    secretKey: fixtureSourceKey('synthetic-demo-only-' + suffix, 'ops-console'),
-    provenance: 'SYNTHETIC',
-    assetIds: [DECISION_CATALOG.assetId],
-    trustedForRecovery: false,
-  });
+  // Fixture-only demo keys, derived deterministically per (mission, source)
+  // so traces reproduce byte-identically. Single-source specs keep the
+  // historical `key_demo_<suffix>` key id EXACTLY (journaled harbor events
+  // were signed with it); multi-source specs suffix the sourceId for unique
+  // credentials. Production would provision real secrets into the same
+  // registry shape — no ingest code changes.
+  const singleSource = spec.sources.length === 1;
+  for (const source of spec.sources) {
+    registry.register({
+      orgId,
+      missionId,
+      sourceId: source.sourceId,
+      sourceType: source.sourceType,
+      keyId: singleSource ? 'key_demo_' + suffix : `key_demo_${suffix}_${source.sourceId}`,
+      secretKey: fixtureSourceKey('synthetic-demo-only-' + suffix, source.sourceId),
+      provenance: source.provenance,
+      assetIds: [...source.assetIds],
+      trustedForRecovery: source.trustedForRecovery,
+    });
+  }
   return new MissionEventIngestService(ledger, ledger.clock, registry);
+}
+
+export interface EvaluateMissionOptions {
+  /**
+   * C3: MODEL-DERIVED typed evidence (already strict-validated and
+   * re-tenanted by the model adapter). Appended to the bridge evidence and
+   * validated by reviewEvidence like any other input — never privileged.
+   */
+  readonly modelEvidence?: readonly MissionEvidenceInput[];
+  /** Recorded adapter id when a model contributed (trace provenance). */
+  readonly modelAdapterId?: string | null;
+  /** When the adapter attempt failed, the outage is VISIBLE, never fatal. */
+  readonly modelOutage?: { readonly adapterId: string; readonly message: string };
 }
 
 /** The full evaluation context behind a decision (planner + bridge + facts). */
@@ -105,53 +151,65 @@ export function evaluateMission(
   orgId: string,
   missionId: string,
   timeline: MissionTimelineView,
+  options: EvaluateMissionOptions = {},
 ) {
+  const { spec, digest: specDigest } = resolveMissionSpec(ledger, orgId, missionId);
   const now = new Date(timeline.asOf);
   const tenant = { orgId, missionId };
+  // Domain safety policy comes from the SPEC: aerial assets get the modeled
+  // wind limit; ground/surface assets are declared as such and NEVER inherit
+  // it (the bridge forbids a wind limit without aerial semantics).
+  const hasAerial = spec.assets.some((a) => a.domainKind === 'aerial');
   const safety = physicalTimelineToPlannerSafety(timeline, {
     ...tenant,
     asOf: now,
-    uavWindLimitKt: DECISION_CATALOG.windLimitKt,
+    ...(hasAerial ? { uavWindLimitKt: spec.safetyPolicy.uavWindLimitKt! } : {}),
+    assetKinds: Object.fromEntries(spec.assets.map((a) => [a.assetId, a.domainKind])),
   });
-  const reviewed = reviewEvidence([...safety.evidence], now, tenant);
+  const reviewed = reviewEvidence(
+    [...safety.evidence, ...(options.modelEvidence ?? [])],
+    now,
+    tenant,
+  );
   const policy: FinancialPolicy = {
     version: 1,
-    currency: 'USD',
-    missionDeadlineAt: new Date(now.getTime() + 12 * 3_600_000).toISOString(),
-    missionValueMinor: 5_000_000,
-    failureCostMinor: 1_500_000,
-    protectedReserveMinor: 50_000,
+    currency: spec.economics.currency,
+    missionDeadlineAt: new Date(
+      now.getTime() + spec.economics.deadlineOffsetMinutes * 60_000,
+    ).toISOString(),
+    missionValueMinor: spec.economics.missionValueMinor,
+    failureCostMinor: spec.economics.failureCostMinor,
+    protectedReserveMinor: spec.economics.protectedReserveMinor,
     maxProbabilityAssumption: 0.95,
     unconfirmedAvailabilityFactor: 0.5,
     diagnosticValueThreshold: 1,
     forbidUnconfirmedAvailability: false,
     escalationScoreGap: 10_000,
   };
-  const facts = financialFacts(ledger, orgId, missionId, 'USD');
+  // Financial facts degrade HONESTLY: an org with no account in the planning
+  // currency yet evaluates as balanceStatus 'no_snapshot' (paid candidates
+  // fail closed; no fabricated funds) instead of throwing on the demo read.
+  let facts: FinancialFacts;
+  try {
+    facts = financialFacts(ledger, orgId, missionId, spec.economics.currency);
+  } catch {
+    facts = noSnapshotFacts(orgId, missionId, spec.economics.currency);
+  }
   const candidates = generateCandidates(reviewed.accepted, {
     now,
-    policyCurrency: 'USD',
+    policyCurrency: spec.economics.currency,
     missionDeadlineAt: policy.missionDeadlineAt,
-    incumbent: {
-      ...DECISION_CATALOG.incumbent,
-      kind: 'inspection-service',
-      feeMinor: 0,
-      leadTimeMinutes: 60,
-      durationMinutes: 180,
-      probabilityOfSuccess: 0.9,
-      availability: 'confirmed',
-    },
-    incumbentAssetId: DECISION_CATALOG.assetId,
-    alternatives: [
-      {
-        ...DECISION_CATALOG.alternative,
-        kind: 'inspection-service',
-        leadTimeMinutes: 45,
-        durationMinutes: 180,
-        probabilityOfSuccess: 0.85,
-        availability: 'confirmed',
-      },
-    ],
+    incumbent: spec.offers.incumbent,
+    incumbentAssetId: spec.offers.incumbent.requiresAssetId,
+    alternatives: spec.offers.alternatives,
+    ...(spec.offers.diagnostics !== undefined
+      ? {
+          diagnosticService: spec.offers.diagnostics,
+          // Severity-driven information gain is computed inside the
+          // generator; the base assumption only applies with no finding.
+          diagnosticInformationGain: 0.2,
+        }
+      : {}),
   });
   const decision = evaluate({
     now,
@@ -159,9 +217,96 @@ export function evaluateMission(
     facts,
     evidence: reviewed,
     candidates,
-    modelAdapterId: null,
+    modelAdapterId: options.modelAdapterId ?? null,
+    ...(options.modelOutage !== undefined ? { modelOutage: options.modelOutage } : {}),
   });
-  return { decision, reviewed, safety, policy, facts, timeline, now };
+  return { decision, reviewed, safety, policy, facts, timeline, now, spec, specDigest };
+}
+
+/**
+ * Spec-driven decision VIEW for one timeline (the demo surfaces' read model;
+ * C1/C2). Domain-correct by construction: the mission's registered spec
+ * supplies bridge policy, economics and offers, so a warehouse mission gets
+ * warehouse candidates and a harbor mission gets harbor candidates from the
+ * SAME code — no domain branch exists here.
+ */
+/** Honest no-facts shape (org has no account in the planning currency yet). */
+function noSnapshotFacts(orgId: string, missionId: string, currency: string): FinancialFacts {
+  return {
+    orgId,
+    missionId,
+    currency,
+    balanceStatus: 'no_snapshot',
+    balanceMinor: null,
+    spendableMinor: null,
+    outstandingCommittedMinor: 0,
+    ambiguousCommittedMinor: 0,
+    protectedFloorMinor: 0,
+    mandate: null,
+  };
+}
+
+export function decisionViewFor(ledger: Ledger, timeline: MissionTimelineView) {
+  // C3: journaled model interpretations contribute their validated typed
+  // evidence automatically; a FAILED attempt surfaces as visible MODEL
+  // degradation (MODEL_UNAVAILABLE reason) without contributing evidence.
+  const modelEvidence = loadModelInterpretations(
+    ledger,
+    timeline.orgId,
+    timeline.missionId,
+  ).flatMap((i) => [...i.evidence]);
+  const latestAttempt = loadLatestModelAttempt(ledger, timeline.orgId, timeline.missionId);
+  const modelOutage =
+    latestAttempt !== null && latestAttempt.status !== 'accepted'
+      ? {
+          adapterId: latestAttempt.adapterId,
+          message: latestAttempt.errorCode ?? latestAttempt.status,
+        }
+      : undefined;
+  const modelAdapterId =
+    modelEvidence.length > 0 && latestAttempt !== null ? latestAttempt.adapterId : null;
+  const { decision, facts, safety } = evaluateMission(
+    ledger,
+    timeline.orgId,
+    timeline.missionId,
+    timeline,
+    { modelEvidence, modelAdapterId, ...(modelOutage !== undefined ? { modelOutage } : {}) },
+  );
+  return {
+    evaluationId: decision.trace.evaluationId,
+    outcome: decision.outcome,
+    selected:
+      decision.selected === null
+        ? null
+        : {
+            candidateId: decision.selected.candidate.id,
+            label: decision.selected.candidate.label,
+            kind: decision.selected.candidate.kind,
+            grossMinor: decision.selected.grossCostMinor,
+            expectedNetMinor: decision.selected.expectedNetMinor,
+          },
+    alternatives: decision.trace.scores.map((scored) => ({
+      id: scored.candidate.id,
+      label: scored.candidate.label,
+      kind: scored.candidate.kind,
+      feasible: scored.feasible,
+      grossMinor: scored.grossCostMinor,
+      expectedNetMinor: scored.expectedNetMinor,
+      rejection: scored.rejection?.code ?? null,
+    })),
+    reasons: decision.reasons.map((r) => ({
+      code: r.code,
+      message: r.message,
+      evidenceIds: r.evidenceIds,
+    })),
+    evidenceIds: decision.trace.evidenceAcceptedIds,
+    withheldEventIds: safety.withheldEventIds,
+    currentBalanceStatus: facts.balanceStatus,
+    currentSpendableMinor: facts.spendableMinor,
+    authorization: 'PROPOSED_ONLY — requires separate human approval and ledger recheck',
+    providerVerified: false,
+    mode: 'SIMULATED_OPERATION — POLICY-ONLY',
+  };
 }
 
 /** Economic-intent identity: stage + admitted event digests + policy core. */
@@ -265,9 +410,27 @@ function buildSnapshotPayload(
     snapshotVersion: SNAPSHOT_VERSION,
     stage,
     evaluationId: decision.trace.evaluationId,
+    // C5 case lineage: a stable case id other agents can attach receipts to
+    // (A/D/F). Derived ONLY from the evaluation identity — never from
+    // wall-clock or mutable state.
+    caseId: 'case_' + sha(String(decision.trace.evaluationId)).slice(0, 24),
     recordedAt: now.toISOString(),
     orgId: timeline.orgId,
     missionId: timeline.missionId,
+    // C1 replay lineage: WHICH mission specification produced this decision.
+    spec: { specId: ctx.spec.specId, digest: ctx.specDigest.slice(0, 32) },
+    // C5 causality labels — every causal record class is named, never mixed.
+    causality: {
+      // Admitted journal events: SYNTHETIC demo observations (per source
+      // provenance; the events block above carries the per-event digest).
+      physicalObservations: 'SYNTHETIC_JOURNAL',
+      // Whether a model adapter contributed interpretation to this decision.
+      modelInterpretation: decision.trace.modelAdapter ?? 'NONE',
+      // The decision itself: deterministic policy evaluation, never model text.
+      financialDecision: 'INTERNAL_DETERMINISTIC_POLICY',
+      // No provider was called; no external financial fact is verified here.
+      externalFinancialFacts: 'UNVERIFIED',
+    },
     acceptedEvents: safety.evidence.map((e: MissionEvidenceInput) => ({
       eventId: e.event.id,
       sourceId: e.source.physicalSourceId ?? 'unknown-source',
@@ -319,17 +482,35 @@ export function recordSnapshot(
 ): { snapshot: StoredSnapshot; replayed: boolean } {
   const service = snapshotServiceFor(ledger, orgId, missionId);
   const timeline = service.replay(orgId, missionId);
-  const baselineId = stepEventId(orgId, missionId, 'baseline');
-  const incidentId = stepEventId(orgId, missionId, 'incident');
-  const baselineEvent = timeline.events.find((event) => event.eventId === baselineId);
-  const incidentEvent = timeline.events.find((event) => event.eventId === incidentId);
-  if (baselineEvent === undefined) {
+  // C1/C2: stage events are SPEC-DRIVEN. Harbor (default): the two frozen
+  // demo steps. Warehouse: the spec's baseline events across ALL registered
+  // assets, and the incident = the most recent journaled non-baseline event.
+  const { spec } = resolveMissionSpec(ledger, orgId, missionId);
+  const isWarehouse = spec.specId === 'warehouse-inventory-v1';
+  const baselineIds = isWarehouse
+    ? warehouseBaselineEventIds(orgId, missionId, spec)
+    : [stepEventId(orgId, missionId, 'baseline')];
+  const incidentId = isWarehouse
+    ? null // resolved below as the latest non-baseline journaled event
+    : stepEventId(orgId, missionId, 'incident');
+  const baselineEvents = timeline.events.filter((event) => baselineIds.includes(event.eventId));
+  const incidentEvent =
+    incidentId !== null
+      ? timeline.events.find((event) => event.eventId === incidentId)
+      : ([...timeline.events]
+          .sort((a, b) => a.journalSeq - b.journalSeq)
+          .filter((event) => !baselineIds.includes(event.eventId))
+          .at(-1) ?? null);
+  if (baselineEvents.length !== baselineIds.length) {
     throw new Error('BASELINE_PHYSICAL_EVENT_REQUIRED');
   }
-  if (stage === 'incident' && incidentEvent === undefined) {
+  if (stage === 'incident' && (incidentEvent === undefined || incidentEvent === null)) {
     throw new Error('INCIDENT_PHYSICAL_EVENT_REQUIRED');
   }
-  if (stage === 'baseline' && incidentEvent !== undefined) {
+  if (
+    stage === 'baseline' &&
+    timeline.events.some((event) => !baselineIds.includes(event.eventId))
+  ) {
     // Never describe the post-incident world as the historical baseline.
     // An existing recorded baseline remains replayable after the incident.
     const prior = latestSnapshot(ledger, orgId, missionId, 'baseline');
@@ -338,9 +519,9 @@ export function recordSnapshot(
   }
   const stageTimeline: MissionTimelineView = {
     ...timeline,
-    // Baseline must evaluate ONLY the first accepted physical step; an
-    // incident must include that same baseline and the actual incident.
-    events: stage === 'baseline' ? [baselineEvent] : [baselineEvent, incidentEvent!],
+    // Baseline must evaluate ONLY the first accepted physical steps; an
+    // incident must include those same baseline events and the actual incident.
+    events: stage === 'baseline' ? baselineEvents : [...baselineEvents, incidentEvent!],
   };
   const ctx = evaluateMission(ledger, orgId, missionId, stageTimeline);
   const { facts } = ctx;
@@ -519,11 +700,15 @@ function proposePlanUnchecked(
   // (run 42707099406's governed-decision :318 failure; server logs captured).
   const service = snapshotServiceFor(ledger, orgId, missionId);
   const timeline = service.replay(orgId, missionId);
+  // Spec-driven revalidation (same policy as the evaluation itself).
+  const { spec: revalidationSpec } = resolveMissionSpec(ledger, orgId, missionId);
+  const hasAerial = revalidationSpec.assets.some((a) => a.domainKind === 'aerial');
   const bridge = physicalTimelineToPlannerSafety(timeline, {
     orgId,
     missionId,
     asOf: new Date(timeline.asOf),
-    uavWindLimitKt: DECISION_CATALOG.windLimitKt,
+    ...(hasAerial ? { uavWindLimitKt: revalidationSpec.safetyPolicy.uavWindLimitKt! } : {}),
+    assetKinds: Object.fromEntries(revalidationSpec.assets.map((a) => [a.assetId, a.domainKind])),
   });
   const admittedNow = new Set(bridge.evidence.map((e) => e.event.id));
   const stillAdmitted = selected.evidenceIds.every(
@@ -542,7 +727,14 @@ function proposePlanUnchecked(
 
   // ---- authority and funds must still hold NOW (ledger re-checks again at
   // approval and reservation; these pre-checks keep failures explicit).
-  const facts = financialFacts(ledger, orgId, missionId, 'USD');
+  // Currency comes from the snapshot's facts block; pre-spec snapshots are
+  // harbor USD by definition.
+  const facts = financialFacts(
+    ledger,
+    orgId,
+    missionId,
+    (snapshot.payload.facts as { currency?: string }).currency ?? 'USD',
+  );
   const recordedFacts = snapshot.payload.facts as { mandateId: string; mandateVersion: number };
   if (facts.mandate === null) {
     return {
@@ -976,15 +1168,19 @@ export function registerDemoAuthorityRefreshRoute(app: FastifyInstance, ledger: 
     try {
       const mission = ledger.organizations.getMission(g.actor.orgId, missionId);
       const now = ledger.clock.now();
+      // C1: the mandate SHAPE comes from the mission's registered spec
+      // (beneficiaries/purposes are configuration, not harbor constants).
+      // Authority itself still lives only in the ledger mandate record.
+      const { spec } = resolveMissionSpec(ledger, g.actor.orgId, missionId);
       const mandate = ledger.mandates.issue({
         orgId: g.actor.orgId,
         missionId,
-        currency: 'USD',
+        currency: spec.financialMandateShape.currency,
         maxAmountMinor: 4_000_000,
         totalBudgetMinor: 4_000_000,
         permittedOperationKinds: ['airwallex_transfer'],
-        allowedBeneficiaries: ['harbor-diagnostics', 'harbor-marine'],
-        allowedPurposes: ['harbor inspection'],
+        allowedBeneficiaries: [...spec.financialMandateShape.allowedBeneficiaries],
+        allowedPurposes: [...spec.financialMandateShape.allowedPurposes],
         byActorId: g.actor.id,
         expiresAt: new Date(now.getTime() + 26 * 3_600_000).toISOString(),
       });

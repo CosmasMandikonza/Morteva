@@ -147,11 +147,25 @@ function constraintRangeError(input: MissionEvidenceInput): string | null {
           'wind-limit',
           'weather-hold',
           'comms-offline',
+          'aisle-obstructed',
+          'charger-fault',
           'insufficient-evidence',
           'nominal',
         ].includes(c.reason)
       )
         return 'unknown physical safety reason';
+      // Domain/reason coherence (planner-adapter-request extension 1, now
+      // ACCEPTED): wind/hold reasons are AERIAL semantics; aisle/charger
+      // reasons are GROUND semantics. A ground verdict must never carry an
+      // aerial wind/hold reason and vice versa — a mislabeled domain fails
+      // validation instead of silently crossing domains.
+      if ((c.reason === 'wind-limit' || c.reason === 'weather-hold') && c.domain === 'ground')
+        return 'ground verdicts never carry aerial wind/hold reasons';
+      if (
+        (c.reason === 'aisle-obstructed' || c.reason === 'charger-fault') &&
+        c.domain === 'aerial'
+      )
+        return 'aerial verdicts never carry ground aisle/charger reasons';
       if (
         c.observedWindKt !== undefined &&
         (!Number.isFinite(c.observedWindKt) || c.observedWindKt < 0)

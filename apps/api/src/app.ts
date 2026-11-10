@@ -24,7 +24,10 @@ import { registerProductionIdentityRoutes } from './identity/routes.js';
 import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
 import { registerAuthCapabilitiesRoute } from './identity/capabilities.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
+import { registerWarehouseDemoRoutes } from './integration/warehouse-demo-routes.js';
 import { registerPhysicalViewRoute } from './integration/physical-view.js';
+import { registerMissionSpecRoutes } from './integration/mission-spec.js';
+import { resolveMissionSpec } from './integration/decision-snapshots.js';
 import {
   registerDecisionAuthorityRoutes,
   registerDemoAuthorityRefreshRoute,
@@ -85,6 +88,11 @@ export function buildApp(
       registerDecisionAuthorityRoutes(scope, ledger);
       // Sanitized live physical timeline (Agent C physical-view.v1 contract).
       registerPhysicalViewRoute(scope, ledger);
+      // C1/C5 mission-spec read contract (industry switch surface for the
+      // Decision Room + caseId lineage). Read-only, role-gated.
+      registerMissionSpecRoutes(scope, ledger, (orgId, mId) =>
+        resolveMissionSpec(ledger, orgId, mId),
+      );
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.
@@ -93,9 +101,11 @@ export function buildApp(
       }
       if (config.devAuth) {
         // Controlled local-only physical-to-money demo; never mounted outside
-        // the DEMO_AUTH gate (unchanged from #19).
+        // the DEMO_AUTH gate (unchanged from #19). The warehouse journey
+        // (C2) mounts under the SAME gate — demo scope, no production change.
         registerDemoDecisionRoutes(scope, ledger);
         registerDemoAuthorityRefreshRoute(scope, ledger);
+        registerWarehouseDemoRoutes(scope, ledger);
       }
     });
   }

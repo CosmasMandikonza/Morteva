@@ -8,11 +8,14 @@ import type { AcceptedEventView, MissionTimelineView } from '../../src/mission-e
  *
  * A warehouse ground robot must never inherit aerial wind policy: a UAV
  * wind limit is not a ground constraint, and missing aerial readings must
- * not be mistaken for ground safety. Until Agent A's ground-clearance
- * contract lands, a declared ground asset is `blocked/comms-offline` when
- * comms are offline and otherwise `unknown/insufficient-evidence` — never
- * `clear`. Aerial and UNDECLARED assets keep the historical state machine
- * byte-for-byte (harbor behavior and the 45-case matrix are unchanged).
+ * not be mistaken for ground safety. The ground-clearance contract is now
+ * ACCEPTED (planner extension 1, completing Agent D's proposal): a declared
+ * ground asset is `blocked/comms-offline` on offline comms,
+ * `blocked/aisle-obstructed` on an obstructed aisle, `blocked/charger-fault`
+ * on a charger fault, and `clear/nominal` ONLY with fresh comms online +
+ * aisle clear + charger healthy — otherwise `unknown/insufficient-evidence`.
+ * Wind/hold stay INERT for ground. Aerial and UNDECLARED assets keep the
+ * historical state machine byte-for-byte.
  */
 
 const AS_OF = new Date('2026-11-06T09:20:00.000Z');
@@ -61,7 +64,8 @@ const GROUND_POLICY = {
   orgId: 'org-demo',
   missionId: 'mission-warehouse',
   asOf: AS_OF,
-  uavWindLimitKt: 22,
+  // NO wind limit: a ground-only policy structurally must not carry one —
+  // the bridge REFUSES a wind limit without aerial semantics (C2 law).
   assetKinds: { 'robot-counter-3': 'ground' },
 } as const;
 
@@ -159,7 +163,11 @@ describe('ground-domain bridge semantics (declared ground asset)', () => {
           { kind: 'asset_comms', unit: 'state', value: 'online' },
         ]),
       ]),
-      { ...GROUND_POLICY, assetKinds: { 'some-other-asset': 'ground' } },
+      {
+        ...GROUND_POLICY,
+        uavWindLimitKt: 22, // aerial semantics exist for the UNDECLARED asset
+        assetKinds: { 'some-other-asset': 'ground' },
+      },
     );
     expect(output.evidence[0]?.constraint).toMatchObject({ state: 'clear', reason: 'nominal' });
   });
@@ -193,5 +201,120 @@ describe('ground-domain bridge semantics (declared ground asset)', () => {
     }
     expect(new Set(verdicts).size).toBe(1);
     expect(verdicts[0]).toBe('blocked/comms-offline');
+  });
+
+  // ---- C2: the COMPLETED ground contract (extension-1 precedence live) ----
+
+  it('blocks a ground robot on an obstructed aisle (completed contract: aisle-obstructed)', () => {
+    const output = physicalTimelineToPlannerSafety(
+      timeline([
+        event(1, 'g1', [
+          { kind: 'aisle_access', unit: 'state', value: 'clear' },
+          { kind: 'charger_status', unit: 'state', value: 'free' },
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+        ]),
+        event(2, 'g2', [{ kind: 'aisle_access', unit: 'state', value: 'obstructed' }]),
+      ]),
+      GROUND_POLICY,
+    );
+    expect(output.evidence.at(-1)?.constraint).toMatchObject({
+      domain: 'ground',
+      state: 'blocked',
+      reason: 'aisle-obstructed',
+    });
+    // Wind figures never ride on a ground constraint.
+    const c = output.evidence.at(-1)?.constraint as { observedWindKt?: number };
+    expect(c.observedWindKt).toBeUndefined();
+  });
+
+  it('blocks a ground robot on a charger fault (completed contract: charger-fault)', () => {
+    const output = physicalTimelineToPlannerSafety(
+      timeline([
+        event(1, 'g1', [
+          { kind: 'aisle_access', unit: 'state', value: 'clear' },
+          { kind: 'charger_status', unit: 'state', value: 'free' },
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+        ]),
+        event(2, 'g2', [{ kind: 'charger_status', unit: 'state', value: 'fault' }]),
+      ]),
+      GROUND_POLICY,
+    );
+    expect(output.evidence.at(-1)?.constraint).toMatchObject({
+      domain: 'ground',
+      state: 'blocked',
+      reason: 'charger-fault',
+    });
+  });
+
+  it('CLEAR requires the FULL fresh healthy triple: comms online + aisle clear + charger healthy', () => {
+    const output = physicalTimelineToPlannerSafety(
+      timeline([
+        event(1, 'g1', [
+          { kind: 'aisle_access', unit: 'state', value: 'clear' },
+          { kind: 'charger_status', unit: 'state', value: 'free' },
+          { kind: 'asset_comms', unit: 'state', value: 'online' },
+        ]),
+      ]),
+      GROUND_POLICY,
+    );
+    expect(output.evidence.at(-1)?.constraint).toMatchObject({
+      domain: 'ground',
+      state: 'clear',
+      reason: 'nominal',
+    });
+  });
+
+  it('comms ONLINE alone is NEVER clearance (no fresh aisle/charger readings → unknown)', () => {
+    const output = physicalTimelineToPlannerSafety(
+      timeline([event(1, 'g1', [{ kind: 'asset_comms', unit: 'state', value: 'online' }])]),
+      GROUND_POLICY,
+    );
+    expect(output.evidence.at(-1)?.constraint).toMatchObject({
+      state: 'unknown',
+      reason: 'insufficient-evidence',
+    });
+  });
+
+  it('a STALE aisle reading is history, not route clearance (withheld → verdict falls back to unknown)', () => {
+    const output = physicalTimelineToPlannerSafety(
+      timeline([
+        // Baseline aisle/charger/comms healthy, but OLD (beyond maxAgeMs 15m).
+        {
+          ...event(1, 'g0', [
+            { kind: 'aisle_access', unit: 'state', value: 'clear' },
+            { kind: 'charger_status', unit: 'state', value: 'free' },
+            { kind: 'asset_comms', unit: 'state', value: 'online' },
+          ]),
+          observedAt: '2026-11-06T08:00:00.000Z',
+          ingestedAt: '2026-11-06T08:00:02.000Z',
+          freshness: 'expired',
+          planningValid: false,
+        },
+        // Fresh comms online only — the aisle state is UNKNOWN now.
+        event(2, 'g1', [{ kind: 'asset_comms', unit: 'state', value: 'online' }]),
+      ]),
+      GROUND_POLICY,
+    );
+    // The stale event is withheld; the fresh comms reading alone cannot clear.
+    expect(output.withheldEventIds).toContain('g0');
+    expect(output.evidence.at(-1)?.constraint).toMatchObject({
+      state: 'unknown',
+      reason: 'insufficient-evidence',
+    });
+  });
+
+  it('keeps journaled aisle/charger integrity checks (malformed values fail closed)', () => {
+    expect(() =>
+      physicalTimelineToPlannerSafety(
+        timeline([event(1, 'g1', [{ kind: 'aisle_access', unit: 'state', value: 'maybe' }])]),
+        GROUND_POLICY,
+      ),
+    ).toThrow('INVALID_JOURNALED_AISLE');
+    expect(() =>
+      physicalTimelineToPlannerSafety(
+        timeline([event(1, 'g1', [{ kind: 'charger_status', unit: 'state', value: 'sparking' }])]),
+        GROUND_POLICY,
+      ),
+    ).toThrow('INVALID_JOURNALED_CHARGER');
   });
 });

@@ -69,7 +69,13 @@ export interface PhysicalConstraintView {
   readonly assetId: string;
   readonly state: 'clear' | 'blocked' | 'unknown';
   readonly reason:
-    'nominal' | 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence';
+    | 'nominal'
+    | 'wind-limit'
+    | 'weather-hold'
+    | 'comms-offline'
+    | 'aisle-obstructed'
+    | 'charger-fault'
+    | 'insufficient-evidence';
   /** The fresh readings the constraint derives from (empty for unknown). */
   readonly basisEventIds: readonly string[];
 }

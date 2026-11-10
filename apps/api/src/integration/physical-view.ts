@@ -39,7 +39,8 @@ import type {
   MissionTimelineView,
   ObservationReading,
 } from '../mission-events/src/view.js';
-import { DECISION_CATALOG, snapshotServiceFor } from './decision-snapshots.js';
+import { snapshotServiceFor, resolveMissionSpec } from './decision-snapshots.js';
+import type { MissionSpecification } from './mission-spec.js';
 import { guard } from '../auth.js';
 
 const MAX_RECENT_EVENTS = 50;
@@ -55,6 +56,8 @@ const ALLOWED_KINDS = new Set([
   'weather_hold',
   'asset_comms',
   'asset_position_status',
+  'aisle_access',
+  'charger_status',
 ]);
 
 /** The modeled wind limit — applies to the AERIAL asset only (contract law). */
@@ -72,7 +75,14 @@ export function constraintFor(input: {
   assetId: string;
   kind: 'asset-safety';
   state: 'clear' | 'blocked' | 'unknown';
-  reason: 'nominal' | 'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence';
+  reason:
+    | 'nominal'
+    | 'wind-limit'
+    | 'weather-hold'
+    | 'comms-offline'
+    | 'aisle-obstructed'
+    | 'charger-fault'
+    | 'insufficient-evidence';
   basis: string;
 } {
   const { assetId, domain, windLimitKt } = input;
@@ -82,23 +92,58 @@ export function constraintFor(input: {
   const comms = latest['asset_comms'];
   const fresh = (r?: ObservationReading) => r !== undefined && r.freshness === 'fresh';
 
-  // GROUND + SURFACE domains: no reviewed domain-specific clearance rule
-  // exists (D's ground-safety proposal is isolated/unwired; no surface policy
-  // is reviewed at all). Wind and weather-hold are journaled facts but are
-  // INERT for the verdict here — an aerial wind limit is not a ground/surface
+  // GROUND + SURFACE domains — the COMPLETED ground contract (extension 1,
+  // identical to the bridge and the viewer): fresh comms OFFLINE → blocked;
+  // fresh aisle OBSTRUCTED → blocked; fresh charger FAULT → blocked; any
+  // missing reading or non-online comms (degraded included) → unknown; all
+  // fresh and healthy → clear. Wind and weather-hold are journaled facts but
+  // are INERT for this verdict — an aerial wind limit is not a ground/surface
   // constraint, and a ground/surface asset must never inherit aerial
-  // clearance (or aerial blocking). The verdict matches Agent D's
-  // physicalTimelineToPlannerSafety ground branch exactly: fresh comms
-  // OFFLINE is the one ground-interrupting condition → blocked; otherwise
-  // unknown (degraded comms included — degraded is not a healthy verdict).
+  // clearance (or aerial blocking).
   if (domain === 'ground' || domain === 'surface') {
+    const aisle = latest['aisle_access'];
+    const charger = latest['charger_status'];
     if (fresh(comms) && comms!.value === 'offline') {
       return {
         assetId,
         kind: 'asset-safety',
         state: 'blocked',
         reason: 'comms-offline',
-        basis: 'fresh comms report offline (the one ground/surface-interrupting condition)',
+        basis: 'fresh comms report offline (ground/surface-interrupting condition)',
+      };
+    }
+    if (fresh(aisle) && aisle!.value === 'obstructed') {
+      return {
+        assetId,
+        kind: 'asset-safety',
+        state: 'blocked',
+        reason: 'aisle-obstructed',
+        basis: 'fresh aisle reading reports the path obstructed (ground-interrupting condition)',
+      };
+    }
+    if (fresh(charger) && charger!.value === 'fault') {
+      return {
+        assetId,
+        kind: 'asset-safety',
+        state: 'blocked',
+        reason: 'charger-fault',
+        basis: 'fresh charger reading reports a fault (ground-interrupting condition)',
+      };
+    }
+    const healthy =
+      fresh(comms) &&
+      comms!.value === 'online' &&
+      fresh(aisle) &&
+      aisle!.value === 'clear' &&
+      fresh(charger) &&
+      (charger!.value === 'free' || charger!.value === 'docked_charging');
+    if (healthy) {
+      return {
+        assetId,
+        kind: 'asset-safety',
+        state: 'clear',
+        reason: 'nominal',
+        basis: 'fresh comms online, aisle clear, charger healthy (completed ground contract)',
       };
     }
     return {
@@ -106,7 +151,8 @@ export function constraintFor(input: {
       kind: 'asset-safety',
       state: 'unknown',
       reason: 'insufficient-evidence',
-      basis: `no reviewed ${domain}-domain clearance rule; wind/hold are journaled facts but inert for this domain pending a domain-specific contract`,
+      basis:
+        'ground/surface verdict needs fresh comms online + aisle clear + charger healthy; degraded or missing readings are never a healthy verdict',
     };
   }
 
@@ -180,6 +226,7 @@ export function projectPhysicalView(
   timeline: MissionTimelineView,
   truthLabel: string,
   assetDomains: ReadonlyMap<string, AssetDomain>,
+  spec: MissionSpecification,
 ): { payload: Record<string, unknown>; unresolvableAssets: string[] } {
   const events = [...timeline.events].sort((a, b) => a.journalSeq - b.journalSeq);
   const recent = events.slice(-MAX_RECENT_EVENTS);
@@ -203,14 +250,14 @@ export function projectPhysicalView(
   }
 
   // S0 — zero admitted events: emit the server-authoritative EMPTY-EVIDENCE
-  // snapshot (CTO P0-A). The KNOWN demo-catalog UAV is included with an
+  // snapshot (CTO P0-A). The FIRST REGISTERED spec asset is included with an
   // empty reading set and an explicitly-unknown constraint; tenant, asOf and
   // policy are all real server values. No observation is invented and the
   // client renders S0-initial from THIS payload — never from a locally
-  // fabricated snapshot. Missions with admitted non-catalog or multi-aerial
+  // fabricated snapshot. Missions with admitted non-registered or multi-aerial
   // assets still fail closed below.
   if (assetIds.length === 0) {
-    const catalogAssetId = DECISION_CATALOG.assetId;
+    const s0Asset = spec.assets[0]!;
     return {
       payload: {
         contractVersion: 1,
@@ -220,20 +267,24 @@ export function projectPhysicalView(
         policy: {
           maxAgeMs: timeline.policy.maxAgeMs,
           expiredMs: timeline.policy.expiredMs,
-          uavAssetId: catalogAssetId,
-          uavWindLimitKt: UAV_WIND_LIMIT_KT,
+          uavAssetId: s0Asset.assetId,
+          // Ground-only specs carry no wind rule; the legacy wire field keeps
+          // the modeled default for shape compatibility — it is INERT for
+          // ground verdicts (the client branches on the asset KIND, and the
+          // server's constraint block carries the authoritative verdicts).
+          uavWindLimitKt: spec.safetyPolicy.uavWindLimitKt ?? UAV_WIND_LIMIT_KT,
         },
         assets: [
           {
-            assetId: catalogAssetId,
-            kind: assetDomains.get(catalogAssetId)!,
+            assetId: s0Asset.assetId,
+            kind: s0Asset.domainKind,
             latest: {},
           },
         ],
         events: [],
         constraints: [
           {
-            assetId: catalogAssetId,
+            assetId: s0Asset.assetId,
             kind: 'asset-safety',
             state: 'unknown',
             reason: 'insufficient-evidence',
@@ -246,9 +297,10 @@ export function projectPhysicalView(
   }
 
   const aerialAssets = assetIds.filter((id) => assetDomains.get(id) === 'aerial');
-  if (aerialAssets.length !== 1) {
+  if (aerialAssets.length > 1) {
     // The wind policy can only be attributed honestly when the registry
-    // designates EXACTLY ONE aerial asset for the mission.
+    // designates AT MOST ONE aerial asset for the mission. A ground-only
+    // mission (zero aerial) is a valid projection shape.
     return {
       payload: {
         error: {
@@ -316,7 +368,7 @@ export function projectPhysicalView(
       assetId,
       domain: assetDomains.get(assetId)!,
       latest: timeline.assets[assetId]!.latest,
-      windLimitKt: UAV_WIND_LIMIT_KT,
+      windLimitKt: spec.safetyPolicy.uavWindLimitKt ?? UAV_WIND_LIMIT_KT,
     }),
   );
 
@@ -330,7 +382,7 @@ export function projectPhysicalView(
         maxAgeMs: timeline.policy.maxAgeMs,
         expiredMs: timeline.policy.expiredMs,
         uavAssetId,
-        uavWindLimitKt: UAV_WIND_LIMIT_KT,
+        uavWindLimitKt: spec.safetyPolicy.uavWindLimitKt ?? UAV_WIND_LIMIT_KT,
       },
       assets,
       events: recentEvents,
@@ -354,17 +406,19 @@ export function registerPhysicalViewRoute(app: FastifyInstance, ledger: Ledger):
       // Read-only reconciliation against the verified timeline replay.
       const service = snapshotServiceFor(ledger, g.actor.orgId, missionId);
       const timeline = service.replay(g.actor.orgId, missionId);
-      // FIXED SYNTHETIC DEMO CATALOG — the honest scope of this route:
-      // uav-seeker-1 is the (only) AERIAL asset, registered by trusted code,
-      // never inferred from names. No per-mission domain registry is wired;
-      // assets outside this catalog fail closed above (ASSET_DOMAIN_UNAVAILABLE).
-      const domains = new Map<string, AssetDomain>([
-        [DECISION_CATALOG.assetId, DECISION_CATALOG.assetDomain],
-      ]);
+      // REGISTERED mission specification (C1) — the honest scope of this
+      // route: asset domains come from the mission's journaled spec
+      // (registered by trusted code, never inferred from names). Assets
+      // outside the spec fail closed above (ASSET_DOMAIN_UNAVAILABLE).
+      const { spec } = resolveMissionSpec(ledger, g.actor.orgId, missionId);
+      const domains = new Map<string, AssetDomain>(
+        spec.assets.map((a) => [a.assetId, a.domainKind]),
+      );
       const { payload } = projectPhysicalView(
         timeline,
         'SIMULATED_OPERATION — POLICY-ONLY',
         domains,
+        spec,
       );
       if ('error' in payload && payload.error !== undefined) {
         return reply.code(409).send(payload);

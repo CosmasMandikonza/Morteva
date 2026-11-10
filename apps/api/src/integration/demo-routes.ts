@@ -8,14 +8,6 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
-import {
-  evaluate,
-  financialFacts,
-  generateCandidates,
-  reviewEvidence,
-  type FinancialPolicy,
-  type SupplierOffer,
-} from '@moterva/planner';
 import { guard, csrfOk } from '../auth.js';
 import { MissionEventIngestService } from '../mission-events/src/ingest.js';
 import { SourceRegistry, type RegisteredSource } from '../mission-events/src/registry.js';
@@ -23,36 +15,13 @@ import { sourceSignature } from '../mission-events/src/digest.js';
 import { fixtureSourceKey } from '../mission-events/src/rng.js';
 import type { NormalizedEvent } from '../mission-events/src/schema.js';
 import type { MissionTimelineView } from '../mission-events/src/view.js';
-import { physicalTimelineToPlannerSafety } from './physical-to-planner.js';
+import { decisionViewFor, resolveMissionSpec, snapshotServiceFor } from './decision-snapshots.js';
 
+// Harbor demo constants (frozen scope): the signed synthetic-step route
+// below journals THIS asset's readings. The DECISION side is spec-driven via
+// decisionViewFor; this asset id remains drift-equal to the harbor spec
+// (asserted by test) and is used only for event ADMISSION here.
 const ASSET_ID = 'uav-seeker-1';
-const WIND_LIMIT_KT = 22;
-const INCUMBENT: SupplierOffer = {
-  id: 'uav-inspection',
-  kind: 'inspection-service',
-  beneficiary: 'harbor-diagnostics',
-  purpose: 'harbor inspection',
-  currency: 'USD',
-  baseCostMinor: 1_200_000,
-  feeMinor: 0,
-  leadTimeMinutes: 60,
-  durationMinutes: 180,
-  probabilityOfSuccess: 0.9,
-  availability: 'confirmed',
-};
-const VESSEL: SupplierOffer = {
-  id: 'vessel-inspection',
-  kind: 'inspection-service',
-  beneficiary: 'harbor-marine',
-  purpose: 'harbor inspection',
-  currency: 'USD',
-  baseCostMinor: 1_800_000,
-  feeMinor: 50_000,
-  leadTimeMinutes: 45,
-  durationMinutes: 180,
-  probabilityOfSuccess: 0.85,
-  availability: 'confirmed',
-};
 
 function sourceFor(orgId: string, missionId: string): RegisteredSource {
   const suffix = createHash('sha256')
@@ -91,86 +60,35 @@ export function stepEventId(orgId: string, missionId: string, step: 'baseline' |
   );
 }
 
+/**
+ * REPLAY registry for the demo read surface — SPEC-DRIVEN (C1): the
+ * mission's registered sources, not a hardcoded harbor one, so warehouse
+ * events signed by warehouse sources verify here too.
+ */
+function replayServiceFor(ledger: Ledger, orgId: string, missionId: string) {
+  // snapshotServiceFor registers exactly the spec's sources with the same
+  // deterministic fixture-key derivation the step routes sign with.
+  return snapshotServiceFor(ledger, orgId, missionId);
+}
+
 function decisionFor(ledger: Ledger, timeline: MissionTimelineView) {
-  // A single injected replay clock must govern both C freshness and A evidence validity.
-  const now = new Date(timeline.asOf);
-  const tenant = { orgId: timeline.orgId, missionId: timeline.missionId };
-  const safety = physicalTimelineToPlannerSafety(timeline, {
-    ...tenant,
-    asOf: now,
-    uavWindLimitKt: WIND_LIMIT_KT,
-  });
-  const reviewed = reviewEvidence([...safety.evidence], now, tenant);
-  const policy: FinancialPolicy = {
-    version: 1,
-    currency: 'USD',
-    missionDeadlineAt: new Date(now.getTime() + 12 * 3_600_000).toISOString(),
-    missionValueMinor: 5_000_000,
-    failureCostMinor: 1_500_000,
-    protectedReserveMinor: 50_000,
-    maxProbabilityAssumption: 0.95,
-    unconfirmedAvailabilityFactor: 0.5,
-    diagnosticValueThreshold: 1,
-    forbidUnconfirmedAvailability: false,
-    escalationScoreGap: 10_000,
-  };
-  const facts = financialFacts(ledger, tenant.orgId, tenant.missionId, 'USD');
-  const candidates = generateCandidates(reviewed.accepted, {
-    now,
-    policyCurrency: 'USD',
-    missionDeadlineAt: policy.missionDeadlineAt,
-    incumbent: INCUMBENT,
-    incumbentAssetId: ASSET_ID,
-    alternatives: [VESSEL],
-  });
-  const decision = evaluate({
-    now,
-    policy,
-    facts,
-    evidence: reviewed,
-    candidates,
-    modelAdapterId: null,
-  });
-  return {
-    evaluationId: decision.trace.evaluationId,
-    outcome: decision.outcome,
-    selected:
-      decision.selected === null
-        ? null
-        : {
-            candidateId: decision.selected.candidate.id,
-            label: decision.selected.candidate.label,
-            kind: decision.selected.candidate.kind,
-            grossMinor: decision.selected.grossCostMinor,
-            expectedNetMinor: decision.selected.expectedNetMinor,
-          },
-    alternatives: decision.trace.scores.map((scored) => ({
-      id: scored.candidate.id,
-      label: scored.candidate.label,
-      kind: scored.candidate.kind,
-      feasible: scored.feasible,
-      grossMinor: scored.grossCostMinor,
-      expectedNetMinor: scored.expectedNetMinor,
-      rejection: scored.rejection?.code ?? null,
-    })),
-    reasons: decision.reasons.map((r) => ({
-      code: r.code,
-      message: r.message,
-      evidenceIds: r.evidenceIds,
-    })),
-    evidenceIds: decision.trace.evidenceAcceptedIds,
-    withheldEventIds: safety.withheldEventIds,
-    currentBalanceStatus: facts.balanceStatus,
-    currentSpendableMinor: facts.spendableMinor,
-    authorization: 'PROPOSED_ONLY — requires separate human approval and ledger recheck',
-    providerVerified: false,
-    mode: 'SIMULATED_OPERATION — POLICY-ONLY',
-  };
+  // C1: the decision view is SPEC-DRIVEN — the mission's registered
+  // specification supplies domain policy, economics and offers, so this
+  // single function serves harbor AND warehouse missions with no domain
+  // branch. Harbor missions without a journaled spec default to the harbor
+  // spec (identical values to the historical inline constants).
+  return decisionViewFor(ledger, timeline);
+}
+
+/** Human-readable, observation-derived reading summary (no free text). */
+function readingSummary(event: {
+  observations: readonly { kind: string; unit: string; value: string | number }[];
+}): string {
+  return event.observations.map((o) => `${o.kind} ${String(o.value)} ${o.unit}`).join('; ');
 }
 
 function inspect(ledger: Ledger, orgId: string, missionId: string) {
-  const { service } = serviceFor(ledger, orgId, missionId);
-  const timeline = service.replay(orgId, missionId);
+  const timeline = replayServiceFor(ledger, orgId, missionId).replay(orgId, missionId);
   const baselineId = stepEventId(orgId, missionId, 'baseline');
   const incidentId = stepEventId(orgId, missionId, 'incident');
   const baseline = timeline.events.find((e) => e.eventId === baselineId);
@@ -193,7 +111,7 @@ function inspect(ledger: Ledger, orgId: string, missionId: string) {
             sourceId: incident.sourceId,
             eventDigest: incident.eventDigest,
             observedAt: incident.observedAt,
-            reading: '24.6 kt wind exceeds modeled 22 kt UAV limit; weather hold active',
+            reading: readingSummary(incident),
             provenance: incident.provenance,
           },
     disclaimer:
@@ -231,6 +149,15 @@ export function registerDemoDecisionRoutes(app: FastifyInstance, ledger: Ledger)
     }
     try {
       ledger.organizations.getMission(g.actor.orgId, missionId);
+      // Domain honesty: this route journals HARBOR (aerial UAV) readings.
+      // A mission registered under a DIFFERENT spec must never receive
+      // harbor events — fail closed with an explicit code (the warehouse
+      // journey has its own step route).
+      if (
+        resolveMissionSpec(ledger, g.actor.orgId, missionId).spec.specId !== 'harbor-inspection-v1'
+      ) {
+        return reply.code(409).send({ error: { code: 'MISSION_SPEC_MISMATCH' } });
+      }
       const { source, service } = serviceFor(ledger, g.actor.orgId, missionId);
       const existing = service.replay(g.actor.orgId, missionId);
       const id = stepEventId(g.actor.orgId, missionId, step);

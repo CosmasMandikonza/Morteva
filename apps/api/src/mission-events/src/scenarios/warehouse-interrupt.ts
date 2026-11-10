@@ -334,10 +334,12 @@ export const warehouseInterruptScenario: ScenarioDefinition = {
         expect: accepted,
         beat: 'POST-RECOVERY STEADY STATE: all ground facts healthy, 45% complete.',
         economicEffect:
-          'End state for the planner: comms online + healthy ground facts journaled — but the ' +
-          'bridge CANNOT emit ground clearance (no supported rule; Agent A contract request), so ' +
-          'the verdict stays unknown/insufficient-evidence. Any robot-gated spend remains refused ' +
-          'by the existing ASSET_SAFETY gate; a human decides, and nothing is paid here.',
+          'End state for the planner (ground contract COMPLETED): comms online + healthy ground ' +
+          'facts journaled, all fresh — the supervisor-confirmed triple yields clear/nominal in ' +
+          'the bridge, the physical-view engine and the viewer (matched verdicts). Clearance was ' +
+          'CONFIRMED by the trusted supervisor source, never inferred; robot-gated spend still ' +
+          "passes only through the ASSET_SAFETY gate and the ledger's own authority. Nothing is " +
+          'paid here.',
       }),
       b.submission({
         source: wmsSrc,

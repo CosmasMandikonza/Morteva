@@ -8,6 +8,22 @@
  * in source.physicalSequence, while the journal sequence is used as the
  * globally monotone planner event.sequence (independent sources can both
  * legitimately have source sequence 1).
+ *
+ * GROUND DOMAIN (planner-adapter-request extension 1 — ACCEPTED; Agent D's
+ * `proposedGroundSafety` semantics, implemented live): a declared GROUND or
+ * SURFACE asset NEVER consumes `wind_speed`/`weather_hold` for its verdict —
+ * an aerial wind limit is not a ground constraint and a ground asset must
+ * never inherit aerial clearance (or aerial blocking). Comms remains
+ * domain-neutral for every asset. Ground precedence (first match wins):
+ *   1. fresh comms offline      → blocked / comms-offline
+ *   2. fresh aisle obstructed   → blocked / aisle-obstructed
+ *   3. fresh charger fault      → blocked / charger-fault
+ *   4. any fresh reading missing→ unknown / insufficient-evidence
+ *      (degraded comms included — degraded is NOT a healthy-ground verdict)
+ *   5. all fresh and healthy    → clear / nominal
+ * A restored network connection does NOT by itself imply route clearance:
+ * clearance requires FRESH aisle/charger readings inside the planning
+ * window — stale readings are withheld (history, not current truth).
  */
 import type { MissionEvidenceInput } from '@moterva/planner';
 import type { MissionTimelineView } from '../mission-events/src/view.js';
@@ -16,20 +32,21 @@ export interface PhysicalSafetyPolicy {
   readonly orgId: string;
   readonly missionId: string;
   readonly asOf: Date;
-  /** Explicit operator-defined limit, NOT measured or forecast weather. */
-  readonly uavWindLimitKt: number;
+  /**
+   * Explicit operator-defined AERIAL limit, NOT measured or forecast weather.
+   * REQUIRED when any asset uses aerial semantics (the historical default
+   * treats every undeclared asset as aerial); FORBIDDEN when the declared
+   * asset kinds contain no aerial asset (a ground-only policy never carries
+   * a wind rule).
+   */
+  readonly uavWindLimitKt?: number;
   /**
    * Operator-declared physical domain per asset id (planner-adapter-request
    * extension 2). AERIAL and UNDECLARED assets keep the historical state
-   * machine exactly (wind threshold + hold + comms). A declared GROUND asset
-   * NEVER consumes `wind_speed`/`weather_hold` for its verdict — an aerial
-   * wind limit is not a ground constraint, and a ground asset must never
-   * inherit aerial clearance. Comms remains domain-neutral for every asset.
-   * Until Agent A's ground-clearance contract lands (extension 1), a ground
-   * verdict is `blocked/comms-offline` when comms are offline and otherwise
-   * `unknown/insufficient-evidence` — never `clear`.
+   * machine exactly (wind threshold + hold + comms). A declared GROUND or
+   * SURFACE asset uses the ground precedence above.
    */
-  readonly assetKinds?: Readonly<Record<string, 'aerial' | 'ground'>>;
+  readonly assetKinds?: Readonly<Record<string, 'aerial' | 'ground' | 'surface'>>;
 }
 
 export interface PhysicalSafetyBridgeResult {
@@ -41,6 +58,8 @@ interface LatestReadings {
   windKt?: number;
   hold?: 'clear' | 'active';
   comms?: 'online' | 'degraded' | 'offline';
+  aisle?: 'clear' | 'obstructed';
+  charger?: 'docked_charging' | 'free' | 'fault';
 }
 
 export function physicalTimelineToPlannerSafety(
@@ -53,9 +72,6 @@ export function physicalTimelineToPlannerSafety(
     timeline.orgId !== policy.orgId ||
     timeline.missionId !== policy.missionId ||
     Date.parse(timeline.asOf) !== nowMs ||
-    !Number.isFinite(policy.uavWindLimitKt) ||
-    policy.uavWindLimitKt <= 0 ||
-    policy.uavWindLimitKt > 200 ||
     !Number.isFinite(timeline.policy.maxAgeMs) ||
     timeline.policy.maxAgeMs <= 0
   ) {
@@ -63,12 +79,38 @@ export function physicalTimelineToPlannerSafety(
   }
   if (policy.assetKinds !== undefined) {
     for (const kind of Object.values(policy.assetKinds)) {
-      if (kind !== 'aerial' && kind !== 'ground') {
+      if (kind !== 'aerial' && kind !== 'ground' && kind !== 'surface') {
         throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
       }
     }
   }
-  const isGroundAsset = (assetId: string): boolean => policy.assetKinds?.[assetId] === 'ground';
+  // Aerial semantics exist when the policy does not declare kinds at all
+  // (historical default: every asset is aerial) OR any asset is declared
+  // aerial OR any event asset is UNDECLARED (undeclared keeps the historical
+  // machine). A ground-only policy over fully-declared ground events carries
+  // NO wind rule — and a wind limit there is refused (it would silently be
+  // inherited by ground or apply to nothing).
+  const declaredKinds = policy.assetKinds === undefined ? [] : Object.values(policy.assetKinds);
+  const eventAssetIds = [...new Set(timeline.events.map((e) => e.assetId))];
+  const hasAerialSemantics =
+    policy.assetKinds === undefined ||
+    declaredKinds.includes('aerial') ||
+    eventAssetIds.some((id) => policy.assetKinds?.[id] === undefined);
+  if (policy.uavWindLimitKt === undefined) {
+    if (hasAerialSemantics) throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
+  } else if (
+    !Number.isFinite(policy.uavWindLimitKt) ||
+    policy.uavWindLimitKt <= 0 ||
+    policy.uavWindLimitKt > 200 ||
+    !hasAerialSemantics
+  ) {
+    throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
+  }
+  const windLimitKt = policy.uavWindLimitKt;
+  const isGroundAsset = (assetId: string): boolean => {
+    const kind = policy.assetKinds?.[assetId];
+    return kind !== undefined && kind !== 'aerial';
+  };
   const latestByAsset = new Map<string, LatestReadings>();
   const evidence: MissionEvidenceInput[] = [];
   const withheldEventIds: string[] = [];
@@ -118,6 +160,24 @@ export function physicalTimelineToPlannerSafety(
         }
         latest.comms = observation.value as LatestReadings['comms'];
         touchedSafety = true;
+      } else if (observation.kind === 'aisle_access') {
+        if (
+          observation.unit !== 'state' ||
+          (observation.value !== 'clear' && observation.value !== 'obstructed')
+        ) {
+          throw new Error('INVALID_JOURNALED_AISLE');
+        }
+        latest.aisle = observation.value;
+        touchedSafety = true;
+      } else if (observation.kind === 'charger_status') {
+        if (
+          observation.unit !== 'state' ||
+          !['docked_charging', 'free', 'fault'].includes(String(observation.value))
+        ) {
+          throw new Error('INVALID_JOURNALED_CHARGER');
+        }
+        latest.charger = String(observation.value) as LatestReadings['charger'];
+        touchedSafety = true;
       }
     }
     latestByAsset.set(event.assetId, latest);
@@ -125,26 +185,42 @@ export function physicalTimelineToPlannerSafety(
 
     let state: 'clear' | 'blocked' | 'unknown';
     let reason:
-      'wind-limit' | 'weather-hold' | 'comms-offline' | 'insufficient-evidence' | 'nominal';
+      | 'wind-limit'
+      | 'weather-hold'
+      | 'comms-offline'
+      | 'aisle-obstructed'
+      | 'charger-fault'
+      | 'insufficient-evidence'
+      | 'nominal';
     let windParticipated: boolean;
     if (isGroundAsset(event.assetId)) {
-      // GROUND domain: wind and hold are journaled facts but are INERT for
-      // the verdict — an aerial wind limit is not a ground constraint and a
-      // ground asset must never inherit aerial clearance (or aerial
-      // blocking). Comms is domain-neutral. Until Agent A's ground-clearance
-      // contract lands, no ground rule can produce `clear`: the verdict is
-      // blocked on comms-offline (a genuine ground-interrupting condition)
-      // and otherwise unknown — asset-dependent spend stays gated by the
-      // planner's ASSET_SAFETY_BLOCKED prerequisite.
+      // GROUND domain — extension-1 precedence (see header). Wind and hold
+      // are journaled facts but are INERT for this verdict.
       if (latest.comms === 'offline') {
         state = 'blocked';
         reason = 'comms-offline';
-      } else {
+      } else if (latest.aisle === 'obstructed') {
+        state = 'blocked';
+        reason = 'aisle-obstructed';
+      } else if (latest.charger === 'fault') {
+        state = 'blocked';
+        reason = 'charger-fault';
+      } else if (
+        latest.comms === undefined ||
+        latest.aisle === undefined ||
+        latest.charger === undefined ||
+        latest.comms !== 'online'
+      ) {
         state = 'unknown';
         reason = 'insufficient-evidence';
+      } else {
+        state = 'clear';
+        reason = 'nominal';
       }
       windParticipated = false;
-    } else if (latest.windKt !== undefined && latest.windKt > policy.uavWindLimitKt) {
+    } else if (windLimitKt === undefined) {
+      throw new Error('INVALID_PHYSICAL_BRIDGE_SCOPE_OR_POLICY');
+    } else if (latest.windKt !== undefined && latest.windKt > windLimitKt) {
       state = 'blocked';
       reason = 'wind-limit';
       windParticipated = true;
@@ -190,12 +266,15 @@ export function physicalTimelineToPlannerSafety(
       },
       constraint: {
         kind: 'asset-safety',
+        // The domain rides with the verdict so the planner can enforce
+        // domain/reason coherence downstream.
+        domain: isGroundAsset(event.assetId) ? 'ground' : 'aerial',
         state,
         reason,
         // Wind attribution is honest: a ground constraint never carries
         // aerial wind figures (they did not participate in the verdict).
-        ...(windParticipated
-          ? { observedWindKt: latest.windKt, maxWindKt: policy.uavWindLimitKt }
+        ...(windParticipated && windLimitKt !== undefined
+          ? { observedWindKt: latest.windKt, maxWindKt: windLimitKt }
           : {}),
       },
       validity: {

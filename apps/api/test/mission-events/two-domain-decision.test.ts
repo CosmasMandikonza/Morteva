@@ -148,11 +148,16 @@ function bridgeFor(
   const delta = asOfMs - world.clock.now().getTime();
   if (delta > 0) world.clock.advance(delta);
   const timeline = world.service.replay(world.orgId, world.missionId);
+  // Wind limit only when aerial semantics exist — a ground-only trace carries
+  // NO wind rule (the bridge refuses one; C2 domain isolation).
+  const hasAerial =
+    Object.values(assetKinds).includes('aerial') ||
+    [...new Set(timeline.events.map((e) => e.assetId))].some((id) => assetKinds[id] === undefined);
   return physicalTimelineToPlannerSafety(timeline, {
     orgId: world.orgId,
     missionId: world.missionId,
     asOf: new Date(asOfMs),
-    uavWindLimitKt: HARBOR_WIND_LIMIT_KT,
+    ...(hasAerial ? { uavWindLimitKt: HARBOR_WIND_LIMIT_KT } : {}),
     assetKinds,
   });
 }
@@ -312,7 +317,7 @@ describe('Trace A — harbor inspection (journal-derived decision, existing fixt
 });
 
 describe('Trace B — warehouse ground-robot interrupt (journal-derived decision, new fixture)', () => {
-  it('comms loss blocks the robot; recovery restores telemetry but the ground verdict stays unknown; nothing is paid', () => {
+  it('comms loss and an obstructed aisle block the robot; the supervisor-confirmed healthy triple clears it; nothing is paid', () => {
     const world = makeScenarioWorld(warehouseInterruptScenario, 'traceB-warehouse', {
       beneficiaries: ['warehouse-robotics', 'warehouse-crew'],
       purposes: ['warehouse replenishment'],
@@ -320,15 +325,17 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
     const financialBaseline = financialRowCounts(world.ledger);
     const GROUND = { 'picker-bot-7': 'ground' } as const;
 
-    // Running state: comms online → ground verdict is unknown (never clear).
+    // Running state (completed ground contract): this prefix INCLUDES the
+    // aisle-obstruction beat, so the verdict is blocked/aisle-obstructed —
+    // a real physical restriction, reported before comms even degrade.
     const runningIdx = indexOfEnvelopeWith(world.build, (e) =>
       e.observations.some((o) => o.kind === 'asset_comms' && o.value === 'degraded'),
     );
     ingestPrefix(world, runningIdx - 1);
     const running = bridgeFor(world, GROUND, world.clock.now().getTime());
     expect(running.evidence.at(-1)?.constraint).toMatchObject({
-      state: 'unknown',
-      reason: 'insufficient-evidence',
+      state: 'blocked',
+      reason: 'aisle-obstructed',
     });
     expect(
       (running.evidence.at(-1)?.constraint as { observedWindKt?: number }).observedWindKt,
@@ -388,13 +395,14 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
     expect(robotScore?.rejection?.code).toBe('ASSET_SAFETY_BLOCKED');
     expect(robotScore?.rejection?.reason).toContain('comms-offline');
 
-    // Full arc to the end: recovery + healthy ground facts journaled — yet the
-    // verdict is STILL unknown (no supported ground clearance; Agent A request).
+    // Full arc to the end: recovery + the supervisor-confirmed healthy ground
+    // triple (comms online + aisle clear + charger healthy, all fresh) — the
+    // COMPLETED ground contract yields clear/nominal, agreed by the bridge.
     ingestRange(world, offlineIdx + 1, world.build.script.length - 1);
     const final = bridgeFor(world, GROUND, world.clock.now().getTime());
     expect(final.evidence.at(-1)?.constraint).toMatchObject({
-      state: 'unknown',
-      reason: 'insufficient-evidence',
+      state: 'clear',
+      reason: 'nominal',
     });
     const finalDecision = decide(
       world,
@@ -430,9 +438,9 @@ describe('Trace B — warehouse ground-robot interrupt (journal-derived decision
     const finalRobot = finalDecision.trace.scores.find(
       (sc) => sc.candidate.id === 'continue-picker-bot-7-replenish',
     );
-    expect(finalRobot?.feasible).toBe(false);
-    expect(finalRobot?.rejection?.code).toBe('ASSET_SAFETY_BLOCKED');
-    expect(finalRobot?.rejection?.reason).toContain('unknown');
+    // Clearance was CONFIRMED by the supervisor source (not inferred, not
+    // self-reported): the robot-gated incumbent becomes feasible again.
+    expect(finalRobot?.feasible).toBe(true);
 
     // Recovery proved payment-free and the whole arc wrote zero financial rows.
     assertNoFinancialMutation(world.ledger, 'traceB-full-arc', financialBaseline);
