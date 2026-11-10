@@ -30,6 +30,10 @@ export interface FixtureScript {
   readonly getTransfer: readonly FixtureStep[];
   /** Steps for GET /balances/current. */
   readonly balances: readonly FixtureStep[];
+  /** Steps for GET /beneficiaries (list) — read-only connection proof. */
+  readonly beneficiaries?: readonly FixtureStep[];
+  /** Steps for GET /beneficiaries/{id} — read-only connection proof. */
+  readonly beneficiary?: readonly FixtureStep[];
 }
 
 /** A deterministic transfer record the fixture serves on list/get. */
@@ -71,8 +75,13 @@ export function unavailable(message = 'simulated connection loss'): FixtureStep 
 export class FixtureTransport {
   /** Marker consulted by buildSandboxDispatcher so a fixture can never be wired as the live rail. */
   readonly __offlineFixture = true as const;
-  readonly performedRequests: Array<{ method: string; path: string; body: unknown }> = [];
-  private readonly lanes: Record<string, readonly FixtureStep[]>;
+  readonly performedRequests: Array<{
+    method: string;
+    path: string;
+    query: Record<string, string> | null;
+    body: unknown;
+  }> = [];
+  private readonly lanes: Record<string, readonly FixtureStep[] | undefined>;
   private readonly cursors = new Map<string, number>();
 
   constructor(readonly script: FixtureScript) {
@@ -82,6 +91,10 @@ export class FixtureTransport {
       list: script.listTransfers,
       get: script.getTransfer,
       balances: script.balances,
+      // Read-only connection-proof lanes are OPTIONAL: an undefined lane is
+      // still routed, then fails with the same explicit exhaustion error.
+      beneficiaries: script.beneficiaries,
+      beneficiary: script.beneficiary,
     };
   }
 
@@ -91,6 +104,8 @@ export class FixtureTransport {
     if (path.endsWith('/transfers') && method === 'GET') return 'list';
     if (/\/transfers\/[^/]+$/.test(path)) return 'get';
     if (path.endsWith('/balances/current')) return 'balances';
+    if (path.endsWith('/beneficiaries') && method === 'GET') return 'beneficiaries';
+    if (/\/beneficiaries\/[^/]+$/.test(path)) return 'beneficiary';
     throw new Error(`offline fixture has no lane for ${method} ${path}`);
   }
 
@@ -106,6 +121,7 @@ export class FixtureTransport {
     this.performedRequests.push({
       method: request.method,
       path: request.path,
+      query: request.query ?? null,
       body: request.body ?? null,
     });
     const lane = this.laneFor(request.method, request.path);

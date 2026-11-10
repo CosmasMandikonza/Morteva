@@ -2,10 +2,15 @@
  * Airwallex API client (server-only).
  *
  * Verified endpoints (official reference, API version 2026-08-21; checked
- * 2026-11-03 against airwallex.com/docs/api + airwallexdev.com/guide):
+ * 2026-11-03 against airwallex.com/docs/api + airwallexdev.com/guide;
+ * beneficiaries re-checked 2026-11-10 against airwallex.com/docs/api/payouts/beneficiaries):
  *   POST /api/v1/authentication/login   headers x-client-id / x-api-key
  *                                      → 201 { token, expires_at } (30 min)
  *   GET  /api/v1/balances/current       → { available_amount, currency, ... }
+ *   GET  /api/v1/beneficiaries          → { has_more, items } (read-only proof;
+ *                                         page_num/page_size query params)
+ *   GET  /api/v1/beneficiaries/{id}     → { id, beneficiary, nickname,
+ *                                         transfer_methods } (read-only proof)
  *   POST /api/v1/transfers/create       { request_id, beneficiary_id,
  *                                         transfer_currency, transfer_amount }
  *   GET  /api/v1/transfers/{id}         → transfer (status, failure, ...)
@@ -42,6 +47,24 @@ export interface AirwallexTransferRecord {
   readonly createdAt: string | null;
   readonly updatedAt: string | null;
   readonly raw: unknown;
+}
+
+/**
+ * BENEFICIARY READ PROJECTION — deliberately NOT the provider's beneficiary
+ * object. Only identity/facilitation fields are surfaced (id, operator-set
+ * nickname, payout transfer methods); bank details, card and digital-wallet
+ * payloads are NEVER parsed or persisted by this adapter (read-only
+ * connection proof A1; receipts stay minimized the same way).
+ */
+export interface AirwallexBeneficiary {
+  readonly id: string;
+  readonly nickname: string | null;
+  readonly transferMethods: readonly string[];
+}
+
+export interface AirwallexBeneficiaryPage {
+  readonly items: readonly AirwallexBeneficiary[];
+  readonly hasMore: boolean;
 }
 
 export class AirwallexDefinitiveRejectionError extends Error {
@@ -253,6 +276,109 @@ export class AirwallexClient {
   }
 
   /**
+   * READ-ONLY beneficiary list (connection proof A1): the first bounded page
+   * of the account's beneficiaries. Pagination is intentionally single-page —
+   * this is a connection/identity proof, not a synchronization job — and
+   * `hasMore` is reported honestly so the caller knows the account holds
+   * more than the page returned. Malformed bodies fail closed (definitive
+   * rejection), matching the readback law that ambiguity is never invented.
+   */
+  async listBeneficiaries(
+    input: {
+      pageSize?: number;
+      pageNumber?: number;
+    } = {},
+  ): Promise<AirwallexBeneficiaryPage> {
+    const pageSize = input.pageSize ?? 10;
+    const pageNumber = input.pageNumber ?? 1;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_page_size',
+        `beneficiary page_size must be an integer in [1,100] (got ${String(pageSize)})`,
+        null,
+      );
+    }
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_page_number',
+        `beneficiary page_num must be an integer >= 1 (got ${String(pageNumber)})`,
+        null,
+      );
+    }
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: '/api/v1/beneficiaries',
+      query: { page_size: String(pageSize), page_num: String(pageNumber) },
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, 'beneficiaries');
+      throw new TransportUnavailableError(
+        `airwallex beneficiaries non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    if (
+      response.body === null ||
+      typeof response.body !== 'object' ||
+      Array.isArray(response.body)
+    ) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response is not an object with items',
+        response.body,
+      );
+    }
+    const body = response.body as { items?: unknown; has_more?: unknown };
+    if (!Array.isArray(body.items)) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response missing items array',
+        response.body,
+      );
+    }
+    if (body.has_more !== undefined && typeof body.has_more !== 'boolean') {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response has a non-boolean has_more',
+        response.body,
+      );
+    }
+    return {
+      items: body.items.map((item) => parseBeneficiaryRecord(item)),
+      hasMore: body.has_more === true,
+    };
+  }
+
+  /** READ-ONLY single beneficiary by id (connection proof A1). */
+  async getBeneficiary(beneficiaryId: string): Promise<AirwallexBeneficiary> {
+    if (typeof beneficiaryId !== 'string' || beneficiaryId.trim() === '') {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_beneficiary_id',
+        'beneficiary id must be a non-empty string',
+        null,
+      );
+    }
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: `/api/v1/beneficiaries/${encodeURIComponent(beneficiaryId)}`,
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, `beneficiaries/${beneficiaryId}`);
+      throw new TransportUnavailableError(
+        `airwallex beneficiaries/${beneficiaryId} non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    return parseBeneficiaryRecord(response.body);
+  }
+
+  /**
    * The documented recovery path for a lost create response: list transfers
    * filtered by OUR original request_id (R3 P1-6 + final-round P1: malformed
    * responses fail closed as AMBIGUOUS — a missing/invalid `items` array is
@@ -379,5 +505,41 @@ export function parseTransferRecord(raw: unknown): AirwallexTransferRecord {
     createdAt: typeof record.created_at === 'string' ? record.created_at : null,
     updatedAt: typeof record.updated_at === 'string' ? record.updated_at : null,
     raw,
+  };
+}
+
+/**
+ * Beneficiary parse — identity fields ONLY (see AirwallexBeneficiary). The
+ * provider's `beneficiary` sub-object (bank_details/card/digital_wallet) is
+ * deliberately dropped here: it never reaches a receipt, a log line or a
+ * caller. A missing id fails closed as a definitive malformed response.
+ */
+export function parseBeneficiaryRecord(raw: unknown): AirwallexBeneficiary {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_beneficiary',
+      'provider beneficiary record is not an object',
+      raw,
+    );
+  }
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' && record.id !== '' ? record.id : null;
+  if (id === null) {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_beneficiary',
+      'provider beneficiary record missing id',
+      raw,
+    );
+  }
+  const transferMethods = Array.isArray(record.transfer_methods)
+    ? record.transfer_methods.filter((m): m is string => typeof m === 'string' && m !== '')
+    : [];
+  return {
+    id,
+    nickname:
+      typeof record.nickname === 'string' && record.nickname !== '' ? record.nickname : null,
+    transferMethods,
   };
 }

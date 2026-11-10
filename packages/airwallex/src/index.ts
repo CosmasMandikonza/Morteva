@@ -27,9 +27,15 @@ export type { FixtureScript, FixtureStep, FixtureTransfer } from './fixture-tran
 export {
   AirwallexClient,
   AirwallexDefinitiveRejectionError,
+  parseBeneficiaryRecord,
   parseTransferRecord,
 } from './client.js';
-export type { AirwallexBalance, AirwallexTransferRecord } from './client.js';
+export type {
+  AirwallexBalance,
+  AirwallexBeneficiary,
+  AirwallexBeneficiaryPage,
+  AirwallexTransferRecord,
+} from './client.js';
 
 export {
   AirwallexDispatcher,
