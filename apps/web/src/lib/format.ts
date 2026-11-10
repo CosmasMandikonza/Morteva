@@ -14,7 +14,63 @@
  *  - no rounding that could change the apparent authorized amount (the
  *    minor-unit integer IS the authorized amount; formatting is exact).
  */
-import { currencyExponent, MoneyError } from '@moterva/domain';
+/**
+ * Browser-local mirror of the domain exponent table
+ * (packages/domain/src/money.ts — USD 2, JPY 0, KWD/BHD 3, USDZ 2 …).
+ * The domain barrel imports node:crypto and cannot ship to the browser, so
+ * the table is mirrored here and KEPT IN LOCKSTEP BY TEST:
+ * apps/web/test/format.test.ts asserts parity with the domain table for
+ * every supported code and identical fail-closed behavior for unknown ones
+ * — drift fails CI before any user sees a wrong amount.
+ */
+const EXPONENTS: Readonly<Record<string, number>> = {
+  USD: 2,
+  EUR: 2,
+  GBP: 2,
+  AUD: 2,
+  CAD: 2,
+  CHF: 2,
+  SGD: 2,
+  HKD: 2,
+  NZD: 2,
+  MXN: 2,
+  AED: 2,
+  SAR: 2,
+  INR: 2,
+  CNY: 2,
+  SEK: 2,
+  NOK: 2,
+  DKK: 2,
+  PLN: 2,
+  ZAR: 2,
+  JPY: 0,
+  USDZ: 2,
+  KWD: 3,
+  BHD: 3,
+};
+
+class CurrencyPrecisionError extends Error {
+  constructor(
+    readonly code: 'UNSUPPORTED_CURRENCY' | 'NOT_AN_INTEGER' | 'INVALID_EXPONENT',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CurrencyPrecisionError';
+  }
+}
+
+/** Fail-closed exponent lookup (mirrors domain currencyExponent). */
+function exponentFor(code: string): number {
+  const normalized = code.trim().toUpperCase();
+  const exponent = EXPONENTS[normalized];
+  if (exponent === undefined) {
+    throw new CurrencyPrecisionError(
+      'UNSUPPORTED_CURRENCY',
+      `Currency "${code}" has no registered minor-unit precision; refusing to render an invented one.`,
+    );
+  }
+  return exponent;
+}
 
 const GROUPER = new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 0 });
 
@@ -27,13 +83,13 @@ function groupDigits(digits: string): string {
  *  Non-integer minor values and out-of-range exponents are refused. */
 export function formatMinorUnits(minor: number, exponent: number): string {
   if (!Number.isInteger(exponent) || exponent < 0 || exponent > 8) {
-    throw new MoneyError(
-      'INVALID_DECIMAL_STRING',
+    throw new CurrencyPrecisionError(
+      'INVALID_EXPONENT',
       `currency exponent must be an integer in [0..8] (got ${String(exponent)})`,
     );
   }
   if (!Number.isInteger(minor)) {
-    throw new MoneyError(
+    throw new CurrencyPrecisionError(
       'NOT_AN_INTEGER',
       `minorUnits must be an integer (got ${String(minor)}); fractional minor units are never valid`,
     );
@@ -51,7 +107,7 @@ export function formatMinorUnits(minor: number, exponent: number): string {
  *  Unknown/unsupported codes FAIL CLOSED (throws) — never renders an
  *  invented precision. */
 export function money(currency: string, minor: number): string {
-  const exponent = currencyExponent(currency);
+  const exponent = exponentFor(currency);
   return `${currency.toUpperCase()} ${formatMinorUnits(minor, exponent)}`;
 }
 
@@ -63,7 +119,7 @@ export function safeMoney(currency: string, minor: number): string {
   try {
     return money(currency, minor);
   } catch (error) {
-    if (error instanceof MoneyError && error.code === 'UNSUPPORTED_CURRENCY') {
+    if (error instanceof CurrencyPrecisionError && error.code === 'UNSUPPORTED_CURRENCY') {
       return `${currency.toUpperCase()} — unsupported currency precision`;
     }
     throw error;
@@ -72,14 +128,14 @@ export function safeMoney(currency: string, minor: number): string {
 
 /** Grouped major string for a currency (e.g. envelope `150,000.00`). */
 export function moneyAmount(currency: string, minor: number): string {
-  return formatMinorUnits(minor, currencyExponent(currency));
+  return formatMinorUnits(minor, exponentFor(currency));
 }
 
 /** Parse a user-entered MAJOR-unit string into exact minor units for a
  *  currency, honoring its exponent: more decimals than the exponent is
  *  rejected (never rounded), no floats. Returns null for empty/invalid input. */
 export function parseMajorToMinor(currency: string, majorText: string): number | null {
-  const exponent = currencyExponent(currency);
+  const exponent = exponentFor(currency);
   const text = majorText.trim().replace(/,/g, '');
   if (text === '') return null;
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);

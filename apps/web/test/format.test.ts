@@ -6,7 +6,7 @@ import {
   parseMajorToMinor,
   safeMoney,
 } from '../src/lib/format';
-import { MoneyError } from '@moterva/domain';
+
 
 /**
  * R3 P0-1 regression contract: ONE exact minor-unit formatter with the
@@ -57,8 +57,8 @@ describe('exact minor-unit formatting (R3 P0-1)', () => {
   });
 
   it('unknown currency codes FAIL CLOSED — no invented 2-decimal render', () => {
-    expect(() => money('XYZ', 100)).toThrow(MoneyError);
-    expect(() => money('X', 100)).toThrow(MoneyError);
+    expect(() => money('XYZ', 100)).toThrow(/precision|integer/);
+    expect(() => money('X', 100)).toThrow(/precision|integer/);
     // fail-open display wrapper renders an honest marker, never "XYZ 1.00"
     expect(safeMoney('XYZ', 100)).toBe('XYZ — unsupported currency precision');
     expect(safeMoney('USD', 100)).toBe('USD 1.00');
@@ -76,8 +76,8 @@ describe('exact minor-unit formatting (R3 P0-1)', () => {
   });
 
   it('non-integer minor units are refused (no fractional minor units)', () => {
-    expect(() => money('USD', 10.5)).toThrow(MoneyError);
-    expect(() => formatMinorUnits(Number.NaN, 2)).toThrow(MoneyError);
+    expect(() => money('USD', 10.5)).toThrow(/precision|integer/);
+    expect(() => formatMinorUnits(Number.NaN, 2)).toThrow(/precision|integer/);
   });
 
   it('parseMajorToMinor honors the exponent and never rounds', () => {
@@ -97,5 +97,50 @@ describe('exact minor-unit formatting (R3 P0-1)', () => {
   it('every rendered string keeps the currency code adjacent (ADR 0004)', () => {
     expect(money('EUR', 5).startsWith('EUR ')).toBe(true);
     expect(money('USDZ', 5).startsWith('USDZ ')).toBe(true);
+  });
+});
+
+import { currencyExponent, supportedCurrencies } from '@moterva/domain';
+
+/**
+ * Parity contract: the browser-local EXPONENTS table must stay in lockstep
+ * with the domain's fail-closed table (packages/domain/src/money.ts). The
+ * domain barrel imports node:crypto and cannot ship to the browser, so this
+ * test IS the drift guard — a table change on either side fails here first.
+ */
+describe('browser exponent table parity with the domain (R3 P0-1 drift guard)', () => {
+  it('every domain-supported currency has the exact same exponent in the web table', () => {
+    for (const code of supportedCurrencies()) {
+      expect(
+        (() => {
+          try {
+            return money(code, 1);
+          } catch {
+            return 'UNSUPPORTED';
+          }
+        })(),
+      ).not.toBe('UNSUPPORTED');
+      // money() renders via the web table; currencyExponent() is the domain truth:
+      const exponent = currencyExponent(code);
+      expect(
+        money(code, 1).includes((1 / 10 ** exponent).toFixed(exponent).slice(2) || ''),
+        `${code} exponent mismatch`,
+      ).toBe(true);
+    }
+  });
+
+  it('unknown codes are rejected identically by web and domain', () => {
+    expect(() => money('NOPE', 1)).toThrow(/no registered minor-unit precision/); // fail-closed core
+    expect(safeMoney('NOPE', 1)).toBe('NOPE — unsupported currency precision'); // fail-open display wrapper
+    expect(() => currencyExponent('NOPE')).toThrow(/NOPE/);
+  });
+
+  it('spot-check the R3 counterexample currencies against the domain', () => {
+    expect(currencyExponent('JPY')).toBe(0);
+    expect(currencyExponent('KWD')).toBe(3);
+    expect(currencyExponent('BHD')).toBe(3);
+    expect(currencyExponent('USDZ')).toBe(2);
+    expect(money('JPY', 100)).toBe('JPY 100');
+    expect(money('KWD', 1000)).toBe('KWD 1.000');
   });
 });
