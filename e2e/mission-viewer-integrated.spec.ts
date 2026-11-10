@@ -90,12 +90,11 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
 
   // ---- S0: live viewer before any evidence — honest initial state --------
   const viewer = page.locator('[data-testid="decision-room"] [data-testid="mission-viewer"]');
-  await expect(viewer).toHaveAttribute('data-availability', 'ready', { timeout: 30_000 });
-  if (await page.getByTestId('mpv-unavailable-reason').count()) {
-    throw new Error(
-      'UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()),
-    );
+  await page.waitForTimeout(3000);
+  if ((await page.getByTestId('mpv-unavailable-reason').count()) > 0) {
+    throw new Error('UNAVAILABLE REASON: ' + (await page.getByTestId('mpv-unavailable-reason').innerText()));
   }
+  await expect(viewer).toHaveAttribute('data-availability', 'ready', { timeout: 30_000 });
   await expect(viewer).toHaveAttribute('data-phase', 'S0-initial');
   await expect(page.getByTestId('mpv-phase')).toContainText('unknown by design');
   // S0 never implies clearance.
