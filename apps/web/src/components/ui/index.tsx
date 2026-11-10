@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { JSX } from 'react';
+export { HaloTabs } from './HaloTabs';
 import { moneyAmount } from '../../lib/format';
 
 /**
@@ -27,105 +28,6 @@ import { moneyAmount } from '../../lib/format';
  * public repository (Commons Clause redistribution gate).
  */
 
-/** Halo Tabs — Finance/Operations/Evidence-style view switch with a sliding
- *  direction-aware indicator. Roving tabindex + arrow keys per tablist ARIA. */
-export function HaloTabs<T extends string>({
-  tabs,
-  value,
-  onChange,
-  ariaLabel,
-}: {
-  tabs: readonly { readonly id: T; readonly label: string; readonly count?: number }[];
-  value: T;
-  onChange: (id: T) => void;
-  ariaLabel: string;
-}): JSX.Element {
-  const baseId = useId();
-  const listRef = useRef<HTMLDivElement>(null);
-  const onKeyDown = (event: React.KeyboardEvent): void => {
-    const idx = tabs.findIndex((t) => t.id === value);
-    const next =
-      event.key === 'ArrowRight'
-        ? (idx + 1) % tabs.length
-        : event.key === 'ArrowLeft'
-          ? (idx - 1 + tabs.length) % tabs.length
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? tabs.length - 1
-              : idx;
-    if (next === idx) return;
-    event.preventDefault();
-    onChange(tabs[next]!.id);
-    listRef.current
-      ?.querySelector<HTMLElement>(`#${CSS.escape(`${baseId}-tab-${tabs[next]!.id}`)}`)
-      ?.focus();
-  };
-  const activeIndex = Math.max(
-    0,
-    tabs.findIndex((t) => t.id === value),
-  );
-  return (
-    <div
-      className="mv-halotabs"
-      role="tablist"
-      aria-label={ariaLabel}
-      ref={listRef}
-      onKeyDown={onKeyDown}
-      style={
-        {
-          '--mv-halotabs-count': String(tabs.length),
-          '--mv-halotabs-active': String(activeIndex),
-        } as React.CSSProperties
-      }
-    >
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          id={`${baseId}-tab-${t.id}`}
-          type="button"
-          role="tab"
-          aria-selected={t.id === value}
-          aria-controls={`${baseId}-panel-${t.id}`}
-          tabIndex={t.id === value ? 0 : -1}
-          className={`mv-halotabs__tab${t.id === value ? ' is-active' : ''}`}
-          data-testid={`halotab-${t.id}`}
-          onClick={() => onChange(t.id)}
-        >
-          {t.label}
-          {t.count !== undefined && <span className="mv-halotabs__count">{t.count}</span>}
-        </button>
-      ))}
-      <span className="mv-halotabs__indicator" aria-hidden="true" />
-    </div>
-  );
-}
-
-export function HaloTabPanel({
-  id,
-  baseId,
-  active,
-  children,
-}: {
-  id: string;
-  baseId: string;
-  active: boolean;
-  children: ReactNode;
-}): JSX.Element {
-  return (
-    <div
-      id={`${baseId}-panel-${id}`}
-      role="tabpanel"
-      aria-labelledby={`${baseId}-tab-${id}`}
-      hidden={!active}
-      className="mv-halotabs__panel"
-    >
-      {children}
-    </div>
-  );
-}
-
-/** Halo Segmented — single-select control (Treasury lenses, replay topics). */
 export function HaloSegmented<T extends string>({
   options,
   value,

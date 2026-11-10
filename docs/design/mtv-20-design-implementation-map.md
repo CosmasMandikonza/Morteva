@@ -31,7 +31,7 @@ resolves to a ledger row).
 ### Navigation / shell
 | Reference (exact URL) | MOTERVA artifact | Function | License note |
 | --- | --- | --- | --- |
-| https://www.cult-ui.com/docs/components/halo-tabs | `components/ui/HaloTabs.tsx` (original: CSS sliding indicator, `role=tablist`, roving tabindex, arrow keys) | Decision Room Finance/Operations/Evidence switch without losing mission state | MIT pattern; original code |
+| https://www.cult-ui.com/docs/components/halo-tabs | `components/ui/HaloTabs.tsx (module: components/ui/index.tsx)` (original: CSS sliding indicator, `role=tablist`, roving tabindex, arrow keys) | Decision Room Finance/Operations/Evidence switch without losing mission state | MIT pattern; original code |
 | https://www.cult-ui.com/docs/components/direction-aware-tabs | Indicator direction logic folded into HaloTabs (indicator slides from the previous tab's side) | Same | MIT pattern; original code |
 | https://www.cult-ui.com/docs/components/halo-segmented | `components/ui/HaloSegmented.tsx` (single-select, spring thumb analog = CSS transition under motion token) | Treasury lens switch (Positions / Missions / Exceptions), replay topic segmented | MIT pattern; original code |
 | https://www.cult-ui.com/docs/components/onboarding | Mandate wizard step indicator upgrade in `OnboardingDialog.tsx` (numbered steps, canGoNext gates — already enforced by exact-review step) | Mission/mandate onboarding | MIT pattern; original code |

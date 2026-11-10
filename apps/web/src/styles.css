@@ -2287,3 +2287,12 @@ a {
   outline: var(--mv-focus-width) solid var(--mv-accent-text);
   outline-offset: var(--mv-focus-offset);
 }
+
+/* P1-6 tone fix: internal workflow 'done' steps use neutral authority ink —
+   verified green is reserved for provider-verified SETTLED/RECONCILED. */
+.mv-stepper__step.is-done .mv-stepper__marker {
+  color: var(--mv-ink-1);
+}
+.mv-stepper__step.is-done .mv-stepper__label {
+  color: var(--mv-ink-1);
+}

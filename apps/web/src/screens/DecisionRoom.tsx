@@ -29,7 +29,6 @@ import {
   CopyButton,
   ExpandableCard,
   HaloBadge,
-  HaloTabPanel,
   HaloTabs,
   SkeletonRows,
   Stepper,
@@ -419,6 +418,214 @@ export function DecisionRoom({
     approvals.find((a) => a.planId === planId && a.planVersion === planVersion) ?? null;
   const incidentRecorded = incidentSnapshot !== null;
 
+  // Halo Tabs (R3 P1-4): tablist + panels share ONE component-generated
+  // baseId; all three panels always render (inactive = hidden) so
+  // aria-controls/aria-labelledby always resolve and nothing hidden is
+  // keyboard-focusable.
+  const FINANCE_PANEL = (
+    <>
+      {/* before/after as expandable candidate cards */}
+      <div className="mv-droom__cards">
+        <DecisionExpandable
+          title="Before · initial plan"
+          decision={journey?.before ?? null}
+          tone="noaction"
+        />
+        <DecisionExpandable
+          title="After · updated constraints"
+          decision={journey?.after ?? null}
+          tone={journey?.after?.selected ? 'selected' : 'noaction'}
+          defaultOpen={journey?.stage === 'incident'}
+        />
+      </div>
+
+      {/* server-authoritative ID-only proposal (planner-derived golden path) */}
+      {incidentSnapshot !== null && (
+        <section
+          className="mv-governed"
+          aria-label="Governed follow-through"
+          data-testid="governed-actions"
+        >
+          <h3 className="mv-droom__secttitle">From recorded evaluation to governed action</h3>
+          <p className="mv-governed__lead">
+            The proposal is created <strong>only</strong> from the recorded incident evaluation: the
+            server derives the economic terms from its own durable snapshot and journal (
+            <span className="mv-num" title={incidentSnapshot.evaluationId}>
+              {incidentSnapshot.evaluationId.slice(0, 14)}…
+            </span>
+            ). No amount, beneficiary or purpose is entered here.
+          </p>
+          <p className="mv-governed__note">{outcomeLine(incidentSnapshot.decision)}</p>
+          <button
+            type="button"
+            className="mv-btn mv-btn--primary"
+            data-testid="propose-plan"
+            disabled={proposeBusy || csrfToken === null}
+            onClick={() => proposeFromEvaluation(incidentSnapshot.evaluationId)}
+          >
+            {proposeBusy ? 'Proposing…' : 'Propose plan from recorded evaluation'}
+          </button>
+          {!mayPropose(role) && (
+            <p className="mv-governed__note">
+              Your role ({role ?? 'unknown'}) does not carry a propose grant — the server will
+              refuse the submission (operator or above required).
+            </p>
+          )}
+          {proposeError !== null && (
+            <p className="mv-sheet__error" role="alert" data-testid="propose-error">
+              {proposeError.code}: {proposeError.message}
+            </p>
+          )}
+          <details className="mv-governed__manual">
+            <summary data-testid="open-manual">Manual plan entry — NOT planner-derived</summary>
+            <p className="mv-governed__note">
+              Separate, clearly-labeled generic plan entry. It does not claim the planner&rsquo;s
+              selected terms, evidence or costs.
+            </p>
+            <button
+              type="button"
+              className="mv-btn"
+              data-testid="open-manual-sheet"
+              disabled={csrfToken === null}
+              onClick={() => setSheet('manual')}
+            >
+              Open manual plan entry
+            </button>
+          </details>
+        </section>
+      )}
+
+      {/* persisted proposals + journal-verified approvals (server truth) */}
+      <section
+        className="mv-governed"
+        aria-label="Recorded proposals and approvals"
+        data-testid="decision-plans"
+      >
+        <h3 className="mv-droom__secttitle">Recorded proposals</h3>
+        {plans.length === 0 ? (
+          <p className="mv-governed__note">
+            No plans proposed for this mission yet. Proposals appear here from the server&rsquo;s
+            durable record — visible to a different approver after logout/login and after reload.
+          </p>
+        ) : (
+          <ul className="mv-governed__list">
+            {plans.map((p) => {
+              const recorded = planFor(p.plan.id, p.plan.version);
+              return (
+                <li key={`${p.plan.id}:${String(p.plan.version)}`} data-testid="decision-plan-row">
+                  <span className="mv-num" title={p.plan.id}>
+                    {p.plan.id.slice(0, 16)}…
+                  </span>{' '}
+                  v{String(p.plan.version)} ·{' '}
+                  <strong data-testid="plan-terms">
+                    {moneyOf(p.plan.terms.currency, p.plan.terms.amountMinor)} ·{' '}
+                    {p.plan.terms.beneficiary} · {p.plan.terms.purpose}
+                  </strong>
+                  <br />
+                  <span className="mv-hud">
+                    from evaluation {p.evaluationId.slice(0, 14)}… · proposed by{' '}
+                    <span className="mv-num" title={p.proposedBy}>
+                      {p.proposedBy.slice(0, 10)}…
+                    </span>{' '}
+                    · digest{' '}
+                    <span className="mv-num" title={p.plan.digest}>
+                      {p.plan.digest.slice(0, 12)}…
+                    </span>
+                    <CopyButton value={p.plan.digest} label="digest" /> · provider verified: no
+                  </span>
+                  <br />
+                  {recorded !== null ? (
+                    <p data-testid="plan-approval-recorded">
+                      Approval recorded (journal-verified):{' '}
+                      <span className="mv-num" title={recorded.approvalId}>
+                        {recorded.approvalId}
+                      </span>{' '}
+                      · kind {recorded.kind} · decided by{' '}
+                      <span className="mv-num" title={recorded.decidedBy}>
+                        {recorded.decidedBy.slice(0, 10)}…
+                      </span>
+                    </p>
+                  ) : (
+                    mayApprove(role) && (
+                      <button
+                        type="button"
+                        className="mv-btn mv-btn--primary"
+                        data-testid="open-approve"
+                        disabled={csrfToken === null}
+                        onClick={() => {
+                          setApproveTarget(p);
+                          setSheet('approve');
+                        }}
+                      >
+                        Review and approve this plan
+                      </button>
+                    )
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="mv-governed__note">
+          Provider verification: none — no provider observation exists for any recorded proposal.
+          Approval, reservation and provider settlement remain separate, later controls.
+        </p>
+      </section>
+    </>
+  );
+
+  const OPERATIONS_PANEL = (
+    <>
+      <section className="mv-governed" aria-label="Workflow state">
+        <h3 className="mv-droom__secttitle">Workflow</h3>
+        <Stepper
+          ariaLabel="Mission decision workflow"
+          steps={journeySteps(journey, incidentRecorded)}
+        />
+      </section>
+      <section className="mv-governed" aria-label="Live evaluation detail">
+        <h3 className="mv-droom__secttitle">Live evaluation detail</h3>
+        <p className="mv-governed__note">
+          The full alternatives/reasons breakdown for the live journey evaluations lives on the
+          Finance cards (expand After · updated constraints). This lens follows the operational
+          story as the physical evidence lands.
+        </p>
+        {journey?.incident !== null && journey?.incident !== undefined ? (
+          <p className="mv-droom__incidentreading">
+            {journey.incident.reading} — the 24.6 kt observation exceeds the modeled 22 kt UAV
+            operating threshold; the safety policy blocks the UAV alternative and the planner
+            reselects under the revised constraints.
+          </p>
+        ) : (
+          <p className="mv-governed__note">
+            No incident admitted yet — the operational story begins with the signed observation.
+          </p>
+        )}
+      </section>
+    </>
+  );
+
+  const EVIDENCE_PANEL = (
+    <>
+      <section className="mv-governed" aria-label="Evidence chain">
+        <h3 className="mv-droom__secttitle">Evidence chain</h3>
+        <p className="mv-governed__note">
+          Every identity on this screen — event ids, evaluation ids, plan digests — is journaled and
+          replayable on the Evidence surface with the same identity.
+        </p>
+        <a href="#evidence">Inspect mission evidence in Evidence Replay →</a>
+        <p className="mv-decision-room__disclaimer" data-testid="decision-provenance">
+          {journey?.disclaimer ??
+            'Synthetic inspection only. No Airwallex funds or live physical vehicle are involved.'}
+        </p>
+        <p className="mv-governed__note">
+          Every decision is a proposal. Approval, reservation, provider execution and service
+          delivery are separate controls; none is implied by this demonstration.
+        </p>
+      </section>
+    </>
+  );
+
   return (
     <Panel
       title="Physical incident → financial decision"
@@ -600,225 +807,14 @@ export function DecisionRoom({
               { id: 'operations', label: 'Operations' },
               { id: 'evidence', label: 'Evidence' },
             ]}
+            panels={[
+              { id: 'finance', content: FINANCE_PANEL },
+              { id: 'operations', content: OPERATIONS_PANEL },
+              { id: 'evidence', content: EVIDENCE_PANEL },
+            ]}
             value={lens}
             onChange={setLens}
           />
-
-          {lens === 'finance' && (
-            <HaloTabPanel id="finance" baseId="" active>
-              {/* before/after as expandable candidate cards */}
-              <div className="mv-droom__cards">
-                <DecisionExpandable
-                  title="Before · initial plan"
-                  decision={journey?.before ?? null}
-                  tone="noaction"
-                />
-                <DecisionExpandable
-                  title="After · updated constraints"
-                  decision={journey?.after ?? null}
-                  tone={journey?.after?.selected ? 'selected' : 'noaction'}
-                  defaultOpen={journey?.stage === 'incident'}
-                />
-              </div>
-
-              {/* server-authoritative ID-only proposal (planner-derived golden path) */}
-              {incidentSnapshot !== null && (
-                <section
-                  className="mv-governed"
-                  aria-label="Governed follow-through"
-                  data-testid="governed-actions"
-                >
-                  <h3 className="mv-droom__secttitle">
-                    From recorded evaluation to governed action
-                  </h3>
-                  <p className="mv-governed__lead">
-                    The proposal is created <strong>only</strong> from the recorded incident
-                    evaluation: the server derives the economic terms from its own durable snapshot
-                    and journal (
-                    <span className="mv-num" title={incidentSnapshot.evaluationId}>
-                      {incidentSnapshot.evaluationId.slice(0, 14)}…
-                    </span>
-                    ). No amount, beneficiary or purpose is entered here.
-                  </p>
-                  <p className="mv-governed__note">{outcomeLine(incidentSnapshot.decision)}</p>
-                  <button
-                    type="button"
-                    className="mv-btn mv-btn--primary"
-                    data-testid="propose-plan"
-                    disabled={proposeBusy || csrfToken === null}
-                    onClick={() => proposeFromEvaluation(incidentSnapshot.evaluationId)}
-                  >
-                    {proposeBusy ? 'Proposing…' : 'Propose plan from recorded evaluation'}
-                  </button>
-                  {!mayPropose(role) && (
-                    <p className="mv-governed__note">
-                      Your role ({role ?? 'unknown'}) does not carry a propose grant — the server
-                      will refuse the submission (operator or above required).
-                    </p>
-                  )}
-                  {proposeError !== null && (
-                    <p className="mv-sheet__error" role="alert" data-testid="propose-error">
-                      {proposeError.code}: {proposeError.message}
-                    </p>
-                  )}
-                  <details className="mv-governed__manual">
-                    <summary data-testid="open-manual">
-                      Manual plan entry — NOT planner-derived
-                    </summary>
-                    <p className="mv-governed__note">
-                      Separate, clearly-labeled generic plan entry. It does not claim the
-                      planner&rsquo;s selected terms, evidence or costs.
-                    </p>
-                    <button
-                      type="button"
-                      className="mv-btn"
-                      data-testid="open-manual-sheet"
-                      disabled={csrfToken === null}
-                      onClick={() => setSheet('manual')}
-                    >
-                      Open manual plan entry
-                    </button>
-                  </details>
-                </section>
-              )}
-
-              {/* persisted proposals + journal-verified approvals (server truth) */}
-              <section
-                className="mv-governed"
-                aria-label="Recorded proposals and approvals"
-                data-testid="decision-plans"
-              >
-                <h3 className="mv-droom__secttitle">Recorded proposals</h3>
-                {plans.length === 0 ? (
-                  <p className="mv-governed__note">
-                    No plans proposed for this mission yet. Proposals appear here from the
-                    server&rsquo;s durable record — visible to a different approver after
-                    logout/login and after reload.
-                  </p>
-                ) : (
-                  <ul className="mv-governed__list">
-                    {plans.map((p) => {
-                      const recorded = planFor(p.plan.id, p.plan.version);
-                      return (
-                        <li
-                          key={`${p.plan.id}:${String(p.plan.version)}`}
-                          data-testid="decision-plan-row"
-                        >
-                          <span className="mv-num" title={p.plan.id}>
-                            {p.plan.id.slice(0, 16)}…
-                          </span>{' '}
-                          v{String(p.plan.version)} ·{' '}
-                          <strong data-testid="plan-terms">
-                            {moneyOf(p.plan.terms.currency, p.plan.terms.amountMinor)} ·{' '}
-                            {p.plan.terms.beneficiary} · {p.plan.terms.purpose}
-                          </strong>
-                          <br />
-                          <span className="mv-hud">
-                            from evaluation {p.evaluationId.slice(0, 14)}… · proposed by{' '}
-                            <span className="mv-num" title={p.proposedBy}>
-                              {p.proposedBy.slice(0, 10)}…
-                            </span>{' '}
-                            · digest{' '}
-                            <span className="mv-num" title={p.plan.digest}>
-                              {p.plan.digest.slice(0, 12)}…
-                            </span>
-                            <CopyButton value={p.plan.digest} label="digest" /> · provider verified:
-                            no
-                          </span>
-                          <br />
-                          {recorded !== null ? (
-                            <p data-testid="plan-approval-recorded">
-                              Approval recorded (journal-verified):{' '}
-                              <span className="mv-num" title={recorded.approvalId}>
-                                {recorded.approvalId}
-                              </span>{' '}
-                              · kind {recorded.kind} · decided by{' '}
-                              <span className="mv-num" title={recorded.decidedBy}>
-                                {recorded.decidedBy.slice(0, 10)}…
-                              </span>
-                            </p>
-                          ) : (
-                            mayApprove(role) && (
-                              <button
-                                type="button"
-                                className="mv-btn mv-btn--primary"
-                                data-testid="open-approve"
-                                disabled={csrfToken === null}
-                                onClick={() => {
-                                  setApproveTarget(p);
-                                  setSheet('approve');
-                                }}
-                              >
-                                Review and approve this plan
-                              </button>
-                            )
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                <p className="mv-governed__note">
-                  Provider verification: none — no provider observation exists for any recorded
-                  proposal. Approval, reservation and provider settlement remain separate, later
-                  controls.
-                </p>
-              </section>
-            </HaloTabPanel>
-          )}
-
-          {lens === 'operations' && (
-            <HaloTabPanel id="operations" baseId="" active>
-              <section className="mv-governed" aria-label="Workflow state">
-                <h3 className="mv-droom__secttitle">Workflow</h3>
-                <Stepper
-                  ariaLabel="Mission decision workflow"
-                  steps={journeySteps(journey, incidentRecorded)}
-                />
-              </section>
-              <section className="mv-governed" aria-label="Live evaluation detail">
-                <h3 className="mv-droom__secttitle">Live evaluation detail</h3>
-                <p className="mv-governed__note">
-                  The full alternatives/reasons breakdown for the live journey evaluations lives on
-                  the Finance cards (expand After · updated constraints). This lens follows the
-                  operational story as the physical evidence lands.
-                </p>
-                {journey?.incident !== null && journey?.incident !== undefined ? (
-                  <p className="mv-droom__incidentreading">
-                    {journey.incident.reading} — the 24.6 kt observation exceeds the modeled 22 kt
-                    UAV operating threshold; the safety policy blocks the UAV alternative and the
-                    planner reselects under the revised constraints.
-                  </p>
-                ) : (
-                  <p className="mv-governed__note">
-                    No incident admitted yet — the operational story begins with the signed
-                    observation.
-                  </p>
-                )}
-              </section>
-            </HaloTabPanel>
-          )}
-
-          {lens === 'evidence' && (
-            <HaloTabPanel id="evidence" baseId="" active>
-              <section className="mv-governed" aria-label="Evidence chain">
-                <h3 className="mv-droom__secttitle">Evidence chain</h3>
-                <p className="mv-governed__note">
-                  Every identity on this screen — event ids, evaluation ids, plan digests — is
-                  journaled and replayable on the Evidence surface with the same identity.
-                </p>
-                <a href="#evidence">Inspect mission evidence in Evidence Replay →</a>
-                <p className="mv-decision-room__disclaimer" data-testid="decision-provenance">
-                  {journey?.disclaimer ??
-                    'Synthetic inspection only. No Airwallex funds or live physical vehicle are involved.'}
-                </p>
-                <p className="mv-governed__note">
-                  Every decision is a proposal. Approval, reservation, provider execution and
-                  service delivery are separate controls; none is implied by this demonstration.
-                </p>
-              </section>
-            </HaloTabPanel>
-          )}
         </section>
       </div>
 

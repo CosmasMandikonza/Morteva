@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { Panel } from '../components/Panel';
 import {
+  ApiError,
   approvalsFromEvidence,
   fetchDecisionPlans,
   fetchMandates,
@@ -44,21 +45,48 @@ export function AuthorityExecution({
   const [approvals, setApprovals] = useState<RecordedApproval[]>([]);
   const [mandates, setMandates] = useState<readonly MandateRow[]>([]);
   const [operations, setOperations] = useState<OperationListView | null>(null);
-  const [loading, setLoading] = useState(true);
+  /** Per-read outcome: each section renders its own truth — R3 P1-5 forbids
+   *  collapsing a failed read into an "empty" state. */
+  type ReadState =
+    | { kind: 'loading' }
+    | { kind: 'ready' }
+    | { kind: 'error'; status: number | null; code: string };
+  const [plansState, setPlansState] = useState<ReadState>({ kind: 'loading' });
+  const [mandatesState, setMandatesState] = useState<ReadState>({ kind: 'loading' });
+  const [opsState, setOpsState] = useState<ReadState>({ kind: 'loading' });
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'none' | 'approve'>('none');
   const [approveTarget, setApproveTarget] = useState<DecisionPlanProposal | null>(null);
   const role = session.kind === 'signed-in' ? session.session.actor.role : null;
 
-  const refresh = useCallback((missionId: string, signal: AbortSignal): void => {
-    fetchDecisionPlans(missionId, signal)
-      .then((r) => {
-        if (!signal.aborted) setPlans(r.plans);
-      })
-      .catch(() => undefined);
-    fetchMissionEvidence(missionId, { topic: 'financial', limit: 100 }, signal)
-      .then((r) => {
-        if (!signal.aborted) {
+  const refresh = useCallback(
+    (missionId: string, signal: AbortSignal): void => {
+      const settle =
+        (set: (v: ReadState) => void): ((error: unknown) => void) =>
+        (error: unknown) => {
+          if (signal.aborted) return; // stale request (mission/org/tab changed)
+          if (error instanceof ApiError && error.status === 401) {
+            onSessionExpired(); // expired/revoked session — drop everything
+            return;
+          }
+          set({
+            kind: 'error',
+            status: error instanceof ApiError ? error.status : null,
+            code: error instanceof ApiError ? error.code : 'NETWORK',
+          });
+        };
+      fetchDecisionPlans(missionId, signal)
+        .then((r) => {
+          if (signal.aborted) return;
+          setPlans(r.plans);
+          setPlansState({ kind: 'ready' });
+          // plans list non-empty is still "empty" kind for the section note;
+          // rows render from r.plans — the kind only drives the note text.
+        })
+        .catch(settle(setPlansState));
+      fetchMissionEvidence(missionId, { topic: 'financial', limit: 100 }, signal)
+        .then((r) => {
+          if (signal.aborted) return;
           setApprovals(
             approvalsFromEvidence(
               r.events.map((e) => ({
@@ -67,20 +95,25 @@ export function AuthorityExecution({
               })),
             ),
           );
-        }
-      })
-      .catch(() => undefined);
-    fetchMandates(missionId, signal)
-      .then((rows) => {
-        if (!signal.aborted) setMandates(rows);
-      })
-      .catch(() => undefined);
-    fetchOperations({ missionId, limit: 25 }, signal)
-      .then((r) => {
-        if (!signal.aborted) setOperations(r);
-      })
-      .catch(() => undefined);
-  }, []);
+        })
+        .catch(settle(() => undefined)); // approvals piggyback on the evidence read
+      fetchMandates(missionId, signal)
+        .then((rows) => {
+          if (signal.aborted) return;
+          setMandates(rows);
+          setMandatesState({ kind: 'ready' });
+        })
+        .catch(settle(setMandatesState));
+      fetchOperations({ missionId, limit: 25 }, signal)
+        .then((r) => {
+          if (signal.aborted) return;
+          setOperations(r);
+          setOpsState({ kind: 'ready' });
+        })
+        .catch(settle(setOpsState));
+    },
+    [onSessionExpired],
+  );
 
   useEffect(() => {
     if (session.kind !== 'signed-in' || mission === null) {
@@ -88,20 +121,19 @@ export function AuthorityExecution({
       setApprovals([]);
       setMandates([]);
       setOperations(null);
+      setPlansState({ kind: 'loading' });
+      setMandatesState({ kind: 'loading' });
+      setOpsState({ kind: 'loading' });
       setSheet('none');
       return;
     }
     const controller = new AbortController();
-    setLoading(true);
     setError(null);
+    setPlansState({ kind: 'loading' });
+    setMandatesState({ kind: 'loading' });
+    setOpsState({ kind: 'loading' });
     refresh(mission.id, controller.signal);
-    // Loading ends when the first wave settles; individual panels degrade
-    // independently (an unavailable renderer must not block finances).
-    const t = window.setTimeout(() => setLoading(false), 1200);
-    return () => {
-      controller.abort();
-      window.clearTimeout(t);
-    };
+    return () => controller.abort();
   }, [mission?.id, session.kind, refresh, onSessionExpired]);
 
   const effective = mandates.filter(
@@ -126,6 +158,21 @@ export function AuthorityExecution({
     );
   }
 
+  /** R3 P1-5: per-section outcome note — a failed read NEVER renders as
+   *  "no mandates"/"no proposals". Distinct states: loading, truly empty,
+   *  401 (handled upstream), 403, 404, 429, 500, network, aborted. */
+  const sectionNote = (state: ReadState, emptyText: string, label: string): JSX.Element | null => {
+    if (state.kind === 'loading') return <SkeletonRows rows={2} />;
+    if (state.kind === 'ready') return null;
+    const status = state.status !== null ? String(state.status) : 'network';
+    return (
+      <p className="mv-sheet__error" role="alert">
+        “{label}” read failed (HTTP {status} · {state.code}) — the data is unavailable, NOT empty.
+        Retry by reselecting the mission.
+      </p>
+    );
+  };
+
   const planFor = (planId: string, planVersion: number) =>
     approvals.find((a) => a.planId === planId && a.planVersion === planVersion) ?? null;
 
@@ -145,12 +192,16 @@ export function AuthorityExecution({
           {error}
         </p>
       )}
-      {loading && plans.length === 0 && mandates.length === 0 && <SkeletonRows rows={4} />}
+      {(plansState.kind === 'loading' || mandatesState.kind === 'loading') &&
+        plans.length === 0 &&
+        mandates.length === 0 && <SkeletonRows rows={4} />}
 
       {/* ---- spending authority (mandates) with envelope consumption ---- */}
       <section className="mv-auth__section" aria-label="Spending authority">
         <h3 className="mv-auth__head">Spending authority under this mission</h3>
-        {effective.length === 0 ? (
+        {mandatesState.kind === 'error' ? (
+          sectionNote(mandatesState, '', 'Spending authority')
+        ) : effective.length === 0 ? (
           <p className="mv-governed__note">
             No effective mandate — spending authority is granted in Mission Treasury (owner/admin,
             exact review). Without it, no payment can be proposed, approved or reserved.
@@ -160,7 +211,7 @@ export function AuthorityExecution({
             {effective.map((m) => (
               <li key={m.id} className="mv-auth__mandate" data-testid="authority-mandate">
                 <div className="mv-auth__mandatehead">
-                  <HaloBadge tone="verified" glyph="◆" label={`active · v${String(m.version)}`} />
+                  <HaloBadge tone="info" glyph="◆" label={`active · v${String(m.version)}`} />
                   <span className="mv-num mv-auth__mandatecap">
                     {safeMoney(m.currency, m.max_amount_minor)} per action
                   </span>
@@ -204,7 +255,9 @@ export function AuthorityExecution({
       {/* ---- exact-term proposals + approval state ---- */}
       <section className="mv-auth__section" aria-label="Proposals and approvals">
         <h3 className="mv-auth__head">Immutable proposals awaiting authority</h3>
-        {plans.length === 0 ? (
+        {plansState.kind === 'error' ? (
+          sectionNote(plansState, '', 'Proposals')
+        ) : plans.length === 0 ? (
           <p className="mv-governed__note">
             No proposals recorded for this mission. Propose from a recorded evaluation in the
             Decision Room — terms are derived by the server, never typed.
@@ -329,8 +382,10 @@ export function AuthorityExecution({
       {/* ---- operations under this authority ---- */}
       <section className="mv-auth__section" aria-label="Operations under this authority">
         <h3 className="mv-auth__head">Operations executing under this mission</h3>
-        {operations === null ? (
-          <p className="mv-governed__note">Operations are loading or unavailable.</p>
+        {opsState.kind === 'error' ? (
+          sectionNote(opsState, '', 'Operations')
+        ) : operations === null ? (
+          <SkeletonRows rows={2} />
         ) : operations.operations.length === 0 ? (
           <p className="mv-governed__note">No operations yet for this mission.</p>
         ) : (
