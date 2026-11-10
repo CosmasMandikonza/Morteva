@@ -33,13 +33,14 @@ import {
   SkeletonRows,
   Stepper,
 } from '../components/ui';
-// MTV-09/12 (Agent C): physical mission viewport mounted per the CTO
-// integration directive. Placement/styling is Agent B's to evolve. While the
-// physical-view read endpoint is not deployed, this renders the THREE-FREE
-// honest unavailable card (no demo fixture substitution, no 3D bundle cost);
-// when Agent A ships the endpoint, switch to `MissionPhysicalViewerLazy`
-// with `snapshotFromServerPayload(json)` — see AGENT-B-HANDOFF.md.
-import { MissionViewerUnavailableCard } from '../mission-viewer/availability-cards.js';
+// MTV-09/12 (Agent C): LIVE physical mission viewport. The authenticated
+// sanitized physical-view read (Agent A, PR #52 implementation) is fetched
+// per mission inside the module; the strict adapter fails closed on any
+// shape deviation; the lazy chunk loads three.js only when a ready scene
+// exists; failure states render the honest unavailable card — no fixture is
+// EVER substituted for live data. Placement/styling is Agent B
+// —s (this composition).
+import { PhysicalMissionViewport } from '../mission-viewer/PhysicalMissionViewport.js';
 
 // USD catalog amounts via the shared exact formatter (exponent from the
 // domain table — never a local /100).
@@ -679,7 +680,26 @@ export function DecisionRoom({
             with `availability="ready"` (selection below is already wired to
             the journey's incident event id).
           */}
-          <MissionViewerUnavailableCard reason="The physical-view read for this mission is not available on this build (the sanitized mission-evidence read endpoint is not deployed yet). No scene is shown rather than an unverified one — the admitted incident below carries the exact journal identities." />
+          {/*
+            LIVE physical mission viewport (Agent C module). Selection is
+            seeded from the journey
+'s incident event id; scene state derives only from admitted
+            journal events. P1-C: `decisionVerified` is derived ONLY from
+            actual verified financial decision evidence — a recorded incident
+            evaluation (journey.incident AND journey.after present). A wind
+            event alone stays S2; a fetch failure implies no decision.
+          */}
+          <PhysicalMissionViewport
+            key={`${mission.id}:${journey?.stage ?? 'empty'}`}
+            missionId={mission.id}
+            incidentEventId={journey?.incident?.eventId ?? null}
+            decisionVerified={
+              journey?.incident !== null &&
+              journey?.incident !== undefined &&
+              journey?.after !== null &&
+              journey?.after !== undefined
+            }
+          />
 
           <div className="mv-droom__actions">
             <button

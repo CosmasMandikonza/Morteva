@@ -2,8 +2,8 @@
   "description": "Duplicate submission; one journal row → one marker",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_3c71c8f7-74c2-4172-8c33-416552f800c9",
-    "missionId": "msn_4f43fed8-a1f9-44ba-b860-60ac4f53395c"
+    "orgId": "org_9055b020-b6bc-4e46-8446-8073cebd3781",
+    "missionId": "msn_5c979c40-5c2e-4f71-89d6-ecb59bd63abe"
   },
   "asOf": "2026-11-06T09:01:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "233c8e91c43e1824bf73cea88de5ddce498d4442202c0e084da23f3da67d1e39",
+      "eventDigest": "e3477f6d2c990479778ba13ba0fb6ef03f52e840886c49e17c5276c622bc06a7",
       "observations": [
         {
           "kind": "wind_speed",

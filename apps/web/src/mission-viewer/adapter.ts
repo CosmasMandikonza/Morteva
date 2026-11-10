@@ -157,6 +157,9 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
     throw new PhysicalViewShapeError('policy.uavAssetId is not present in assets');
   }
 
+  // Canonical wire (accepted backend schema): the server bounds the payload
+  // to the 50 most recent events — the journal remains the full durable
+  // history server-side.
   const eventsRaw = payload['events'];
   if (!Array.isArray(eventsRaw)) throw new PhysicalViewShapeError('events must be an array');
   const events: PhysicalViewEvent[] = eventsRaw.map((raw, i) => {
@@ -211,7 +214,7 @@ export function snapshotFromServerPayload(payload: unknown): PhysicalViewSnapsho
     truthLabel,
     policy,
     assets,
-    events,
+    events: events,
   };
 }
 

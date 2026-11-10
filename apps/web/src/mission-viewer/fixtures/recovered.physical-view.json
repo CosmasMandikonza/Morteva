@@ -2,8 +2,8 @@
   "description": "Authorized trusted recovery, then docked — physical only, never a payment event",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_43326bc1-270c-40a7-84dc-82accb29e276",
-    "missionId": "msn_1d90f370-fc9a-44ff-aa8f-6c402c6cbd97"
+    "orgId": "org_8a31b69f-119e-4ccc-a030-6a4161060883",
+    "missionId": "msn_0ece848b-701e-478c-9c90-f0f17a4f23d5"
   },
   "asOf": "2026-11-06T09:12:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "e3c8e321bef4be9350b42e4895876c45c5a9a46a503194a0a945211695551104",
+      "eventDigest": "ee6cf03cd8890453704e33349fbad8b476222b95920ce69721e37730b754a342",
       "observations": [
         {
           "kind": "asset_comms",
@@ -59,7 +59,7 @@
       "observedAt": "2026-11-06T09:05:00.000Z",
       "ingestedAt": "2026-11-06T09:05:02.000Z",
       "recordedAt": "2026-11-06T09:05:02.000Z",
-      "eventDigest": "010a6efd08ad5413fa018a95fb37f04440ebcb0265c64f9c74482ef4ce27eb8c",
+      "eventDigest": "286322244e023dea44a0675fe5138ea1f57f122c06dce469c8fbbf9625245cb2",
       "observations": [
         {
           "kind": "asset_comms",
@@ -81,7 +81,7 @@
       "observedAt": "2026-11-06T09:09:00.000Z",
       "ingestedAt": "2026-11-06T09:09:02.000Z",
       "recordedAt": "2026-11-06T09:09:02.000Z",
-      "eventDigest": "f1514a4f7af2a9a6d76d97db02cedbb4b7a66bac232d0cd3d6f14ad696786517",
+      "eventDigest": "3a63f234351e0f96726e71b37fe87bae2c4fa8eb49e309d2de58a610bc84b18c",
       "observations": [
         {
           "kind": "asset_comms",
@@ -103,7 +103,7 @@
       "observedAt": "2026-11-06T09:12:00.000Z",
       "ingestedAt": "2026-11-06T09:12:02.000Z",
       "recordedAt": "2026-11-06T09:12:02.000Z",
-      "eventDigest": "648304129dec266686daefb5049ae5b2aa5a82dc09080b952c7225ae6bda724c",
+      "eventDigest": "92806e8c68547cef6d4c1789635cab9b90e623b972caef297fd15e1ab154b8b8",
       "observations": [
         {
           "kind": "asset_comms",

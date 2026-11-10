@@ -2,8 +2,8 @@
   "description": "Conflicting source reports; the journal decides without silent favor (S1)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_3062b5cd-66b2-435e-8e78-2b25e10b5804",
-    "missionId": "msn_bff0957c-7b40-4215-95a3-fc66906abda1"
+    "orgId": "org_6394f2f4-e539-4ecd-9381-358bf6de7e6d",
+    "missionId": "msn_298639de-da18-4b3b-bdd7-69246741bd05"
   },
   "asOf": "2026-11-06T09:07:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "8adab4376670b0d6b1eaa8b5e2a039d32cfa474407d4312ea965064177aa10d7",
+      "eventDigest": "072ab1d149c386a4fce412719d51036f31c40eff3460f950a0bd2dba8d415a9c",
       "observations": [
         {
           "kind": "wind_speed",
@@ -74,7 +74,7 @@
       "observedAt": "2026-11-06T09:04:00.000Z",
       "ingestedAt": "2026-11-06T09:04:02.000Z",
       "recordedAt": "2026-11-06T09:04:02.000Z",
-      "eventDigest": "a7b9df4c64d35c63e3738162c8a28d91cda23a4b24f489e6c797f237b1cf8cea",
+      "eventDigest": "df0ebd5f6af0a53598256f44511ccc45ac70f528e29052200de5d0b6d6080759",
       "observations": [
         {
           "kind": "wind_speed",
@@ -101,7 +101,7 @@
       "observedAt": "2026-11-06T09:07:00.000Z",
       "ingestedAt": "2026-11-06T09:07:02.000Z",
       "recordedAt": "2026-11-06T09:07:02.000Z",
-      "eventDigest": "0c6619aa5d7d0755a732600e1797342044252dfb613a815978d6d7f9be13bbd5",
+      "eventDigest": "27909a65f032616f3519a16a28f117459e49e97091fccce8dcd2e0044755935f",
       "observations": [
         {
           "kind": "wind_speed",
