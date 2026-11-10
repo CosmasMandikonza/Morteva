@@ -1,0 +1,174 @@
+# MOTERVA judge environment — minimal AWS stack (issues #17/#19).
+#
+# One t3.micro EC2 instance (Amazon Linux 2023, Docker preinstalled via
+# user-data), an encrypted 20 GB gp3 data volume for the SQLite ledger, an
+# Elastic IP, and a least-privilege instance role (ECR pull + one Secrets
+# Manager secret + CloudWatch metrics). No RDS, no ALB, no EKS — the app is
+# two containers behind Caddy; the instance IS the deployment target.
+#
+# Deploy (founder, from a machine with AWS credentials):
+#   aws cloudformation deploy \
+#     --template-file deploy/aws/cloudformation.yaml \
+#     --stack-name moterva-judge \
+#     --capabilities CAPABILITY_NAMED_IAM \
+#     --parameter-overrides \
+#         MotervaSecretArn=<arn of the moterva/production secret> \
+#         SshAllowedCidr=<your-ip>/32   # or leave default to disable SSH (SSM only)
+#
+# After creation: point DNS at the Elastic IP output; the Caddy edge obtains
+# a Let's Encrypt certificate for MOTERVA_DOMAIN at first boot.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MOTERVA single-instance judge environment (compose + Caddy TLS + SQLite on encrypted EBS)
+
+Parameters:
+  MotervaSecretArn:
+    Type: String
+    Description: ARN of the Secrets Manager secret holding the MOTERVA production env (never the value).
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: Optional EC2 key pair for SSH; empty disables SSH entirely (SSM Session Manager preferred).
+  SshAllowedCidr:
+    Type: String
+    Default: ''
+    Description: Optional CIDR to allow SSH from; empty disables the SSH ingress rule.
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small]
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  HasSsh: !And [!Condition HasKeyPair, !Not [!Equals [!Ref SshAllowedCidr, '']]]
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: moterva-judge-instance
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: moterva-judge-least-privilege
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: 'ecr:GetAuthorizationToken', Resource: '*' }
+              - Effect: Allow
+                Action:
+                  [
+                    'ecr:BatchGetImage',
+                    'ecr:GetDownloadUrlForLayer',
+                    'ecr:BatchCheckLayerAvailability',
+                  ]
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-api'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-web'
+              - Effect: Allow
+                Action: 'secretsmanager:GetSecretValue'
+                Resource: !Ref MotervaSecretArn
+              - Effect: Allow
+                Action: ['cloudwatch:PutMetricData']
+                Resource: '*'
+                Condition:
+                  StringEquals: { 'cloudwatch:namespace': 'moterva' }
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: moterva-judge-instance-profile
+      Roles: [!Ref InstanceRole]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: moterva-judge-sg
+      GroupDescription: MOTERVA judge edge (HTTPS + ACME only; SSH optional)
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+        - !If
+          - HasSsh
+          - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref SshAllowedCidr }
+          - !Ref AWS::NoValue
+
+  JudgeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
+      BlockDeviceMappings:
+        # Root: small; the ledger gets its OWN encrypted data volume so a
+        # replacement instance can re-attach it (persistence across
+        # container/instance replacement without touching the OS disk).
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 8, VolumeType: gp3, Encrypted: true }
+        - DeviceName: /dev/xvdf
+          Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: false }
+      SecurityGroupIds: [!Ref SecurityGroup]
+      Tags:
+        - { Key: Name, Value: moterva-judge }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          dnf install -y docker
+          systemctl enable --now docker
+          # Compose plugin
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          # Ledger home on the dedicated encrypted volume
+          mkfs -t xfs /dev/xvdf || true
+          mkdir -p /var/lib/moterva
+          mount /dev/xvdf /var/lib/moterva
+          echo '/dev/xvdf /var/lib/moterva xfs defaults,nofail 0 2' >> /etc/fstab
+          # 1 GB safety swap (images are CI-built; runtime fits t3.micro)
+          fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          # Backup timer scaffolding (script ships with the compose checkout)
+          systemctl enable --now amazon-ssm-agent || true
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: moterva-judge }
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref JudgeInstance
+      AllocationId: !GetAtt ElasticIP.AllocationId
+
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: moterva-judge-status-check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - { Name: InstanceId, Value: !Ref JudgeInstance }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmDescription: MOTERVA judge instance failing status checks
+
+Outputs:
+  ElasticIP:
+    Value: !Ref ElasticIP
+    Description: Point the judge DNS A record here.
+  InstanceId:
+    Value: !Ref JudgeInstance
+  RoleArn:
+    Value: !GetAtt InstanceRole.Arn
+    Description: Trust this ARN only for the documented least-privilege policy.

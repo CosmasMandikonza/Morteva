@@ -24,6 +24,7 @@ import { registerProductionIdentityRoutes } from './identity/routes.js';
 import { createOidcClient, type OidcClient } from './identity/oidc-client.js';
 import { registerAuthCapabilitiesRoute } from './identity/capabilities.js';
 import { registerDemoDecisionRoutes } from './integration/demo-routes.js';
+import { registerReviewerDemoRoutes } from './reviewer-demo/routes.js';
 import { registerWarehouseDemoRoutes } from './integration/warehouse-demo-routes.js';
 import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import { registerMissionSpecRoutes } from './integration/mission-spec.js';
@@ -99,6 +100,10 @@ export function buildApp(
         // invitation management. Registered ONLY with complete config.
         const client = identityClient ?? (await createOidcClient(config.identity));
         registerProductionIdentityRoutes(scope, config, ledger, client);
+      }
+      if (config.reviewerDemo && config.identity !== null) {
+        // Fixed server-signed synthetic reviewer scenario, gated by production OIDC.
+        registerReviewerDemoRoutes(scope, ledger);
       }
       if (config.devAuth) {
         // Controlled local-only physical-to-money demo; never mounted outside
