@@ -80,6 +80,22 @@ test.describe('app shell smoke', () => {
     await expect(page.getByTestId('authority-surface')).toContainText('Sign in');
   });
 
+  test('capabilities discovery (demo deployment) offers the controlled demo form only', async ({ page }) => {
+NaN/');
+    // R3 P0-2: the demo form renders ONLY when the server reports
+    // authMode=demo with demoLogin=true via the read-only capabilities read.
+    const caps = await page.evaluate(async () => {
+      const r = await fetch('/api/auth/capabilities', { credentials: 'same-origin' });
+      return { status: r.status, body: (await r.json()) as { authMode: string; demoLogin: boolean } };
+    });
+    expect(caps.status).toBe(200);
+    expect(caps.body.authMode).toBe('demo');
+    expect(caps.body.demoLogin).toBe(true);
+    await expect(page.getByTestId('signin-panel')).toContainText('DEMO_AUTH');
+    // And there is no OIDC entry on a demo deployment.
+    await expect(page.getByTestId('oidc-signin')).toHaveCount(0);
+  });
+
   test('theme toggle switches the semantic tokens', async ({ page }) => {
     await page.goto('/');
     const body = page.locator('body');
