@@ -364,7 +364,7 @@ test('invitation UI renders the server refusal inline for a wrong secret (no sec
   await idpBrowserSignIn(owner, 'owner-sub');
   const created = await apiFetch(owner, 'POST', '/api/invitations', {
     role: 'operator',
-    email: 'wrong-secret@idp.test',
+    email: `wrong-secret-${Date.now()}@idp.test`,
   });
   expect(created.status).toBe(200);
   const { invitation } = JSON.parse(created.body) as { invitation: { id: string } };
