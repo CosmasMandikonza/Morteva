@@ -5,21 +5,17 @@
  * viewer. Kept in the Agent C module so the shell's only responsibility is
  * placement and styling.
  *
- * States (all honest, fail-closed):
- *   loading      — the read is in flight; no scene, no assumptions.
- *   ready        — strict parse succeeded; the live 3D/2D scene renders from
- *                  the admitted journal only.
- *   unavailable  — the read failed (404/401/network/strict-parse deviation):
- *                  the reason is displayed verbatim; NO fixture is ever
- *                  substituted for live data.
- *
- * S0 semantics: Agent A's accepted endpoint FAILS CLOSED (HTTP 409
- * `UAV_POLICY_UNRESOLVABLE`) when the mission has no admitted evidence yet —
- * the honest contract refuses to emit a half-trusted payload. The client
- * maps that code to the viewer's S0-initial state: harbor scene, the known
- * mission asset catalog, ZERO readings, explicitly unknown. No evidence is
- * invented; the policy constants shown are the operator-defined modeled
- * limits already displayed in the Decision Room intro.
+ * Truth laws (CTO final review, P0-A / P1-C):
+ *  - ONLY a real, strict-parseable server payload (HTTP 200) may render a
+ *    ready scene — including S0: the accepted endpoint now returns a
+ *    server-authoritative EMPTY-EVIDENCE snapshot (real tenant, real asOf,
+ *    real policy, known catalog asset, zero events) when nothing has been
+ *    admitted yet. There is NO client-side snapshot fabrication: 409/404/
+ *    401/network/parse failures render the honest unavailable card.
+ *  - `decisionVerified` is a HOST prop derived from actual verified financial
+ *    decision evidence (a recorded incident evaluation), default false. The
+ *    viewer never decides this itself; a wind event alone never upgrades
+ *    S2 to S3.
  *
  * Selection: `incidentEventId` (from the host's journey) seeds the selected
  * evidence; user selection inside the viewer is local to this component and
@@ -38,35 +34,19 @@ type ViewportState =
   | { readonly kind: 'ready'; readonly snapshot: PhysicalViewSnapshot }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
-/**
- * S0-initial snapshot: the KNOWN mission asset with ZERO readings — the
- * honest "no admitted evidence yet" state. Rendered only for the endpoint's
- * fail-closed UAV_POLICY_UNRESOLVABLE 409; never for parse or network
- * failures (those render the unavailable card).
- */
-function s0InitialSnapshot(missionId: string): PhysicalViewSnapshot {
-  return {
-    contractVersion: 1,
-    tenant: { orgId: '', missionId },
-    asOf: new Date().toISOString(),
-    truthLabel: 'SIMULATED_OPERATION — POLICY-ONLY',
-    policy: {
-      maxAgeMs: 15 * 60_000,
-      expiredMs: 30 * 60_000,
-      uavAssetId: 'uav-seeker-1',
-      uavWindLimitKt: 22,
-    },
-    assets: [{ assetId: 'uav-seeker-1', kind: 'aerial', label: 'Inspection UAV' }],
-    events: [],
-  };
-}
-
 export function PhysicalMissionViewport(props: {
   missionId: string;
   /** Journey-incident evidence id — seeds the selected event (replay). */
   incidentEventId: string | null;
+  /**
+   * Host-declared, default false: TRUE only when a verified financial
+   * decision/evaluation exists for the current incident (e.g. a recorded
+   * incident snapshot from an authenticated read). S3 and the decision link
+   * are shown only then; a physical restriction alone stays S2.
+   */
+  decisionVerified?: boolean;
 }): JSX.Element {
-  const { missionId, incidentEventId } = props;
+  const { missionId, incidentEventId, decisionVerified = false } = props;
   const [state, setState] = useState<ViewportState>({ kind: 'loading' });
   const [selectedEventId, setSelectedEventId] = useState<string | null>(incidentEventId);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -77,7 +57,8 @@ export function PhysicalMissionViewport(props: {
   }, [incidentEventId]);
 
   // One authenticated read per mission/journey change (aborted on change;
-  // refetched when the journal grows after a synthetic stage).
+  // refetched when the journal grows after a synthetic stage). EVERY ready
+  // render — including S0 — comes from a strict-parsed server payload.
   useEffect(() => {
     const controller = new AbortController();
     setState({ kind: 'loading' });
@@ -98,19 +79,14 @@ export function PhysicalMissionViewport(props: {
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
-        if (reason instanceof ApiError && reason.code === 'UAV_POLICY_UNRESOLVABLE') {
-          // Fail-closed S0: no admitted evidence yet — the accepted endpoint
-          // refuses to emit a half-trusted payload. Render the honest initial
-          // scene (explicitly unknown), not an error.
-          setState({ kind: 'ready', snapshot: s0InitialSnapshot(missionId) });
-          return;
-        }
         const message =
           reason instanceof ApiError && reason.code === 'ASSET_DOMAIN_UNAVAILABLE'
             ? 'An admitted asset has no authoritative physical-domain metadata — the scene is withheld rather than fabricated.'
-            : reason instanceof Error && reason.message.startsWith('API responded')
-              ? `The physical-view read failed (${reason.message}).`
-              : 'The physical-view read is unavailable — showing no scene rather than an unverified one.';
+            : reason instanceof ApiError && reason.code === 'UAV_POLICY_UNRESOLVABLE'
+              ? 'The mission has admitted assets but not exactly one aerial asset — the scene is withheld rather than fabricated.'
+              : reason instanceof Error && reason.message.startsWith('API responded')
+                ? `The physical-view read failed (${reason.message}).`
+                : 'The physical-view read is unavailable — showing no scene rather than an unverified one.';
         setState({ kind: 'unavailable', reason: message });
       });
     return () => controller.abort();
@@ -132,7 +108,7 @@ export function PhysicalMissionViewport(props: {
       onSelectEvent={setSelectedEventId}
       selectedAssetId={selectedAssetId}
       onSelectAsset={setSelectedAssetId}
-      decisionAvailable
+      decisionAvailable={decisionVerified}
       decisionHref="#decisions"
       decisionLabel="Inspect the financial decision below"
     />

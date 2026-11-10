@@ -389,11 +389,23 @@ export function DecisionRoom({
           seeded from the journey's incident event id; scene state derives
           only from admitted journal events (no invented positions, no
           payment implications).
+
+          P1-C: `decisionVerified` is derived ONLY from actual verified
+          financial decision evidence — an authenticated journey read with a
+          recorded incident evaluation (journey.incident AND journey.after
+          both present). A physical wind event alone stays S2; a transient
+          fetch failure implies no financial decision.
         */}
         <PhysicalMissionViewport
           key={`${mission.id}:${journey?.stage ?? 'empty'}`}
           missionId={mission.id}
           incidentEventId={journey?.incident?.eventId ?? null}
+          decisionVerified={
+            journey?.incident !== null &&
+            journey?.incident !== undefined &&
+            journey?.after !== null &&
+            journey?.after !== undefined
+          }
         />
         <div className="mv-decision-room__comparison">
           <DecisionCard title="Before · initial plan" decision={journey?.before ?? null} />

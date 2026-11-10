@@ -202,6 +202,49 @@ export function projectPhysicalView(
     };
   }
 
+  // S0 — zero admitted events: emit the server-authoritative EMPTY-EVIDENCE
+  // snapshot (CTO P0-A). The KNOWN demo-catalog UAV is included with an
+  // empty reading set and an explicitly-unknown constraint; tenant, asOf and
+  // policy are all real server values. No observation is invented and the
+  // client renders S0-initial from THIS payload — never from a locally
+  // fabricated snapshot. Missions with admitted non-catalog or multi-aerial
+  // assets still fail closed below.
+  if (assetIds.length === 0) {
+    const catalogAssetId = DECISION_CATALOG.assetId;
+    return {
+      payload: {
+        contractVersion: 1,
+        tenant: { orgId: timeline.orgId, missionId: timeline.missionId },
+        asOf: timeline.asOf,
+        truthLabel,
+        policy: {
+          maxAgeMs: timeline.policy.maxAgeMs,
+          expiredMs: timeline.policy.expiredMs,
+          uavAssetId: catalogAssetId,
+          uavWindLimitKt: UAV_WIND_LIMIT_KT,
+        },
+        assets: [
+          {
+            assetId: catalogAssetId,
+            kind: assetDomains.get(catalogAssetId)!,
+            latest: {},
+          },
+        ],
+        events: [],
+        constraints: [
+          {
+            assetId: catalogAssetId,
+            kind: 'asset-safety',
+            state: 'unknown',
+            reason: 'insufficient-evidence',
+            basis: 'no admitted physical evidence yet — operating status unknown by design',
+          },
+        ],
+      },
+      unresolvableAssets,
+    };
+  }
+
   const aerialAssets = assetIds.filter((id) => assetDomains.get(id) === 'aerial');
   if (aerialAssets.length !== 1) {
     // The wind policy can only be attributed honestly when the registry
