@@ -170,7 +170,12 @@ function constraintFromPrefix(
       return { assetId, state: 'blocked', reason: 'comms-offline', basisEventIds: dedupe(basis) };
     }
     if (aisle === 'obstructed') {
-      return { assetId, state: 'blocked', reason: 'aisle-obstructed', basisEventIds: dedupe(basis) };
+      return {
+        assetId,
+        state: 'blocked',
+        reason: 'aisle-obstructed',
+        basisEventIds: dedupe(basis),
+      };
     }
     if (charger === 'fault') {
       return { assetId, state: 'blocked', reason: 'charger-fault', basisEventIds: dedupe(basis) };

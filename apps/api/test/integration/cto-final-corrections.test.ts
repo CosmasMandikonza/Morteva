@@ -224,9 +224,30 @@ describe('P0-B — matched verdicts: viewer == accepted backend on identical jou
       assetId: 'robot-counter-3',
       domain: 'ground',
       latest: {
-        aisle_access: { kind: 'aisle_access', unit: 'state', value: 'clear', eventId: 'mevt_ground_ok', observedAt: now, freshness: 'fresh' },
-        charger_status: { kind: 'charger_status', unit: 'state', value: 'free', eventId: 'mevt_ground_ok', observedAt: now, freshness: 'fresh' },
-        asset_comms: { kind: 'asset_comms', unit: 'state', value: 'online', eventId: 'mevt_ground_ok', observedAt: now, freshness: 'fresh' },
+        aisle_access: {
+          kind: 'aisle_access',
+          unit: 'state',
+          value: 'clear',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        charger_status: {
+          kind: 'charger_status',
+          unit: 'state',
+          value: 'free',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        asset_comms: {
+          kind: 'asset_comms',
+          unit: 'state',
+          value: 'online',
+          eventId: 'mevt_ground_ok',
+          observedAt: now,
+          freshness: 'fresh',
+        },
       },
       windLimitKt: 22,
     });
@@ -276,8 +297,22 @@ describe('P0-B — matched verdicts: viewer == accepted backend on identical jou
       assetId: 'robot-counter-3',
       domain: 'ground',
       latest: {
-        aisle_access: { kind: 'aisle_access', unit: 'state', value: 'obstructed', eventId: 'mevt_ground_aisle', observedAt: now, freshness: 'fresh' },
-        asset_comms: { kind: 'asset_comms', unit: 'state', value: 'online', eventId: 'mevt_ground_aisle', observedAt: now, freshness: 'fresh' },
+        aisle_access: {
+          kind: 'aisle_access',
+          unit: 'state',
+          value: 'obstructed',
+          eventId: 'mevt_ground_aisle',
+          observedAt: now,
+          freshness: 'fresh',
+        },
+        asset_comms: {
+          kind: 'asset_comms',
+          unit: 'state',
+          value: 'online',
+          eventId: 'mevt_ground_aisle',
+          observedAt: now,
+          freshness: 'fresh',
+        },
       },
       windLimitKt: 22,
     });
