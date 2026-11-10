@@ -53,9 +53,10 @@ export interface PhysicalViewEvent {
   readonly recordedAt: string;
   readonly eventDigest: string;
   readonly observations: readonly PhysicalViewObservation[];
-  /** Evaluated at the snapshot's asOf by the host's read model. */
-  readonly freshness: PhysicalFreshness;
-  readonly planningValid: boolean;
+  /** Evaluated at the snapshot's asOf by the host's read model
+   *  (wire name: freshnessAtSnapshot — canonical = accepted backend schema). */
+  readonly freshnessAtSnapshot: PhysicalFreshness;
+  readonly planningValidAtSnapshot: boolean;
 }
 
 /**
@@ -94,7 +95,7 @@ export interface PhysicalViewSnapshot {
   readonly assets: readonly PhysicalViewAsset[];
   /** Journal-ordered accepted events (oldest first), bounded to the 50 most
    * recent by the server — the journal remains the full durable history. */
-  readonly recentEvents: readonly PhysicalViewEvent[];
+  readonly events: readonly PhysicalViewEvent[];
 }
 
 // ---------------------------------------------------------------------------

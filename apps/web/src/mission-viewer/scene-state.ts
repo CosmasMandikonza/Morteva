@@ -195,7 +195,7 @@ export function projectSceneState(
   selection: SceneSelection = {},
 ): SceneState {
   const { policy } = snapshot;
-  const events = [...snapshot.recentEvents].sort((a, b) => a.journalSeq - b.journalSeq);
+  const events = [...snapshot.events].sort((a, b) => a.journalSeq - b.journalSeq);
 
   // ---- per-asset current state (latest evidence, journal order) ------------
   const constraints: PhysicalConstraintView[] = [];
@@ -209,7 +209,7 @@ export function projectSceneState(
     // expired readings are journal history and can never masquerade as
     // current clearance (brief case 2/3). Historical replay (below) uses the
     // full prefix — that is the point of replay.
-    const eligible = prefix.filter((e) => e.planningValid);
+    const eligible = prefix.filter((e) => e.planningValidAtSnapshot);
     constraints.push(constraintFromPrefix(asset.assetId, asset.kind, eligible, policy));
     const pose = latestPoseName(prefix);
     positionStatus[asset.assetId] = pose.pose;
@@ -270,7 +270,7 @@ export function projectSceneState(
   const uavPrefix = eventsForAsset(events, policy.uavAssetId);
   let aerialWindKt: number | null = null;
   for (let i = uavPrefix.length - 1; i >= 0; i--) {
-    if (!uavPrefix[i]!.planningValid) continue;
+    if (!uavPrefix[i]!.planningValidAtSnapshot) continue;
     const wind = numObservation(uavPrefix[i]!, 'wind_speed');
     if (wind !== null) {
       aerialWindKt = wind;
@@ -309,7 +309,7 @@ export function projectSceneState(
     selected,
     selectedAssetId: selection.selectedAssetId ?? null,
     eventCount: events.length,
-    planningValidCount: events.filter((e) => e.planningValid).length,
+    planningValidCount: events.filter((e) => e.planningValidAtSnapshot).length,
     windBreached,
     aerialWindKt,
   };

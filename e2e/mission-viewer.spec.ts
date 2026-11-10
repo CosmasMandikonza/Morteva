@@ -655,7 +655,7 @@ test.describe('C2 — strict server-shape adapter (fail closed)', () => {
     expect(r.reason).toContain('uavWindLimitKt');
 
     r = await validateMutated(page, (p) => {
-      const events = p['recentEvents'] as Record<string, unknown>[];
+      const events = p['events'] as Record<string, unknown>[];
       events[0]!['assetId'] = 'asset-ghost';
     });
     expect(r.ok).toBe(false);
@@ -673,18 +673,18 @@ test.describe('C2 — strict server-shape adapter (fail closed)', () => {
     page,
   }) => {
     let r = await validateMutated(page, (p) => {
-      const events = p['recentEvents'] as Record<string, unknown>[];
+      const events = p['events'] as Record<string, unknown>[];
       events[0]!['eventDigest'] = 'zz-not-hex';
     });
     expect(r.ok).toBe(false);
     expect(r.reason).toContain('64-hex');
 
     r = await validateMutated(page, (p) => {
-      const events = p['recentEvents'] as Record<string, unknown>[];
-      events[0]!['freshness'] = 'current';
+      const events = p['events'] as Record<string, unknown>[];
+      events[0]!['freshnessAtSnapshot'] = 'current';
     });
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain('freshness');
+    expect(r.reason).toContain('freshnessAtSnapshot');
 
     r = await validateMutated(page, (p) => {
       const policy = p['policy'] as Record<string, unknown>;
@@ -694,7 +694,7 @@ test.describe('C2 — strict server-shape adapter (fail closed)', () => {
     expect(r.reason).toContain('expiredMs');
 
     r = await validateMutated(page, (p) => {
-      const events = p['recentEvents'] as Record<string, unknown>[];
+      const events = p['events'] as Record<string, unknown>[];
       events[0]!['observedAt'] = '2026-11-06 09:00';
     });
     expect(r.ok).toBe(false);

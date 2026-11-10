@@ -2,8 +2,8 @@
   "description": "Evidence aged to stale — visible as history, not current clearance (S5)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_17a85f18-768e-4e01-8305-3e56af249911",
-    "missionId": "msn_fdc8dc0d-f9c2-475a-a616-18c097554cfd"
+    "orgId": "org_ba9ed83f-3ac2-4452-b51e-bba54b89752e",
+    "missionId": "msn_37f43b0e-effa-4d35-a280-6882925bd4b6"
   },
   "asOf": "2026-11-06T09:21:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "recentEvents": [
+  "events": [
     {
       "eventId": "mevt_st01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "d05abdea00cf88a1bf9043e4c296f09ba309b476d622d064c2bd4c34396344db",
+      "eventDigest": "fef5ca4d99f06a73e7e677627fe073dc1b57572ccc392d5db21fee8e79379f4f",
       "observations": [
         {
           "kind": "wind_speed",
@@ -60,8 +60,8 @@
           "value": "on_station"
         }
       ],
-      "freshness": "stale",
-      "planningValid": false
+      "freshnessAtSnapshot": "stale",
+      "planningValidAtSnapshot": false
     }
   ]
 }

@@ -2,8 +2,8 @@
   "description": "Ground-domain mission: no aerial wind rule applies to the robot",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_a18e00f5-dd57-46b0-ab23-df5869dc70f0",
-    "missionId": "msn_5b383c3c-5861-47f6-85d5-b3dab1b8ace3"
+    "orgId": "org_804e8b66-fb84-4fd0-90d3-ca54ef710f79",
+    "missionId": "msn_0110b1b6-9fe4-4b5c-8501-c45c71180618"
   },
   "asOf": "2026-11-06T09:06:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "recentEvents": [
+  "events": [
     {
       "eventId": "mevt_wh01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "c0728570ba923b2911737b6c8c63cd5773aed8c7d8f5dd530178908dc04e978a",
+      "eventDigest": "2e1ce1ba0daa29f8f57121516660e3798a775015fb21645c7bee15a748774329",
       "observations": [
         {
           "kind": "asset_comms",
@@ -45,8 +45,8 @@
           "value": "online"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     },
     {
       "eventId": "mevt_wh02",
@@ -59,7 +59,7 @@
       "observedAt": "2026-11-06T09:06:00.000Z",
       "ingestedAt": "2026-11-06T09:06:02.000Z",
       "recordedAt": "2026-11-06T09:06:02.000Z",
-      "eventDigest": "8ceef003d324e64dacc18ec02a16082d51857da5290903e3be522b24d26f1b7f",
+      "eventDigest": "0baa247caa2174d371c3a1cc5c61590ab957f27934968f8a1c96aec2150089a8",
       "observations": [
         {
           "kind": "aisle_access",
@@ -72,8 +72,8 @@
           "value": 17
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     }
   ]
 }

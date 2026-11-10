@@ -2,8 +2,8 @@
   "description": "Duplicate submission; one journal row → one marker",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_b10915af-b7d1-44bf-9475-214ca94b9531",
-    "missionId": "msn_0ad14047-5ac1-4c66-bdc8-0ad3251a8c39"
+    "orgId": "org_9055b020-b6bc-4e46-8446-8073cebd3781",
+    "missionId": "msn_5c979c40-5c2e-4f71-89d6-ecb59bd63abe"
   },
   "asOf": "2026-11-06T09:01:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "recentEvents": [
+  "events": [
     {
       "eventId": "mevt_du01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "b8b56d593c2664656cb7dedf5f870215e54ea928580c0fd603ed9a59136cdf53",
+      "eventDigest": "e3477f6d2c990479778ba13ba0fb6ef03f52e840886c49e17c5276c622bc06a7",
       "observations": [
         {
           "kind": "wind_speed",
@@ -60,8 +60,8 @@
           "value": "on_station"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     }
   ]
 }

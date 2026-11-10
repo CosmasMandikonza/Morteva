@@ -2,8 +2,8 @@
   "description": "No admitted evidence — status unknown by design (S0)",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_b01f0e5a-91e9-4515-8787-284734e7c974",
-    "missionId": "msn_052b90a1-2906-4f96-bdba-89756e55a1c2"
+    "orgId": "org_f9665628-a678-4fbe-a463-664b5b7f5809",
+    "missionId": "msn_af706574-309f-4179-bae8-39e762711bf4"
   },
   "asOf": "2026-11-06T09:00:00.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,5 +25,5 @@
       "label": "Moored vessel"
     }
   ],
-  "recentEvents": []
+  "events": []
 }

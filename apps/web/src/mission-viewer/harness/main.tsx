@@ -61,7 +61,7 @@ function Harness(): JSX.Element {
   const snapshot = loaded.snapshot;
   const eventParam = p.get('event');
   const validSelection =
-    eventParam !== null && snapshot.recentEvents.some((e) => e.eventId === eventParam)
+    eventParam !== null && snapshot.events.some((e) => e.eventId === eventParam)
       ? eventParam
       : null;
   const theme = p.get('theme') === 'light' ? 'light' : 'dark';

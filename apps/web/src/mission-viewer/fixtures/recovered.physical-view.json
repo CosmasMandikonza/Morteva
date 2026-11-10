@@ -2,8 +2,8 @@
   "description": "Authorized trusted recovery, then docked — physical only, never a payment event",
   "contractVersion": 1,
   "tenant": {
-    "orgId": "org_58158495-6a53-4348-92de-23e40707039e",
-    "missionId": "msn_f5e54079-d9b0-4255-ad0d-c78646da311c"
+    "orgId": "org_8a31b69f-119e-4ccc-a030-6a4161060883",
+    "missionId": "msn_0ece848b-701e-478c-9c90-f0f17a4f23d5"
   },
   "asOf": "2026-11-06T09:12:02.000Z",
   "truthLabel": "SIMULATED_OPERATION",
@@ -25,7 +25,7 @@
       "label": "Moored vessel"
     }
   ],
-  "recentEvents": [
+  "events": [
     {
       "eventId": "mevt_rc01",
       "journalSeq": 1,
@@ -37,7 +37,7 @@
       "observedAt": "2026-11-06T09:01:00.000Z",
       "ingestedAt": "2026-11-06T09:01:02.000Z",
       "recordedAt": "2026-11-06T09:01:02.000Z",
-      "eventDigest": "2e0077a8003ed54b8c69e0e573056dc13113892ff29473959a5eca2b2ef81399",
+      "eventDigest": "ee6cf03cd8890453704e33349fbad8b476222b95920ce69721e37730b754a342",
       "observations": [
         {
           "kind": "asset_comms",
@@ -45,8 +45,8 @@
           "value": "online"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     },
     {
       "eventId": "mevt_rc02",
@@ -59,7 +59,7 @@
       "observedAt": "2026-11-06T09:05:00.000Z",
       "ingestedAt": "2026-11-06T09:05:02.000Z",
       "recordedAt": "2026-11-06T09:05:02.000Z",
-      "eventDigest": "57300b59e4936b111ba55890a31a0a595f722acf3c8b3077413ef57cb7b4f07f",
+      "eventDigest": "286322244e023dea44a0675fe5138ea1f57f122c06dce469c8fbbf9625245cb2",
       "observations": [
         {
           "kind": "asset_comms",
@@ -67,8 +67,8 @@
           "value": "offline"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     },
     {
       "eventId": "mevt_rc03",
@@ -81,7 +81,7 @@
       "observedAt": "2026-11-06T09:09:00.000Z",
       "ingestedAt": "2026-11-06T09:09:02.000Z",
       "recordedAt": "2026-11-06T09:09:02.000Z",
-      "eventDigest": "2ac246d97b82fb20d95e4cebc9c28fb3780c82359d431c63650a9c9f1b272763",
+      "eventDigest": "3a63f234351e0f96726e71b37fe87bae2c4fa8eb49e309d2de58a610bc84b18c",
       "observations": [
         {
           "kind": "asset_comms",
@@ -89,8 +89,8 @@
           "value": "online"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     },
     {
       "eventId": "mevt_rc04",
@@ -103,7 +103,7 @@
       "observedAt": "2026-11-06T09:12:00.000Z",
       "ingestedAt": "2026-11-06T09:12:02.000Z",
       "recordedAt": "2026-11-06T09:12:02.000Z",
-      "eventDigest": "fee8603621d4a8fbff8ed4c446d0f9f32ca42f0977c933224593e0cefdd1905e",
+      "eventDigest": "92806e8c68547cef6d4c1789635cab9b90e623b972caef297fd15e1ab154b8b8",
       "observations": [
         {
           "kind": "asset_comms",
@@ -116,8 +116,8 @@
           "value": "docked"
         }
       ],
-      "freshness": "fresh",
-      "planningValid": true
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
     }
   ]
 }
