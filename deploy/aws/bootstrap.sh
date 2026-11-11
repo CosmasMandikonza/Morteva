@@ -15,8 +15,10 @@
 # Re-running is safe: existing resources are reused, never duplicated.
 #
 # NO AWS SPENDING HAPPENS BEFORE THIS SCRIPT RUNS — executing it IS the
-# founder's approval. Steady-state cost ≈ $10/month, hard budget alarm at
-# $12 with email alerts. teardown.sh reverses everything.
+# founder's approval. Steady-state cost ≈ $13.5/month (incl. the public
+# IPv4 charge). The budget is an ALERT ONLY (no hard cap — AWS cannot
+# cap charges with a budget): $18 threshold, email at 80% actual / 100%
+# forecast. teardown.sh reverses everything.
 #
 # Subcommands:
 #   (default)            full provision + first deploy if images exist
@@ -63,7 +65,7 @@ done
 EXPECTED_SHA256_provision_cognito_sh="aea27e3b20b451287210ff056205c64009d0577bdd3d550395714f0914fd0443"
 EXPECTED_SHA256_reviewer_smoke_sh="475319311eb7bef4d0b8c03a2f5defa7e4f6962618cd938fc42be8f5d3cd9f2e"
 EXPECTED_SHA256_compose_production_yml="347baf02c64a4a2f0912bf38e434f263367218402cbbd1da02c5d97dd737f4c5"
-EXPECTED_SHA256_cloudformation_yaml="c1aed448f9669021c5b40c545acaba5655e9dbe7b6ec07ee95081d0db984a62f"
+EXPECTED_SHA256_cloudformation_yaml="05c52c7a808d447ff87a144b31010c5fc940fae07cc1227b280325da0cc819b4"
 EXPECTED_SHA256_link_owner_sh="eade3ab815b520b581ab054afbcb26e51474b424f1253d29496c4a7b7b936feb"
 
 log() { printf '\n\033[1;36m[bootstrap]\033[0m %s\n' "$*"; }
@@ -179,7 +181,11 @@ merge_secret "$ISSUER" "$CLIENTID" "$CLIENTSECRET"
 
 # --------------------------------------------------------------- stack
 if [[ "$EXTRA_ARGS" != *"skip-stack"* ]]; then
-  log "ensuring CloudFormation stack $STACK (this creates/bills the EC2 instance)"
+  log "validating the CloudFormation template (free API call — no resources created)"
+  aws cloudformation validate-template --region "$REGION" \
+    --template-body "file://$TMP/cloudformation.yaml" >/dev/null \
+    || die "cloudformation validate-template failed — fix the template before provisioning"
+  log "template valid. ensuring CloudFormation stack $STACK (this creates/bills the EC2 instance)"
   VPCID=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
   SUBNET=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=vpc-id,Values=$VPCID" "Name=default-for-az,Values=true" \
     --query 'Subnets[0].SubnetId' --output text)
@@ -188,7 +194,7 @@ if [[ "$EXTRA_ARGS" != *"skip-stack"* ]]; then
     --capabilities CAPABILITY_NAMED_IAM \
     --parameter-overrides \
       "MotervaSecretArn=$SECRET_ARN" "MotervaSecretName=$SECRET_NAME" \
-      "FounderEmail=$EMAIL" "MonthlyBudgetLimit=12" \
+      "FounderEmail=$EMAIL" "MonthlyBudgetLimit=18" \
       "VpcId=$VPCID" "SubnetId=$SUBNET" "InstanceType=t3.micro" \
     --no-fail-on-empty-changeset || die "cloudformation deploy failed"
 fi
@@ -238,45 +244,103 @@ fi
 ROLE_NAME="moterva-github-deploy"
 RELEASE_BRANCH="feat/mtv-19-connected-golden-path"
 # Trust is scoped to the RELEASE BRANCH of this one repository — not
-# repo:* (P0 least-privilege). The workflow's job must run on that branch
-# for its OIDC subject to match.
+# repo:* (P0 least-privilege). workflow_dispatch MUST be launched from this
+# branch: GitHub's OIDC subject is repo:<org>/<repo>:ref:refs/heads/<branch>
+# of the branch the run is dispatched FROM. bootstrap verifies the workflow
+# file's availability below and the summary states the dispatch branch.
 TRUST=$(cat <<EOF
 {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"$PROVIDER_ARN"},"Action":"sts:AssumeRoleWithWebIdentity","Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},"StringLike":{"token.actions.githubusercontent.com:sub":"repo:${GH_REPO_FULL}:ref:refs/heads/${RELEASE_BRANCH}"}}}]}
 EOF
 )
+# ONE policy definition used by BOTH the create and rerun paths — a rerun
+# can never preserve a broken policy (CTO requirement). SSM authorization
+# per AWS Run Command docs (send-command-setting-up):
+#   1. ssm:SendCommand on the AWS-MANAGED DOCUMENT — its ARN carries NO
+#      account id (arn:aws:ssm:<region>::document/...), unconditional;
+#   2. ssm:SendCommand on the TARGET EC2 INSTANCE ARNs — scoped by the
+#      moterva-judge resource-tag CONDITION (the tag belongs on the
+#      instance, not on the shared document);
+#   3. ssm:GetCommandInvocation on the instance ARNs, separately.
+DEPLOY_POLICY=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+    {"Effect": "Allow", "Action": ["ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchCheckLayerAvailability", "ecr:DescribeRepositories"],
+     "Resource": ["arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api", "arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web"]},
+    {"Sid": "SendCommandDocument", "Effect": "Allow", "Action": "ssm:SendCommand",
+     "Resource": "arn:aws:ssm:${REGION}::document/AWS-RunShellScript"},
+    {"Sid": "SendCommandTaggedInstance", "Effect": "Allow", "Action": "ssm:SendCommand",
+     "Resource": "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*",
+     "Condition": {"StringEquals": {"ssm:resourceTag/Name": "moterva-judge"}}},
+    {"Sid": "ReadCommandInvocation", "Effect": "Allow", "Action": "ssm:GetCommandInvocation",
+     "Resource": "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*"},
+    {"Effect": "Allow", "Action": ["ssm:DescribeInstanceInformation", "ec2:DescribeInstances"], "Resource": "*"},
+    {"Effect": "Deny", "Action": ["iam:*", "s3:*", "secretsmanager:*", "ec2:Delete*", "ec2:TerminateInstances"], "Resource": "*"}
+  ]
+}
+EOF
+)
 if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" >/dev/null
-  # Permissions scoped to the two ECR repositories, the judge instance
-  # (SSM), and the RunShellScript document. Explicit Deny on destructive
-  # and secret-bearing surfaces.
-  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege --policy-document "{
-    \"Version\":\"2012-10-17\",
-    \"Statement\":[
-      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
-      {\"Effect\":\"Allow\",\"Action\":[\"ecr:InitiateLayerUpload\",\"ecr:UploadLayerPart\",\"ecr:CompleteLayerUpload\",\"ecr:PutImage\",\"ecr:BatchCheckLayerAvailability\",\"ecr:DescribeRepositories\"],\"Resource\":[\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api\",\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web\"]},
-      {\"Effect\":\"Allow\",\"Action\":\"ssm:SendCommand\",\"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:document/AWS-RunShellScript\",\"Condition\":{\"StringEquals\":{\"ssm:resourceTag/Name\":\"moterva-judge\"}}},
-      {\"Effect\":\"Allow\",\"Action\":\"ssm:GetCommandInvocation\",\"Resource\":\"arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*\"},
-      {\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeInstances\"],\"Resource\":\"*\"},
-      {\"Effect\":\"Deny\",\"Action\":[\"iam:*\",\"s3:*\",\"secretsmanager:*\",\"ec2:Delete*\",\"ec2:TerminateInstances\"],\"Resource\":\"*\"}
-    ]
-  }" >/dev/null
-  log "deploy role created (branch-scoped trust; ECR repos + tagged instance only)"
+  log "deploy role created"
 else
-  log "deploy role $ROLE_NAME exists — refreshing its trust + policy to current scoping"
+  log "deploy role $ROLE_NAME exists — refreshing trust + policy to the current definition (a rerun never preserves a broken policy)"
   aws iam update-assume-role-policy --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" >/dev/null
-  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege --policy-document "{
-    \"Version\":\"2012-10-17\",
-    \"Statement\":[
-      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
-      {\"Effect\":\"Allow\",\"Action\":[\"ecr:InitiateLayerUpload\",\"ecr:UploadLayerPart\",\"ecr:CompleteLayerUpload\",\"ecr:PutImage\",\"ecr:BatchCheckLayerAvailability\",\"ecr:DescribeRepositories\"],\"Resource\":[\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api\",\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web\"]},
-      {\"Effect\":\"Allow\",\"Action\":\"ssm:SendCommand\",\"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:document/AWS-RunShellScript\",\"Condition\":{\"StringEquals\":{\"ssm:resourceTag/Name\":\"moterva-judge\"}}},
-      {\"Effect\":\"Allow\",\"Action\":\"ssm:GetCommandInvocation\",\"Resource\":\"arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*\"},
-      {\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeInstances\"],\"Resource\":\"*\"},
-      {\"Effect\":\"Deny\",\"Action\":[\"iam:*\",\"s3:*\",\"secretsmanager:*\",\"ec2:Delete*\",\"ec2:TerminateInstances\"],\"Resource\":\"*\"}
-    ]
-  }" >/dev/null
 fi
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege \
+  --policy-document "$DEPLOY_POLICY" >/dev/null
+log "deploy policy applied: branch-scoped trust; document+tagged-instance SendCommand; separate GetCommandInvocation"
+
+# IAM simulation preflight (FREE — no infrastructure, no spend): prove the
+# exact deploy actions evaluate ALLOW before anything billable runs. One
+# simulation per action/resource pair (per-resource evaluation would mix
+# allowed and implicit-deny rows for cross-resource calls). The instance
+# simulation supplies the resource-tag context entry because simulated ARNs
+# carry no real tags.
+log "simulating the deploy role's authorization (iam simulate-principal-policy)"
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
+sim_assert() { # sim_assert <description> <expected-resource> <action> [extra args...]
+  local desc="$1" resource="$2" action="$3"; shift 3
+  local decision
+  decision=$(aws iam simulate-principal-policy --policy-source-arn "$ROLE_ARN" \
+    --action-names "$action" --resource-arns "$resource" "$@" \
+    --query 'EvaluationResults[0].EvalDecision' --output text)
+  if [ "$decision" != "allowed" ]; then
+    die "IAM simulation DENIED: $action on $resource evaluated '$decision' ($desc) — refusing to hand over a deploy role that cannot deploy"
+  fi
+  log "sim OK: $action on $resource ($desc)"
+}
+sim_assert "AWS-managed RunShellScript document (no account id in ARN)" \
+  "arn:aws:ssm:${REGION}::document/AWS-RunShellScript" "ssm:SendCommand"
+sim_assert "tagged judge instance (tag context supplied)" \
+  "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/i-00000000000000000" "ssm:SendCommand" \
+  --context-entry "Name=ssm:resourceTag/Name,Values=moterva-judge"
+sim_assert "command invocation readback" \
+  "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/i-00000000000000000" "ssm:GetCommandInvocation"
+sim_assert "api repository push" \
+  "arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api" "ecr:PutImage"
+sim_assert "web repository push" \
+  "arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web" "ecr:PutImage"
+sim_assert "ECR authorization token" "*" "ecr:GetAuthorizationToken"
+log "IAM simulation: every deploy action evaluates allowed — the role can actually deploy"
+
+# --------------------------------------------------- workflow availability
+# workflow_dispatch runs ONLY when the workflow file exists on the repo's
+# DEFAULT branch (GitHub restriction). Until PR #62 merges to main, the
+# Deploy AWS button cannot fire — the founder must merge first. Verify
+# honestly instead of instructing a click that will 404.
+DEFAULT_BRANCH=$(curl -fsSL "https://api.github.com/repos/${GH_REPO_FULL}" | jq -r .default_branch)
+WORKFLOW_ON_DEFAULT=$(curl -fsSL -o /dev/null -w '%{http_code}' \
+  "https://api.github.com/repos/${GH_REPO_FULL}/contents/.github/workflows/deploy-aws.yml?ref=${DEFAULT_BRANCH}" \
+  || echo 000)
+if [ "$WORKFLOW_ON_DEFAULT" = "200" ]; then
+  log "deploy workflow IS available on the default branch ($DEFAULT_BRANCH) — dispatch works"
+else
+  log "WARNING: deploy-aws.yml is NOT yet on the default branch ($DEFAULT_BRANCH) —"
+  log "  workflow dispatch activates only after PR #62 merges into $DEFAULT_BRANCH."
+  log "  Provisioning below still works; trigger deploys AFTER that merge."
+fi
 
 # --------------------------------------------------------------- summary
 cat <<SUMMARY

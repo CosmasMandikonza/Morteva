@@ -79,6 +79,16 @@ uses GitHub OIDC; the instance uses its role.
 
 ## Deployment & rollback (immutable release SHAs)
 
+**Dispatch prerequisites (both verified/enforced by bootstrap):** the
+workflow file must exist on the repo's **default branch** (GitHub runs
+`workflow_dispatch` only from there — bootstrap checks and tells you if
+PR #62 still needs to merge), and the run must be **dispatched from the
+release branch** (`feat/mtv-19-connected-golden-path`) — the deploy role's
+OIDC trust is scoped to exactly that branch subject, and bootstrap runs a
+free **IAM `simulate-principal-policy` preflight** proving document +
+tagged-instance + ECR actions all evaluate allowed before anything
+billable happens.
+
 `Actions → Deploy AWS → Run workflow`: input `release_sha` (the reviewed
 SHA) + `confirm_live=DEPLOY`. The workflow checks out THAT SHA, builds both
 images, pushes to ECR as `sha-<sha>` (ECR tag immutability is ON — a tag

@@ -15,7 +15,8 @@
 #   - security group: 443 + 80 (ACME HTTP-01) only; no SSH ingress at all
 #   - Elastic IP (stable judge URL)
 #   - ECR repositories (immutable tags) the CI deploy workflow pushes to
-#   - a monthly cost Budget with alert emails (billing guardrail)
+#   - a monthly cost Budget with ALERT emails (an alert is NOT a hard cap;
+#     steady ≈ $13.5/mo incl. public IPv4 $3.60; credits may not cover all fees)
 #   - status-check alarm + SNS alert topic
 #   - user-data: Docker/compose install, ledger volume mount (nofail), swap,
 #     Secrets Manager env fetch, /opt/moterva update helper — cfn-signals
@@ -35,8 +36,8 @@ Parameters:
     Description: Billing alarm email (budget 80% actual + 100% forecast).
   MonthlyBudgetLimit:
     Type: Number
-    Default: 12
-    Description: USD monthly budget threshold (expected steady-state spend ~$10).
+    Default: 18
+    Description: USD monthly budget ALERT threshold (alert only — not a cap; steady ≈ $13.5 incl. public IPv4).
   VpcId:
     Type: AWS::EC2::VPC::Id
   SubnetId:

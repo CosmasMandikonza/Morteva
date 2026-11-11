@@ -232,6 +232,153 @@ check(
   'IPv4 cost omitted',
 );
 
+// ---- CTO integration review (IAM P0): the SSM authorization must use the
+// ACCOUNT-EMPTY AWS-managed document ARN, authorize the TAGGED INSTANCE
+// separately (tag condition belongs on the instance, not the document),
+// and keep GetCommandInvocation separate. The policy must be defined ONCE
+// and applied on both the create and rerun paths (a rerun can never
+// preserve a broken policy).
+const policyBlock = /DEPLOY_POLICY=\$\(cat <<EOF\n([\s\S]*?)\nEOF\n\)/.exec(bootstrap)?.[1] ?? '';
+check(
+  'IAM-1',
+  'a single shared DEPLOY_POLICY definition exists (both create and rerun apply it)',
+  policyBlock !== '',
+  'DEPLOY_POLICY heredoc not found',
+);
+const putRolePolicyCount = (bootstrap.match(/put-role-policy/g) ?? []).length;
+check(
+  'IAM-2',
+  'exactly ONE put-role-policy call (rerun path reuses the same policy — no drift possible)',
+  putRolePolicyCount === 1,
+  `found ${putRolePolicyCount} put-role-policy calls`,
+);
+check(
+  'IAM-3',
+  'policy JSON is syntactically valid (placeholders substituted with dummies then parsed)',
+  (() => {
+    try {
+      const dummy = policyBlock
+        .replace(/\$\{REGION\}/g, 'us-east-1')
+        .replace(/\$\{ACCOUNT\}/g, '123456789012')
+        .replace(/\$\{GH_REPO_FULL\}/g, 'CosmasMandikonza/Morteva');
+      JSON.parse(dummy);
+      return true;
+    } catch {
+      return false;
+    }
+  })(),
+  'policy JSON does not parse',
+);
+const policyJson = JSON.parse(
+  policyBlock
+    .replace(/\$\{REGION\}/g, 'us-east-1')
+    .replace(/\$\{ACCOUNT\}/g, '123456789012')
+    .replace(/\$\{GH_REPO_FULL\}/g, 'CosmasMandikonza/Morteva'),
+);
+const sendStatements = policyJson.Statement.filter(
+  (s) =>
+    s.Action === 'ssm:SendCommand' ||
+    (Array.isArray(s.Action) && s.Action.includes('ssm:SendCommand')),
+);
+check(
+  'IAM-4',
+  'ssm:SendCommand is granted by exactly TWO statements (document + instance)',
+  sendStatements.length === 2,
+  `found ${sendStatements.length} SendCommand statements`,
+);
+const docStatement = sendStatements.find((s) =>
+  (Array.isArray(s.Resource) ? s.Resource : [s.Resource]).some((r) => r.includes('::document/')),
+);
+check(
+  'IAM-5',
+  'the document statement targets the AWS-managed RunShellScript ARN with NO account id (arn:aws:ssm:<region>::document/...)',
+  docStatement !== undefined &&
+    (Array.isArray(docStatement.Resource) ? docStatement.Resource : [docStatement.Resource]).every(
+      (r) => !r.includes('document/') || /^arn:aws:ssm:[^:]*::document\//.test(r),
+    ) &&
+    docStatement.Condition === undefined,
+  'document ARN carries an account id or the statement is conditioned',
+);
+const instanceStatement = sendStatements.find((s) =>
+  (Array.isArray(s.Resource) ? s.Resource : [s.Resource]).some((r) => /:instance\//.test(r)),
+);
+check(
+  'IAM-6',
+  'the instance statement targets instance ARNs with the moterva-judge tag CONDITION (tag belongs on the target)',
+  instanceStatement !== undefined &&
+    (Array.isArray(instanceStatement.Resource)
+      ? instanceStatement.Resource
+      : [instanceStatement.Resource]
+    ).every((r) => /:instance\//.test(r)) &&
+    JSON.stringify(instanceStatement.Condition ?? {}).includes('ssm:resourceTag/Name') &&
+    JSON.stringify(instanceStatement.Condition ?? {}).includes('moterva-judge'),
+  'instance statement missing, mis-scoped, or tag condition absent',
+);
+check(
+  'IAM-7',
+  'ssm:GetCommandInvocation is a SEPARATE statement on instance ARNs',
+  policyJson.Statement.some(
+    (s) =>
+      (s.Action === 'ssm:GetCommandInvocation' ||
+        (Array.isArray(s.Action) && s.Action.includes('ssm:GetCommandInvocation'))) &&
+      (Array.isArray(s.Resource) ? s.Resource : [s.Resource]).every((r) => /:instance\//.test(r)),
+  ),
+  'GetCommandInvocation not separately instance-scoped',
+);
+check(
+  'IAM-8',
+  'no account-bearing SSM document ARN remains anywhere in bootstrap',
+  !/arn:aws:ssm:\$\{REGION\}:\$\{ACCOUNT\}:document/.test(bootstrap),
+  'stale account-scoped document ARN present',
+);
+check(
+  'IAM-9',
+  'an IAM simulation preflight runs at bootstrap time (free, before any billable resource)',
+  /simulate-principal-policy/.test(bootstrap) && /sim_assert/.test(bootstrap),
+  'no simulation preflight',
+);
+check(
+  'IAM-10',
+  'the simulation asserts BOTH the document and a tagged instance, with the tag context entry',
+  /arn:aws:ssm:\$\{REGION\}::document\/AWS-RunShellScript" "ssm:SendCommand/.test(bootstrap) &&
+    /instance\/i-00000000000000000" "ssm:SendCommand"/.test(bootstrap) &&
+    /ssm:resourceTag\/Name,Values=moterva-judge/.test(bootstrap),
+  'simulation coverage incomplete',
+);
+check(
+  'IAM-11',
+  'bootstrap refuses to continue if simulation denies any deploy action',
+  /refusing to hand over a deploy role that cannot deploy/.test(bootstrap),
+  'no refuse-on-deny gate',
+);
+check(
+  'IAM-12',
+  'trust policy subject matches the manual dispatch branch and bootstrap states the dispatch requirement',
+  /ref:refs\/heads\/\$\{RELEASE_BRANCH\}/.test(bootstrap) &&
+    /workflow_dispatch MUST be launched from this/.test(bootstrap),
+  'trust/dispatch-branch mismatch or undocumented',
+);
+check(
+  'IAM-13',
+  'bootstrap verifies the workflow file exists on the DEFAULT branch before advising dispatch (workflow_dispatch restriction)',
+  /deploy-aws\.yml\?ref=\$\{DEFAULT_BRANCH\}/.test(bootstrap),
+  'no default-branch workflow availability check',
+);
+check(
+  'IAM-14',
+  'bootstrap validates the CloudFormation template (free API) BEFORE any billable deploy',
+  /validate-template --region "\$REGION" \\\s*--template-body "file:\/\/\$TMP\/cloudformation\.yaml"/.test(
+    bootstrap,
+  ),
+  'no template validation preflight',
+);
+check(
+  'IAM-15',
+  'stale $12/hard-cap budget language is gone from bootstrap and CFN (alert-only $18/~$13.5)',
+  !/hard budget alarm|BudgetLimit=12|Default: 12/.test(bootstrap + cfn) && /alert only/i.test(cfn),
+  'stale budget wording remains',
+);
+
 // ---- summary
 const failed = results.filter((r) => !r.ok);
 console.log(`\ncontract-checks: ${results.length - failed.length}/${results.length} PASS`);
