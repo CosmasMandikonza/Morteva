@@ -579,6 +579,34 @@ describe('sponsor purchase journey — mandate and settlement failures (D4)', ()
   });
 });
 
+describe('plan-only mode (never signs or spends)', () => {
+  it('plan-only runs every gate and returns the decision trace WITHOUT ever invoking the CLI payment', async () => {
+    const cli = new FixtureAgentCliRunner(paidScript(), { settledIdentities: new Set() });
+    const evidence = await runSponsorPurchaseJourney({
+      config: enabledConfig(),
+      paths: paths(),
+      cli,
+      vendor: vendor(),
+      clock: CLOCK,
+      stateDir: freshDir(),
+      runSalt: 'run-planonly',
+      orgId: 'org_harbor',
+      missionId: 'msn_hull_2026',
+      purpose: 'purchase hull-thickness diagnostic under mandate',
+      issuerPublicKeyFile: null,
+      planOnly: true,
+    });
+    expect(evidence.outcome).toBe('plan-only');
+    expect(evidence.reason).toMatch(/no payment was signed or attempted/);
+    expect(evidence.decisionTrace?.gatesPassed).toContain('economics-ok');
+    expect(evidence.decisionTrace?.gateFailed).toBeNull();
+    expect(evidence.amountUsdz).toBe('0.01');
+    expect(evidence.paymentIdentity).toBeNull();
+    expect(cli.performedCommands.some((c) => c.startsWith('pay '))).toBe(false);
+    expect(cli.performedCommands.length).toBe(0);
+  });
+});
+
 describe('stop-before-signing gates (D3)', () => {
   it('blocks everything when the sponsor rail is not enabled — no CLI invocation at all', async () => {
     const cli = new FixtureAgentCliRunner(paidScript(), { settledIdentities: new Set() });

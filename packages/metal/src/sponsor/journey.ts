@@ -83,6 +83,7 @@ export interface SponsorPurchaseEvidence {
     | 'declined'
     | 'paid-and-verified'
     | 'paid-delivery-unverified'
+    | 'plan-only'
     | 'refused-by-mandate'
     | 'in-doubt'
     | 'unverified'
@@ -218,6 +219,12 @@ export interface SponsorJourneyInput {
   /** Per-journey salt for the payment identity (a rerun of the SAME intent reuses its stored identity). */
   readonly runSalt: string;
   readonly issuerPublicKeyFile: string | null;
+  /**
+   * PLAN-ONLY: fetch the offer, run every authorization gate and return the
+   * decision trace WITHOUT ever invoking the CLI payment. Proves the gate
+   * outcome and never signs or spends.
+   */
+  readonly planOnly?: boolean;
 }
 
 function blocked(evidenceBase: Record<string, unknown>, reason: string): SponsorPurchaseEvidence {
@@ -373,6 +380,27 @@ export async function runSponsorPurchaseJourney(
       );
     }
     gatesPassed.push('mandate-credential-present');
+
+    // ---- PLAN-ONLY: every gate passed — report the decision WITHOUT
+    // writing an intent or invoking the CLI payment. Proves what WOULD be
+    // paid, to whom, and that all gates hold; nothing is signed.
+    if (input.planOnly === true) {
+      return {
+        ...(evidenceBase as unknown as SponsorPurchaseEvidence),
+        outcome: 'plan-only',
+        reason:
+          'PLAN-ONLY: all authorization gates passed (offer verified, in-cap, fresh, economically justified, mandate present) — no payment was signed or attempted',
+        sellerId: offer.sellerId,
+        offerDigest,
+        paymentIdentity: null,
+        amountBaseUnits: offer.priceBaseUnits,
+        amountUsdz: usdzFromBaseUnits(offer.priceBaseUnits),
+        txHash: null,
+        settlement: null,
+        delivery: null,
+        decisionTrace: trace,
+      };
+    }
 
     // ---- Durable intent BEFORE any payment (identity binds all terms).
     const identity = paymentIdentityFor(input.orgId, input.missionId, offerDigest, input.runSalt);

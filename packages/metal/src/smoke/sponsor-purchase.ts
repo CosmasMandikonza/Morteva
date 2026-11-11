@@ -31,7 +31,7 @@ function blocked(reason: string): never {
 async function main(): Promise<void> {
   const args = new Set(process.argv.slice(2));
   const confirm = args.has('--confirm');
-  args.has('--plan'); // plan mode: read-only run (no --confirm)
+  const planOnly = args.has('--plan'); // plan mode: read-only, enforced INSIDE the journey
 
   let config;
   try {
@@ -124,6 +124,7 @@ async function main(): Promise<void> {
         return { ok: true, status: response.status, payload: await response.json() };
       },
     },
+    planOnly,
     clock: { now: () => new Date(), iso: () => new Date().toISOString() },
     stateDir: process.env.METAL_SMOKE_STATE_DIR ?? join(tmpdir(), 'moterva-sponsor-smoke'),
     runSalt: process.env.METAL_SMOKE_RUN_SALT ?? String(Date.now()),
