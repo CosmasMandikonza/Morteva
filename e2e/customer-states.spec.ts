@@ -6,6 +6,8 @@ import {
   createMissionViaSheet,
   deliver,
   fillSpecForm,
+  GROUND,
+  groundWireSpec,
   headlessClient,
   selectMission,
   signedEnvelope,
@@ -301,6 +303,103 @@ test.describe('decision states from the real journal', () => {
     await expect(page.getByTestId('field-unavailable')).toBeVisible();
     // still honest about everything else
     await expect(page.getByTestId('truth-boundary')).toContainText('AIRWALLEX: OFFLINE');
+  });
+});
+
+test.describe('a second unseen domain: ground-only, no aerial asset, no wind rule', () => {
+  test('aisle obstruction (not wind) drives a different supplier at its own price', async ({
+    page,
+    request,
+    playwright,
+    baseURL,
+  }) => {
+    const title = uniq('Cold-store mission');
+    const { missionId, session } = await apiProvisionMission(request, title, {
+      mandate: true,
+      spec: groundWireSpec(),
+    });
+    const secret = await apiIssueCredential(
+      request,
+      session,
+      missionId,
+      GROUND.sourceId,
+      GROUND.keyId,
+    );
+    const headless = await headlessClient(playwright, baseURL);
+    const base = {
+      orgId: session.orgId,
+      missionId,
+      assetId: GROUND.assetId,
+      sourceId: GROUND.sourceId,
+      sourceType: 'warehouse_wms',
+      keyId: GROUND.keyId,
+    };
+    await deliver(headless, missionId, [
+      signedEnvelope(
+        {
+          ...base,
+          eventId: `evt_g_base_${uniq('x').replace(/\W/g, '')}`,
+          sequence: 1,
+          agoMs: 60_000,
+          observations: [
+            { kind: 'asset_comms', unit: 'state', value: 'online' },
+            { kind: 'aisle_access', unit: 'state', value: 'clear' },
+            // a ground asset is CLEAR only when comms, aisle AND charger are all
+            // fresh and healthy — a missing reading leaves it UNKNOWN (never clear)
+            { kind: 'charger_status', unit: 'state', value: 'free' },
+          ],
+        },
+        secret,
+      ),
+    ]);
+    await openDecisionRoom(page, 'operator', title);
+    await expect(page.getByTestId('field-events')).toContainText('aisle_access clear', {
+      timeout: 15_000,
+    });
+    await page.getByTestId('evaluate-journal').click();
+    await expect(page.getByTestId('live-evaluation-outcome')).toHaveAttribute(
+      'data-outcome',
+      'no-action',
+      { timeout: 15_000 },
+    );
+    // the aisle gets obstructed — an interrupt this customer declared
+    const breach = await deliver(headless, missionId, [
+      signedEnvelope(
+        {
+          ...base,
+          eventId: `evt_g_block_${uniq('y').replace(/\W/g, '')}`,
+          sequence: 2,
+          agoMs: 20_000,
+          observations: [{ kind: 'aisle_access', unit: 'state', value: 'obstructed' }],
+        },
+        secret,
+      ),
+    ]);
+    expect(breach.outcomes[0]?.status, JSON.stringify(breach)).toBe('accepted');
+    await page.getByTestId('refresh-journal').click();
+    await expect(page.getByTestId('evaluate-journal')).toHaveText('Evaluate the latest evidence');
+    await page.getByTestId('evaluate-journal').click();
+    await expect(page.getByTestId('live-evaluation-outcome')).toHaveAttribute(
+      'data-outcome',
+      'spend',
+      { timeout: 15_000 },
+    );
+    await expect(page.getByTestId('live-evaluation-selected')).toContainText(
+      GROUND.alternativeGross,
+    );
+    await expect(page.getByTestId(`cmp-option-hire-${GROUND.alternativeId}`)).toContainText(
+      'SELECTED',
+    );
+    await expect(page.getByTestId(`cmp-option-continue-${GROUND.incumbentId}`)).toContainText(
+      'ASSET_SAFETY_BLOCKED',
+    );
+    // the wind-based rule of the aerial example NEVER appears here
+    await expect(page.getByTestId('mission-spec-panel')).not.toContainText('wind limit');
+    await expect(page.getByTestId('decision-room')).not.toContainText('KT MODELED LIMIT');
+    await expect(page.getByTestId('constraint-' + GROUND.assetId)).toContainText(
+      'aisle-obstructed',
+    );
+    await headless.dispose();
   });
 });
 

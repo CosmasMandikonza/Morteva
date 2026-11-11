@@ -145,6 +145,94 @@ export function unseenWireSpec(): Record<string, unknown> {
   };
 }
 
+/**
+ * A SECOND unseen mission in a different domain: ground-only (a cold-store
+ * tote runner), NO aerial asset and therefore NO wind rule — its safety
+ * verdicts come from aisle/comms interrupts. Proves the workflow is
+ * spec-driven, not tied to the aerial example.
+ */
+export const GROUND = {
+  specId: 'coldstore-tote-run-7',
+  title: 'Cold-store tote run, aisle 14 re-slotting',
+  objective:
+    'Re-slot aisle 14 totes before the 06:00 outbound wave using the primary tote runner or a hired floor crew.',
+  assetId: 'tote-runner-4',
+  sourceId: 'dock-wms-feed',
+  keyId: 'key-ground-a',
+  incumbentId: 'runner-reslot',
+  alternativeId: 'floor-crew-reslot',
+  alternativeBeneficiary: 'night-floor-collective',
+  alternativeGross: 'USD 9,350.00',
+} as const;
+
+export function groundWireSpec(): Record<string, unknown> {
+  return {
+    specVersion: 1,
+    specId: GROUND.specId,
+    industry: 'general-operations',
+    identity: { title: GROUND.title, objective: GROUND.objective },
+    assets: [{ assetId: GROUND.assetId, label: 'Tote runner 4', domainKind: 'ground' }],
+    sources: [
+      {
+        sourceId: GROUND.sourceId,
+        sourceType: 'warehouse_wms',
+        provenance: 'FIELD',
+        assetIds: [GROUND.assetId],
+        trustedForRecovery: false,
+      },
+    ],
+    safetyPolicy: {
+      version: 1,
+      clearanceAuthority: 'deterministic-domain-policy',
+      groundInterrupts: ['comms-offline', 'aisle-obstructed'],
+    },
+    economics: {
+      currency: 'USD',
+      missionValueMinor: 6_200_000,
+      failureCostMinor: 1_400_000,
+      protectedReserveMinor: 100_000,
+      deadlineOffsetMinutes: 360,
+    },
+    offers: {
+      incumbent: {
+        id: GROUND.incumbentId,
+        kind: 'inspection-service',
+        beneficiary: 'cold-store-ops',
+        purpose: 'aisle re-slotting',
+        currency: 'USD',
+        baseCostMinor: 410_000,
+        feeMinor: 0,
+        leadTimeMinutes: 10,
+        durationMinutes: 120,
+        probabilityOfSuccess: 0.93,
+        availability: 'confirmed',
+        requiresAssetId: GROUND.assetId,
+      },
+      alternatives: [
+        {
+          id: GROUND.alternativeId,
+          kind: 'inspection-service',
+          beneficiary: GROUND.alternativeBeneficiary,
+          purpose: 'aisle re-slotting',
+          currency: 'USD',
+          baseCostMinor: 910_000,
+          feeMinor: 25_000,
+          leadTimeMinutes: 45,
+          durationMinutes: 150,
+          probabilityOfSuccess: 0.88,
+          availability: 'confirmed',
+        },
+      ],
+    },
+    financialMandateShape: {
+      currency: 'USD',
+      allowedBeneficiaries: ['cold-store-ops', GROUND.alternativeBeneficiary],
+      allowedPurposes: ['aisle re-slotting'],
+    },
+    truthLabel: 'CUSTOMER_CONFIGURED_OPERATION — POLICY-ONLY',
+  };
+}
+
 // --------------------------------------------------------- field-system signer
 
 /** The PRODUCT's printed reference signer, executed as documented. */
@@ -442,8 +530,13 @@ export async function apiAdmitEvidence(
 export async function apiProvisionMission(
   request: APIRequestContext,
   title: string,
-  options: { mandate: boolean },
+  options: { mandate: boolean; spec?: Record<string, unknown> },
 ): Promise<{ missionId: string; session: ApiSession }> {
+  const wire = options.spec ?? unseenWireSpec();
+  const shape = wire.financialMandateShape as {
+    allowedBeneficiaries: string[];
+    allowedPurposes: string[];
+  };
   const session = await apiLogin(request, 'founder');
   const headers = { 'x-csrf-token': session.csrf };
   const mission = await request.post('/api/missions', { headers, data: { title } });
@@ -451,7 +544,7 @@ export async function apiProvisionMission(
   const missionId = ((await mission.json()) as { id: string }).id;
   const spec = await request.post(`/api/missions/${missionId}/mission-spec`, {
     headers,
-    data: { spec: unseenWireSpec() },
+    data: { spec: wire },
   });
   expect(spec.status(), `register spec: ${await spec.text()}`).toBe(200);
   if (options.mandate) {
@@ -463,8 +556,8 @@ export async function apiProvisionMission(
         maxAmountMinor: 10_000_000,
         totalBudgetMinor: 15_000_000,
         permittedOperationKinds: ['airwallex_transfer'],
-        allowedBeneficiaries: [UNSEEN.incumbent.beneficiary, UNSEEN.alternative.beneficiary],
-        allowedPurposes: [UNSEEN.incumbent.purpose],
+        allowedBeneficiaries: shape.allowedBeneficiaries,
+        allowedPurposes: shape.allowedPurposes,
         expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
       },
     });

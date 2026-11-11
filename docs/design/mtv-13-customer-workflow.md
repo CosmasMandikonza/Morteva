@@ -109,7 +109,9 @@ element hiding overflow, the primary action reachable and not obscured.
   no-mandate **decline**, closed baseline window explained, 5xx/409 read failures (no fabricated
   alternatives), key rotation + revocation through the UI (revoked key `403 CREDENTIAL_REVOKED`,
   replacement accepted, revoked id never re-issuable, operators cannot revoke), 5-minute secret TTL
-  (fake clock), responsive ladder.
+  (fake clock), responsive ladder, and a **second unseen domain** — a ground-only cold-store mission
+  with no aerial asset and no wind rule — whose decision flips on an aisle obstruction (not wind) to a
+  different supplier at its own price.
 
 Reproduce: `npm ci && npm run build && npx playwright test e2e/customer-journey.spec.ts
 e2e/customer-states.spec.ts --workers=1` (CI runs them as a serial step). Evidence images:
@@ -136,6 +138,11 @@ credential dialog **masked**).
 * **Credential inventory after reload:** the read API does not list declared sources/keys yet, so the
   source field becomes a text input and key ids issued in a previous session are not listed
   (requested on #64).
+* **Ground clearance needs three readings:** the ground verdict treats an asset as clear only while
+  comms, aisle-access **and charger** readings are all fresh and healthy, even when the spec declares
+  only some interrupts; a reading the customer's sources never send leaves the asset UNKNOWN (refused
+  for any supplier that depends on it). Mission Setup now says so next to the ground-interrupt
+  choice; aligning the required readings with the declared interrupts is a request to Agent C.
 * **Baseline window:** several observations before a baseline evaluation close the window
   (server rule); the UI explains it instead of offering a refused action (change requested on #64).
 * **Evidence projection** does not yet carry `sourceId`/`provenance` for ingested events, so Evidence

@@ -597,6 +597,11 @@ export function SpecForm({
         {hasGround && (
           <fieldset className="mv-spec__assets">
             <legend className="mv-field__label">Ground interrupting conditions</legend>
+            <span className="mv-spec__hint">
+              A ground asset is treated as CLEAR only while its comms, aisle-access and charger
+              readings are all fresh and healthy. A reading your sources never send leaves the asset
+              UNKNOWN — and an unknown asset is never cleared for a supplier that depends on it.
+            </span>
             {GROUND_INTERRUPTS.map((g) => (
               <label key={g} className="mv-check">
                 <input
