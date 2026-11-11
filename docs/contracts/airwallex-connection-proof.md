@@ -94,9 +94,11 @@ disclosure projection remains the replayable record. This is additive —
 
 ## Credential provisioning (founder action — exact procedure)
 
-The adapter reads the SERVER environment only. To provision on the secured
-local machine (one paste; values never enter git, stdout evidence, chat or
-CI):
+The adapter reads the SERVER environment only. The smoke scripts load the
+gitignored root `.env` themselves (Node 24 `--env-file-if-exists=../../.env`
+in the workspace scripts; real process env always wins; production injects
+real environment variables and never reads local files) — NO shell exports
+are needed:
 
 1. Create `.env` in the repo root (already `.gitignore`d — verify with
    `git check-ignore .env`) containing exactly:
@@ -108,20 +110,34 @@ CI):
    # optional single-read targets for the connection proof:
    AIRWALLEX_SANDBOX_BENEFICIARY_ID=<paste one beneficiary id from the UI>
    AIRWALLEX_SANDBOX_TRANSFER_ID=<optional, only if a transfer id should be read>
+   # the DISTINCT least-privilege Transfers-Write pair — ONLY when the founder
+   # has provisioned that separate key AND approved the exact transfer:
+   #AIRWALLEX_WRITE_CLIENT_ID=<paste write client id>
+   #AIRWALLEX_WRITE_API_KEY=<paste write api key>
    ```
+
+   The smoke scripts then run with a single command each
+   (`npm run smoke:connection -w @moterva/airwallex`,
+   `npm run smoke:transfer -w @moterva/airwallex` — the latter BLOCKS exit 2
+   unless the WRITE pair above exists AND is provably distinct from the read
+   pair; a write pair identical to the read pair is refused as a
+   least-privilege violation).
 
 2. IP allowlist: the sandbox key only answers from allowlisted public egress
    IPs. Add THIS machine's current public egress IP before running; an AWS
    host's EIP is a different public source IP and must be allowlisted
-   separately when the proof runs there. A non-allowlisted IP presents as
-   `403` — the connection proof classifies that explicitly (`scope-or-ip`)
-   instead of misreporting an empty account or an error.
-3. Key separation (never weakened): the founder's initial key is READ-ONLY
-   and stays read-only. A sandbox WRITE requires a DISTINCT least-privilege
-   Transfers-Write sandbox key provisioned as a second paste
-   (`AIRWALLEX_CLIENT_ID`/`AIRWALLEX_API_KEY` swapped only for the authorized
-   transfer run; the read-only pair is restored afterwards). The read-only
-   connection proof never sends a write.
+   separately when the proof runs there. CONFIRMED DIAGNOSTIC (2026-11-11
+   live attempt): a non-allowlisted source IP gets an HTML `403 Forbidden`
+   page from the edge even on UNAUTHENTICATED requests — while an
+   allowlisted IP without credentials gets a JSON 401 (missing credentials).
+   The connection proof classifies the authenticated 403 explicitly
+   (`scope-or-ip`) instead of misreporting an empty account or an error.
+3. Key separation (never weakened, now ENFORCED in code): the founder's
+   initial key is READ-ONLY and stays read-only. A sandbox WRITE requires a
+   DISTINCT least-privilege Transfers-Write sandbox key
+   (`AIRWALLEX_WRITE_CLIENT_ID`/`AIRWALLEX_WRITE_API_KEY`); `smoke:transfer`
+   refuses to run without it and refuses a write pair identical to the read
+   pair. The read-only connection proof never sends a write.
 
 4. Run and capture redacted evidence (values above are never printed; the
    bearer token is held in memory only):

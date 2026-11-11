@@ -165,18 +165,18 @@ export function classifyConnectionFailure(error: unknown): {
     if (error.httpStatus === 403) {
       return {
         kind: 'scope-or-ip',
-        detail: `403 ${error.providerCode}: the credential's scope does not cover this resource OR the source IP is not on the sandbox IP allowlist. This is a permissions/network configuration diagnostic — not an empty resource and not a fabricated failure. Check: (1) the key's scopes in the Airwallex sandbox UI, (2) the allowlisted public egress IP of THIS machine (an AWS host's EIP differs from a local IP).`,
+        detail: `403 ${error.providerCode}: the credential's scope does not cover this resource OR the source IP is not on the sandbox IP allowlist. This is a permissions/network configuration diagnostic — not an empty resource and not a fabricated failure. Provider said: "${error.message}". Check: (1) the key's scopes in the Airwallex sandbox UI, (2) the allowlisted public egress IP of THIS machine (an AWS host's EIP differs from a local IP).`,
       };
     }
     if (error.httpStatus === 404) {
       return {
         kind: 'not-found',
-        detail: `404 ${error.providerCode}: the requested resource id does not exist in this sandbox account (a wrong id is a configuration error, not an empty list).`,
+        detail: `404 ${error.providerCode}: the requested resource id does not exist in this sandbox account (a wrong id is a configuration error, not an empty list). Provider said: "${error.message}".`,
       };
     }
     return {
       kind: 'other',
-      detail: `${String(error.httpStatus)} ${error.providerCode}: definitive provider rejection.`,
+      detail: `${String(error.httpStatus)} ${error.providerCode}: definitive provider rejection. Provider said: "${error.message}".`,
     };
   }
   if (error instanceof TransportUnavailableError) {

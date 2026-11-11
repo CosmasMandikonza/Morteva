@@ -17,13 +17,18 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAirwallexConfig, HttpTransport } from '../index.js';
+import { loadAirwallexWriteConfig, HttpTransport } from '../index.js';
 import { DEFAULT_SMOKE_AMOUNT_MINOR, runSmokeTransfer } from './transfer-runner.js';
 
-const config = loadAirwallexConfig();
-if (!config.enabled) {
+let config;
+try {
+  // LEAST-PRIVILEGE SEPARATION: a transfer run requires the DISTINCT
+  // Transfers-Write credential pair — the read-only key is never reused for
+  // write authority, and a write pair identical to the read pair is refused.
+  config = loadAirwallexWriteConfig();
+} catch (error) {
   console.error(
-    'BLOCKED: sandbox credentials not configured (AIRWALLEX_ENV=sandbox + AIRWALLEX_CLIENT_ID + AIRWALLEX_API_KEY). The real sandbox transfer acceptance of issue #5 remains BLOCKED on founder-provided credentials and a sandbox beneficiary. Nothing was fabricated.',
+    `BLOCKED: ${error instanceof Error ? error.message : String(error)} The real sandbox transfer acceptance of issue #5 remains BLOCKED on the founder's distinct Transfers-Write key and explicit authorization of the exact beneficiary/amount/currency/fees. Nothing was fabricated and no provider call was made.`,
   );
   process.exit(2);
 }

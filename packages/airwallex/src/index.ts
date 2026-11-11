@@ -5,8 +5,13 @@
  * configured; the offline fixture is strictly test-only. No provider success
  * is ever inferred from the fixture, and submission is never settlement.
  */
-export { loadAirwallexConfig, PRODUCTION_BASE_URL, SANDBOX_BASE_URL } from './config.js';
-export type { AirwallexAdapterConfig, AirwallexEnv } from './config.js';
+export {
+  loadAirwallexConfig,
+  loadAirwallexWriteConfig,
+  PRODUCTION_BASE_URL,
+  SANDBOX_BASE_URL,
+} from './config.js';
+export type { AirwallexAdapterConfig, AirwallexEnv, AirwallexWriteEnv } from './config.js';
 
 export { normalizeTransferStatus, isTerminalStatus } from './status.js';
 export type { AirwallexNormalizedStatus } from './status.js';
