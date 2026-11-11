@@ -28,6 +28,7 @@ import { registerReviewerDemoRoutes } from './reviewer-demo/routes.js';
 import { registerWarehouseDemoRoutes } from './integration/warehouse-demo-routes.js';
 import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import { registerMissionSpecRoutes } from './integration/mission-spec.js';
+import { registerMissionOperationsRoutes } from './integration/mission-operations.js';
 import { resolveMissionSpec } from './integration/decision-snapshots.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -95,6 +96,13 @@ export function buildApp(
       registerMissionSpecRoutes(scope, ledger, (orgId, mId) =>
         resolveMissionSpec(ledger, orgId, mId),
       );
+      // P0 PRODUCTIZATION: the production mission-operations pathway —
+      // authenticated spec registration, source credential issuance
+      // (server-generated HMAC custody), signed event ingestion, journal-
+      // derived evaluation and bounded model assistance. RBAC + CSRF
+      // protected; mounted OUTSIDE the DEMO_AUTH gate (disclosed to Agent E;
+      // no identity/config/deploy file touched).
+      registerMissionOperationsRoutes(scope, ledger);
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.
