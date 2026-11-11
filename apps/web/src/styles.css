@@ -71,9 +71,21 @@ a {
   padding: 14px 24px;
   background: var(--mv-surface-card);
   border-bottom: 1px solid var(--mv-line);
-  position: sticky;
-  top: 0;
   z-index: 20;
+}
+/* The header only STICKS where the viewport can spare it. On a phone (or a
+   200%-zoomed window, which is a ~640px viewport) a sticky header that wraps
+   to several rows would permanently cover 40% of the screen and obscure the
+   focused control (WCAG 2.4.11) — there it scrolls away with the page. */
+@media (min-width: 721px) and (min-height: 620px) {
+  .mv-topbar {
+    position: sticky;
+    top: 0;
+  }
+  /* keyboard focus and in-page jumps never land underneath the sticky header */
+  html {
+    scroll-padding-top: 8rem;
+  }
 }
 
 .mv-topbar__brand {
@@ -1537,8 +1549,14 @@ a {
   border: 1px solid var(--mv-line-strong);
   color: var(--mv-ink-2);
   background: var(--mv-surface-raised);
-  white-space: nowrap;
+  /* long labels wrap inside their container (never force it wider) */
+  white-space: normal;
   max-width: 100%;
+  min-width: 0;
+}
+.mv-badge__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .mv-badge__glyph {
   font-size: var(--mv-size-sm);
@@ -1868,8 +1886,6 @@ a {
   }
   .mv-droom__physical {
     min-width: 0;
-    overflow-x: clip;
-    max-width: 100vw;
   }
   .mv-droom__physical,
   .mv-droom__financial {
@@ -2302,131 +2318,362 @@ a {
   color: var(--mv-ink-1);
 }
 
-/* R-final: constrain Agent C's viewer to its container at narrow widths —
-   the mpv HUD rows wrap rather than pushing the document wide. */
+/* ------------------------------------------------ viewer composition
+   The 320px overflow was a REAL layout defect, not something to hide:
+     1. grid tracks sized `1fr` (= minmax(auto, 1fr)) take their items'
+        min-content, so one long unbreakable token (an event id) forced the
+        whole module to ~362px;
+     2. those tokens (event ids, digests, chips, card values) had no wrap rule;
+     3. at phone widths the HUD overlaid and covered the small scene.
+   Fix at the source — nothing is clipped, hidden or removed: tracks may
+   shrink, long tokens wrap, and at <=640px the HUD leaves the scene overlay
+   and stacks BELOW it so both stay fully usable (200% zoom of a 1280px
+   window is a 640px viewport and takes the same path). */
+.mv-droom__viewport-host {
+  min-width: 0;
+}
 .mv-droom__physical .mpv {
+  grid-template-columns: minmax(0, 1fr) 250px;
   min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  grid-template-columns: minmax(0, 1fr);
 }
-.mv-droom__physical [class*='mpv-'] {
+@media (max-width: 900px) {
+  .mv-droom__physical .mpv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.mv-droom__physical .mpv-stage,
+.mv-droom__physical .mpv-events {
   min-width: 0;
-  max-width: 100%;
 }
-.mv-droom__physical .mpv-hud__row,
-.mv-droom__physical .mpv-hud__grid {
-  flex-wrap: wrap;
-  max-width: 100%;
+.mv-droom__physical .mpv-events__id,
+.mv-droom__physical .mpv-events__meta,
+.mv-droom__physical .mpv-events__credits,
+.mv-droom__physical .mpv-chip,
+.mv-droom__physical .mpv-card__k,
+.mv-droom__physical .mpv-card__v,
+.mv-droom__physical .mpv-card__sub,
+.mv-droom__physical .mpv-selected dd,
+.mv-droom__physical .mpv-note,
+.mv-droom__physical .mpv-fallback-note,
+.mv-droom__physical .mpv-decision-link {
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .mv-droom__physical .mpv-chip {
   white-space: normal;
-  overflow-wrap: anywhere;
-  max-width: 100%;
 }
-/* The mpv-card 180px minimum (× 2 columns in mpv-selected) is the intrinsic
-   floor that pushed the document to 362px at 320. Constrain it inside our
-   composition so the module clips instead of overflowing. */
 .mv-droom__physical .mpv-card {
   min-width: 0;
+  flex: 1 1 140px;
 }
-@media (max-width: 480px) {
-  .mv-droom__physical .mpv-selected {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .mv-droom__physical .mpv-stage {
+    aspect-ratio: auto;
+    display: flex;
+    flex-direction: column;
   }
-}
-
-/* R-final: the viewer module is decorative at narrow widths — clip at every
-   level so the module cannot push the document past the viewport. */
-.mv-droom__physical {
-  overflow-x: clip;
-  min-width: 0;
-}
-.mv-droom {
-  overflow-x: clip;
-}
-.mv-app {
-  overflow-x: clip;
-}
-/* The three.js canvas retains its mount-time pixel width; constrain it and the
-/* R-final: the viewer module is decorative at narrow widths — clip inside the
-   physical column rather than letting the module's intrinsic min-content
-   width push the document past the viewport. */
-@media (max-width: 480px) {
-  .mv-droom__physical {
-    overflow-x: hidden;
-  }
-}
-
-/* R-final P0: the three.js canvas retains its mount-time pixel width; clip
-   the document root so the viewer module can never push the document past
-   the viewport — the canvas-host (position:absolute inside mpv-stage) is
-   visually clipped by its own parent, but html.scrollWidth still measured
-   the layout extent. */
-html {
-  overflow-x: clip;
-}
-
-/* The viewer module's ≤900px grid uses `1fr` (= minmax(auto, 1fr)) — the
-   mpv-events aside min-content width (mpv-cards at 180px) pushes the module
-   wider than the container. Constrain to minmax(0, 1fr) inside the
-   composition so the module shrinks instead of overflowing. */
-.mv-droom__physical .mpv-events {
-  min-width: 0;
-  overflow-x: clip;
-}
-
-/* THE ROOT FIX: .mpv (no suffix) was NOT matched by [class*='mpv-'] — the
-   viewer root had min-width: auto = its 362px min-content width. */
-.mv-droom__physical > .mpv {
-  min-width: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
-  contain: layout paint size;
-  height: fit-content;
-}
-
-/* R-final P0: the three.js canvas retains its mount-time pixel width when
-   the viewport shrinks — clip the document root so the viewer module can
-   never push the document past the viewport at any width. */
-html,
-body {
-  overflow-x: hidden;
-}
-.mv-app {
-  max-width: 100vw;
-  overflow-x: clip;
-}
-
-/* R-final P0: the three.js canvas retains mount-time pixel dimensions that
-   cannot shrink below the viewport after resize — hide the canvas host at
-   narrow widths and show the module's 2D schematic instead (the viewer
-   module's own fallback path handles this at the composition level). */
-@media (max-width: 480px) {
+  /* the scene keeps a usable 4:3 box of its own … */
   .mv-droom__physical .mpv-canvas-host {
-    display: none;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+  .mv-droom__physical .mpv-marker-layer {
+    inset: 0 0 auto 0;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+  /* … and the HUD sits beneath it instead of covering it */
+  .mv-droom__physical .mpv-hud {
+    position: static;
+    inset: auto;
+    max-width: none;
+    border-radius: 0;
+    border-width: 1px 0 0;
   }
 }
 
-/* R-final: the viewer module
-'s ≤900px grid uses 1fr (= minmax(auto, 1fr)) — the mpv-events aside
-   min-content width (chips, event ids, cards) exceeds 320px minus padding,
-   pushing the module wider than the container. Constrain to minmax(0, 1fr)
-   inside the composition so the module shrinks instead of overflowing. */
-@media (max-width: 900px) {
-  .mv-droom__physical .mpv {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-}
-
-/* Hard containment for the viewer mount: the mpv module cannot push its
-   parent wider regardless of CSS load order or module-level media queries. */
-.mv-droom__viewport-host {
-  position: relative;
-  width: 100%;
-  max-width: 100%;
+/* ------------------------------------------------ Mission Setup (R-final) */
+.mv-spec {
+  display: grid;
+  gap: 18px;
   min-width: 0;
-  overflow: hidden;
-  contain: layout paint;
+}
+.mv-spec__section,
+.mv-spec__card {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.mv-spec__section {
+  border: 1px solid var(--mv-line);
+}
+.mv-spec__card {
+  border: 1px dashed var(--mv-line-strong);
+  padding: 12px;
+}
+.mv-spec__legend {
+  font-size: var(--mv-size-sm);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  padding: 0 6px;
+}
+.mv-spec__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.mv-spec__assets {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.mv-spec__hint {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+}
+.mv-spec__error {
+  color: var(--mv-danger-text);
+  font-size: var(--mv-size-sm);
+  overflow-wrap: anywhere;
+}
+.mv-spec__code {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-2xs);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.mv-spec__secret {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  padding: 8px 10px;
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 6px;
+  background: var(--mv-surface-sunken);
+}
+.mv-spec__pre {
+  margin: 8px 0;
+  padding: 12px;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-sunken);
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+  line-height: 1.5;
+  white-space: pre;
+}
+.mv-spec__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mv-size-sm);
+}
+.mv-spec__table th,
+.mv-spec__table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mv-line);
+  overflow-wrap: anywhere;
+}
+.mv-spec__issue {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.mv-input[aria-invalid='true'] {
+  border-color: var(--mv-danger-text);
+}
+@media (max-width: 720px) {
+  .mv-spec__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mv-spec__section {
+    padding: 12px;
+  }
+}
+
+/* ------------------------------------- decision comparison / field journal */
+.mv-cmp {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.mv-cmp__headline {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 8px;
+  background: var(--mv-surface-raised);
+}
+.mv-cmp__headline p {
+  margin: 0;
+}
+.mv-cmp__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-cmp__item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mv-cmp__item.is-selected {
+  border-color: var(--mv-focus-ring);
+}
+.mv-cmp__item.is-refused {
+  border-style: dashed;
+}
+.mv-cmp__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+.mv-cmp__nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+}
+.mv-cmp__nums dt {
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+}
+.mv-cmp__nums dd {
+  margin: 0;
+}
+.mv-cmp__why {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  overflow-wrap: anywhere;
+}
+.mv-field__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-field__event {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mv-field__event p {
+  margin: 0;
+}
+.mv-field__eventhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.mv-field__constraints {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mv-truth {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.mv-truth__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+/* Links styled as buttons keep button typography (no inherited underline). */
+a.mv-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Definition lists carry identifiers, digests and amounts: long unbreakable
+   tokens wrap instead of widening the page (any width, any zoom). */
+.mv-mandate__meta > div {
+  min-width: 0;
+}
+.mv-mandate__meta dt,
+.mv-mandate__meta dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Column grids never let one wide item (a digest, an id) widen the track and
+   with it every sibling: tracks may shrink, long tokens wrap. */
+.mv-droom__physical,
+.mv-droom__financial {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mv-governed,
+.mv-droom__incident,
+.mv-hud,
+.mv-num {
+  overflow-wrap: break-word;
+}
+.mv-droom__physical > *,
+.mv-droom__financial > * {
+  min-width: 0;
+}
+
+/* Every single-column grid container below may shrink its implicit track:
+   `auto` tracks size to the widest item's min-content (a digest, an id) and
+   overflow their own box. One rule, applied to all of them. */
+.mv-governed,
+.mv-spec,
+.mv-spec__section,
+.mv-spec__card,
+.mv-spec__issue,
+.mv-cmp,
+.mv-cmp__item,
+.mv-field__event,
+.mv-truth {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mv-governed > *,
+.mv-spec > *,
+.mv-spec__section > *,
+.mv-spec__card > *,
+.mv-cmp > *,
+.mv-cmp__item > *,
+.mv-field__event > *,
+.mv-truth > * {
+  min-width: 0;
 }

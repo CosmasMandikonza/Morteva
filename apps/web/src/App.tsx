@@ -6,6 +6,7 @@ import { EvidenceReplay } from './screens/Evidence';
 import { PlannedSurface } from './screens/PlannedSurface';
 import { AuthorityExecution } from './screens/AuthorityExecution';
 import { DecisionRoom } from './screens/DecisionRoom';
+import { MissionSetup } from './screens/MissionSetup';
 import { NAV_ITEMS, type SectionId } from './nav';
 import {
   ApiError,
@@ -320,6 +321,13 @@ export function App(): JSX.Element {
             mission={missionsForContext}
             operationFilter={evidenceOperationFilter}
             onClearOperationFilter={() => setEvidenceOperationFilter(null)}
+          />
+        ) : section === 'setup' ? (
+          <MissionSetup
+            session={session}
+            mission={missionsForContext}
+            csrfToken={csrfToken}
+            onSessionExpired={handleSessionExpired}
           />
         ) : section === 'decisions' ? (
           <DecisionRoom

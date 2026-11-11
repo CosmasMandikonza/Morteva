@@ -159,6 +159,7 @@ export function MandateCreateSheet({
   onClose,
   onCreated,
   csrfToken,
+  prefill,
 }: {
   missionId: string;
   missionTitle: string;
@@ -166,14 +167,22 @@ export function MandateCreateSheet({
   onClose: () => void;
   onCreated: (mandate: MandateRow) => void;
   csrfToken: string | null;
+  /** SUGGESTED constraints (e.g. from the registered mission specification's
+   *  derived mandate shape). A human still reviews every value and submits;
+   *  nothing is granted by prefilling. */
+  prefill?: {
+    currency?: string;
+    beneficiaries?: readonly string[];
+    purposes?: readonly string[];
+  };
 }): JSX.Element {
   const [step, setStep] = useState<'form' | 'review'>('form');
-  const [currency, setCurrency] = useState<string>('USD');
+  const [currency, setCurrency] = useState<string>(prefill?.currency ?? 'USD');
   const [kinds, setKinds] = useState<readonly string[]>(['airwallex_transfer']);
   const [maxMajor, setMaxMajor] = useState('');
   const [budgetMajor, setBudgetMajor] = useState('');
-  const [beneficiaries, setBeneficiaries] = useState('');
-  const [purposes, setPurposes] = useState('');
+  const [beneficiaries, setBeneficiaries] = useState((prefill?.beneficiaries ?? []).join(', '));
+  const [purposes, setPurposes] = useState((prefill?.purposes ?? []).join(', '));
   const [expiryDays, setExpiryDays] = useState('7');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
@@ -275,7 +284,10 @@ export function MandateCreateSheet({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                {CURRENCIES.map((c) => (
+                {(CURRENCIES.includes(currency as (typeof CURRENCIES)[number])
+                  ? [...CURRENCIES]
+                  : [currency, ...CURRENCIES]
+                ).map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>

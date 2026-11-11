@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { Panel } from '../components/Panel';
+import { DecisionComparison } from '../components/DecisionComparison';
+import { FieldObservations } from '../components/FieldObservations';
+import { TruthBoundary } from '../components/TruthBoundary';
+import { useOperations } from '../lib/useOperations';
+import { newestEvent } from '../lib/fieldEvents';
+import { NEXT_EVALUATION_COPY, nextEvaluation } from '../lib/operationsFlow';
+import { describeOutcome } from '../lib/decisionCopy';
 import {
   ApiError,
   approvalsFromEvidence,
@@ -11,6 +18,7 @@ import {
   fetchPhysicalDecision,
   fetchReviewerDemoCapability,
   mayApprove,
+  mayOperate,
   mayPropose,
   proposePlanFromEvaluation,
   provisionReviewerMission,
@@ -55,9 +63,16 @@ import { PhysicalMissionViewport } from '../mission-viewer/PhysicalMissionViewpo
 
 // USD catalog amounts via the shared exact formatter (exponent from the
 // domain table — never a local /100).
-function money(minor: number): string {
-  return moneyAmount('USD', minor);
+function money(minor: number, currency = 'USD'): string {
+  return moneyAmount(currency, minor);
 }
+
+/** Built-in DEMO catalog specs (harbor + warehouse fixtures). Missions on any
+ *  other registered spec are CUSTOMER missions: the demo entry points are not
+ *  offered for them and their decisions never use fixture routes. */
+const DEMO_CATALOG_SPEC_IDS: readonly string[] = ['harbor-inspection-v1', 'warehouse-inventory-v1'];
+
+type RoomMode = 'loading' | 'unknown' | 'unconfigured' | 'demo' | 'customer';
 
 /** Candidate decision card — Cult UI Expandable pattern: the collapsed row
  *  always carries the action, the gross figure and the verdict; expansion
@@ -67,11 +82,13 @@ function DecisionExpandable({
   decision,
   tone,
   defaultOpen,
+  currency = 'USD',
 }: {
   title: string;
   decision: PhysicalDecisionSummary | null;
   tone: 'noaction' | 'selected' | 'eligible';
   defaultOpen?: boolean;
+  currency?: string;
 }): JSX.Element {
   const selected = decision?.selected ?? null;
   const summary = (
@@ -87,7 +104,7 @@ function DecisionExpandable({
           <span className="mv-xcard__money mv-num">
             {selected === null || selected.grossMinor <= 0
               ? 'no spend proposed'
-              : `gross ${money(selected.grossMinor)} · net ${money(selected.expectedNetMinor)}`}
+              : `gross ${money(selected.grossMinor, currency)} · net ${money(selected.expectedNetMinor, currency)}`}
           </span>
           {decision !== null && outcomeBadge(decision)}
           <span className="mv-xcard__meta">
@@ -138,7 +155,7 @@ function DecisionExpandable({
                   {alternative.feasible
                     ? 'eligible'
                     : `blocked: ${alternative.rejection ?? 'policy'}`}{' '}
-                  · <span className="mv-num">{money(alternative.grossMinor)}</span> gross
+                  · <span className="mv-num">{money(alternative.grossMinor, currency)}</span> gross
                 </li>
               ))}
             </ul>
@@ -346,7 +363,25 @@ export function DecisionRoom({
     return () => controller.abort();
   }, [mission?.id, session.kind, onSessionExpired]);
 
-  const isWarehouse = missionSpec?.industry === 'warehouse-amr';
+  // Which workflow this mission is on. The registered specification decides —
+  // never a guess and never a silent fallback to a fixture:
+  //  customer     : a spec the customer registered → production operations path
+  //  demo         : a built-in catalog spec → labeled DEMO entry points
+  //  unconfigured : no spec registered → prompt to configure (+ harbor DEMO)
+  const mode: RoomMode =
+    specState === 'loading'
+      ? 'loading'
+      : missionSpec === null
+        ? 'unknown'
+        : !missionSpec.registered
+          ? 'unconfigured'
+          : DEMO_CATALOG_SPEC_IDS.includes(missionSpec.specId)
+            ? 'demo'
+            : 'customer';
+  const missionCurrency = missionSpec?.economics.currency ?? 'USD';
+  // The warehouse DEMO journey applies only to the built-in warehouse catalog
+  // spec — an industry LABEL on a customer spec never selects a fixture.
+  const isWarehouse = mode === 'demo' && missionSpec?.specId === 'warehouse-inventory-v1';
 
   // Warehouse journey read — mirrors the harbor read on the same durable
   // state; the two domains never mix inside one mission journal.
@@ -404,6 +439,17 @@ export function DecisionRoom({
       setSheet('none');
       return;
     }
+    if (mode === 'loading') return; // wait for the spec read; never guess a workflow
+    if (mode === 'customer' || mode === 'unknown') {
+      // Customer missions never touch the demo journey routes: only the
+      // durable records (evaluations, proposals, approvals) are read here.
+      const controller = new AbortController();
+      setJourney(null);
+      setLoading(false);
+      setError(null);
+      refreshDurableState(mission.id, controller.signal);
+      return () => controller.abort();
+    }
     // OIDC reviewer mode must never query the devAuth-only physical decision route.
     if (!session.session.demoAuth && reviewerMode === 'checking') {
       setJourney(null);
@@ -446,9 +492,21 @@ export function DecisionRoom({
     session.kind,
     session.kind === 'signed-in' ? session.session.demoAuth : false,
     reviewerMode,
+    mode,
     onSessionExpired,
     refreshDurableState,
   ]);
+
+  // Customer workflow: the real journal read + explicit evaluation recording.
+  const operations = useOperations({
+    missionId: mission?.id ?? null,
+    enabled: mode === 'customer',
+    csrfToken,
+    onSessionExpired,
+    onRecorded: () => {
+      if (mission !== null) refreshDurableState(mission.id, new AbortController().signal);
+    },
+  });
 
   // Mandates for the approval step: effective = active AND unexpired (clock-checked,
   // same rule the Treasury applies). Server remains the enforcer at approval time.
@@ -487,6 +545,30 @@ export function DecisionRoom({
     } | null;
     disclaimer: string | null;
   } = (() => {
+    if (mode === 'customer') {
+      const events = operations.field.kind === 'ready' ? operations.field.events : [];
+      const last = newestEvent(events);
+      return {
+        stage: operations.ops.kind === 'ready' ? operations.ops.data.stage : 'empty',
+        hasBaseline: snapshots.some((x) => x.stage === 'baseline'),
+        hasIncident: snapshots.some((x) => x.stage === 'incident'),
+        before: null,
+        after: operations.ops.kind === 'ready' ? operations.ops.data.decision : null,
+        lastEvent:
+          last === null
+            ? null
+            : {
+                eventId: last.eventId,
+                sourceId: last.sourceId,
+                eventDigest: last.eventDigest,
+                observedAt: last.observedAt,
+                reading: last.observations.map((o) => `${o.kind} ${String(o.value)}`).join(' · '),
+                provenance: last.provenance,
+              },
+        disclaimer:
+          'Evidence is source-authenticated field claims; decisions are deterministic-policy proposals. No provider money movement is implied.',
+      };
+    }
     if (whJourney !== null) {
       const last = whJourney.lastEvent;
       const stepped = whJourney.stage !== 'empty' && whJourney.stage !== 'baseline';
@@ -742,6 +824,59 @@ export function DecisionRoom({
   const planFor = (planId: string, planVersion: number) =>
     approvals.find((a) => a.planId === planId && a.planVersion === planVersion) ?? null;
   const incidentRecorded = incidentSnapshot !== null;
+  const canOperate = mayOperate(role);
+  // The demo controls are not offered until the demo journey has actually been
+  // read: showing an ENABLED button against an unknown journal state
+  // (journey === null) races the first read and can double-admit a step.
+  const journeyKnown = journey !== null || whJourney !== null;
+  const demoBusy = busy || loading;
+  const hasBaselineSnap = snapshots.some((x) => x.stage === 'baseline');
+  const hasIncidentSnap = snapshots.some((x) => x.stage === 'incident');
+  const admittedCount = operations.ops.kind === 'ready' ? operations.ops.data.eventCount : null;
+  const next = nextEvaluation({
+    eventCount: admittedCount,
+    hasBaseline: hasBaselineSnap,
+    hasIncident: hasIncidentSnap,
+  });
+  // Remount the scene whenever the journal grows (a third, fourth… event does
+  // not change the stage label but must refresh the scene).
+  const viewerEpoch = admittedCount ?? 0;
+  const decisionVerified =
+    mode === 'customer'
+      ? hasIncidentSnap && view.lastEvent !== null
+      : view.lastEvent !== null && view.after !== null;
+  const causalityModel = operations.evaluation?.snapshot.causality.modelInterpretation;
+  const modelLabel =
+    causalityModel === undefined
+      ? null
+      : causalityModel === 'NONE'
+        ? 'MODEL: POLICY-ONLY · NONE CONTRIBUTED'
+        : `MODEL: ${causalityModel}`;
+  const modelDetail =
+    causalityModel === undefined
+      ? null
+      : causalityModel === 'NONE'
+        ? 'no model contributed to the latest recorded evaluation — the engine is POLICY-ONLY.'
+        : `model "${causalityModel}" contributed typed evidence to the latest recorded evaluation (never authority).`;
+  // The proposal comes from the LATEST recorded evaluation of a customer
+  // mission (any stage); the demo journeys keep their incident-stage rule.
+  const proposalSnapshot =
+    mode === 'customer'
+      ? snapshots.length === 0
+        ? null
+        : snapshots.reduce((a, b) => (b.seq > a.seq ? b : a))
+      : incidentSnapshot;
+  const proposalOutcome =
+    proposalSnapshot === null
+      ? null
+      : describeOutcome(proposalSnapshot.decision.outcome, proposalSnapshot.decision.selected);
+  const proposalExecutable = proposalOutcome?.kind === 'spend';
+  const thresholdBadge =
+    missionSpec?.safetyPolicy.uavWindLimitKt !== undefined
+      ? `${String(missionSpec.safetyPolicy.uavWindLimitKt)} KT MODELED LIMIT`
+      : missionSpec?.safetyPolicy.groundInterrupts !== undefined
+        ? `${String(missionSpec.safetyPolicy.groundInterrupts.length)} GROUND INTERRUPTS`
+        : 'NO DOMAIN THRESHOLDS';
 
   // Halo Tabs (R3 P1-4): tablist + panels share ONE component-generated
   // baseId; all three panels always render (inactive = hidden) so
@@ -749,19 +884,45 @@ export function DecisionRoom({
   // keyboard-focusable.
   const FINANCE_PANEL = (
     <>
-      {/* before/after as expandable candidate cards */}
-      <div className="mv-droom__cards">
-        <DecisionExpandable title="Before · initial plan" decision={view.before} tone="noaction" />
-        <DecisionExpandable
-          title="After · updated constraints"
-          decision={view.after}
-          tone={view.after?.selected ? 'selected' : 'noaction'}
-          defaultOpen={view.hasIncident}
-        />
-      </div>
+      {mode === 'customer' ? (
+        <>
+          {operations.ops.kind === 'ready' ? (
+            <DecisionComparison
+              decision={operations.ops.data.decision}
+              currency={missionCurrency}
+              title="Financial alternatives — live read of the journal"
+              recordedEvaluationId={proposalSnapshot?.evaluationId ?? null}
+              testId="live-evaluation"
+            />
+          ) : operations.ops.kind === 'error' ? (
+            <p className="mv-governed__note" role="status">
+              The live evaluation could not be read, so no alternatives are shown.
+            </p>
+          ) : (
+            <SkeletonRows label="Evaluating the journal…" />
+          )}
+        </>
+      ) : (
+        /* before/after as expandable candidate cards (DEMO journeys) */
+        <div className="mv-droom__cards">
+          <DecisionExpandable
+            title="Before · initial plan"
+            decision={view.before}
+            tone="noaction"
+            currency={missionCurrency}
+          />
+          <DecisionExpandable
+            title="After · updated constraints"
+            decision={view.after}
+            tone={view.after?.selected ? 'selected' : 'noaction'}
+            defaultOpen={view.hasIncident}
+            currency={missionCurrency}
+          />
+        </div>
+      )}
 
       {/* server-authoritative ID-only proposal (planner-derived golden path) */}
-      {incidentSnapshot !== null && (
+      {proposalSnapshot !== null && (
         <section
           className="mv-governed"
           aria-label="Governed follow-through"
@@ -769,20 +930,41 @@ export function DecisionRoom({
         >
           <h3 className="mv-droom__secttitle">From recorded evaluation to governed action</h3>
           <p className="mv-governed__lead">
-            The proposal is created <strong>only</strong> from the recorded incident evaluation: the
-            server derives the economic terms from its own durable snapshot and journal (
-            <span className="mv-num" title={incidentSnapshot.evaluationId}>
-              {incidentSnapshot.evaluationId.slice(0, 14)}…
+            The proposal is created <strong>only</strong> from a recorded evaluation: the server
+            derives the economic terms from its own durable snapshot and journal (
+            <span className="mv-num" title={proposalSnapshot.evaluationId}>
+              {proposalSnapshot.evaluationId.slice(0, 14)}…
             </span>
             ). No amount, beneficiary or purpose is entered here.
           </p>
-          <p className="mv-governed__note">{outcomeLine(incidentSnapshot.decision)}</p>
+          <p className="mv-governed__note">{outcomeLine(proposalSnapshot.decision)}</p>
+          {proposalOutcome !== null && !proposalExecutable && (
+            <p
+              className="mv-governed__note"
+              data-testid="no-spend-explained"
+              data-outcome={proposalOutcome.kind}
+            >
+              <HaloBadge
+                tone={proposalOutcome.kind === 'escalate' ? 'hold' : 'neutral'}
+                glyph={
+                  proposalOutcome.kind === 'escalate'
+                    ? '⚑'
+                    : proposalOutcome.kind === 'decline'
+                      ? '∅'
+                      : '■'
+                }
+                label={proposalOutcome.label}
+              />{' '}
+              {proposalOutcome.explanation} There is nothing to propose or approve for this
+              evaluation.
+            </p>
+          )}
           <button
             type="button"
             className="mv-btn mv-btn--primary"
             data-testid="propose-plan"
-            disabled={proposeBusy || csrfToken === null}
-            onClick={() => proposeFromEvaluation(incidentSnapshot.evaluationId)}
+            disabled={proposeBusy || csrfToken === null || !proposalExecutable}
+            onClick={() => proposeFromEvaluation(proposalSnapshot.evaluationId)}
           >
             {proposeBusy ? 'Proposing…' : 'Propose plan from recorded evaluation'}
           </button>
@@ -941,7 +1123,7 @@ export function DecisionRoom({
         </p>
         <p className="mv-governed__note">
           Every decision is a proposal. Approval, reservation, provider execution and service
-          delivery are separate controls; none is implied by this demonstration.
+          delivery are separate controls; none is implied by any evaluation shown here.
         </p>
       </section>
     </>
@@ -949,11 +1131,17 @@ export function DecisionRoom({
 
   return (
     <Panel
-      title="Physical incident → financial decision"
+      title={
+        mode === 'customer'
+          ? 'Field evidence → financial decision'
+          : 'Physical incident → financial decision'
+      }
       meta={
         <span className="mv-tag">
           {view.hasIncident
-            ? 'INCIDENT RECORDED'
+            ? mode === 'customer'
+              ? 'INCIDENT EVALUATED'
+              : 'INCIDENT RECORDED'
             : view.hasBaseline && !view.hasIncident
               ? 'BASELINE RECORDED'
               : 'AWAITING OBSERVATION'}
@@ -975,13 +1163,17 @@ export function DecisionRoom({
           </p>
         </div>
         <div className="mv-droom__badges">
-          <HaloBadge tone="hold" glyph="⚑" label="SIMULATED OPERATION" />
+          {mode === 'customer' ? (
+            <HaloBadge tone="info" glyph="◈" label="CUSTOMER MISSION" />
+          ) : (
+            <HaloBadge tone="hold" glyph="⚑" label="SIMULATED OPERATION" />
+          )}
           <HaloBadge tone="neutral" glyph="◇" label="POLICY-ONLY" />
           <HaloBadge
-            tone={view.hasIncident ? 'transit' : 'neutral'}
+            tone={view.hasIncident && mode !== 'customer' ? 'transit' : 'neutral'}
             glyph="◆"
-            label={view.hasIncident ? 'INCIDENT ACTIVE' : '22 KT MODELED LIMIT'}
-            live={view.hasIncident}
+            label={view.hasIncident && mode !== 'customer' ? 'INCIDENT ACTIVE' : thresholdBadge}
+            live={view.hasIncident && mode !== 'customer'}
           />
         </div>
       </header>
@@ -1006,81 +1198,257 @@ export function DecisionRoom({
       <div className="mv-droom">
         {/* ================= LEFT — physical mission column (≈7 cols) */}
         <section className="mv-droom__physical" aria-label="Physical mission context">
+          <TruthBoundary modelLabel={modelLabel} modelDetail={modelDetail} />
+
+          {mode === 'unconfigured' && (
+            <section className="mv-governed" data-testid="unconfigured-notice">
+              <h3 className="mv-droom__secttitle">No mission specification registered</h3>
+              <p className="mv-governed__lead">
+                This mission has no registered specification, so MOTERVA has nothing of{' '}
+                <em>yours</em> to evaluate — and it will not silently substitute a built-in demo
+                catalog for a customer mission.
+              </p>
+              <p>
+                <a className="mv-btn mv-btn--primary" href="#setup" data-testid="goto-setup">
+                  Configure this mission
+                </a>
+              </p>
+            </section>
+          )}
+          {mode === 'unknown' && (
+            <p className="mv-sheet__error" role="alert" data-testid="spec-unknown">
+              The mission specification could not be read, so the workflow for this mission is
+              unknown. Nothing is evaluated or shown as if it were. Reselect the mission to retry.
+            </p>
+          )}
+
           {/*
-            MTV-09/12 physical mission viewport (Agent C module). The
-            physical-view read endpoint (planner-endpoint-request.v1) is NOT
-            deployed on this build yet, so this renders the honest UNAVAILABLE
-            card — no demo fixture is substituted in the product shell, and no
-            3D bundle is downloaded for a state with no scene. When Agent A
-            ships the endpoint: load its JSON, validate via
-            `snapshotFromServerPayload`, and mount `MissionPhysicalViewerLazy`
-            with `availability="ready"` (selection below is already wired to
-            the journey's incident event id).
-          */}
-          {/*
-            LIVE physical mission viewport (Agent C module). Selection is
-            seeded from the journey
-'s incident event id; scene state derives only from admitted
-            journal events. P1-C: `decisionVerified` is derived ONLY from
-            actual verified financial decision evidence — a recorded incident
-            evaluation (journey.incident AND journey.after present). A wind
-            event alone stays S2; a fetch failure implies no decision.
+            LIVE physical mission viewport (Agent C module). Selection seeds from
+            the newest admitted event; scene state derives only from admitted
+            journal events. `decisionVerified` is TRUE only when a verified
+            financial decision exists for the incident (a recorded incident
+            evaluation) — a physical restriction alone stays S2, and a failed
+            read implies no decision.
           */}
           <div className="mv-droom__viewport-host">
             <PhysicalMissionViewport
-              key={`${mission.id}:${view.stage ?? 'empty'}`}
+              key={`${mission.id}:${view.stage}:${String(viewerEpoch)}`}
               missionId={mission.id}
               incidentEventId={view.lastEvent?.eventId ?? null}
-              decisionVerified={
-                view.lastEvent !== null &&
-                view.lastEvent !== undefined &&
-                view.after !== null &&
-                view.after !== undefined
-              }
+              decisionVerified={decisionVerified}
             />
           </div>
 
-          <div className="mv-droom__actions">
-            <button
-              type="button"
-              className="mv-btn mv-btn--primary"
-              data-testid="refresh-journal"
-              onClick={refreshFromJournal}
+          {mode === 'customer' && (
+            <section
+              className="mv-governed"
+              aria-label="Evaluate from the real journal"
+              data-testid="customer-ops"
             >
-              Refresh evaluations from journal
-            </button>
-            <button
-              type="button"
-              className="mv-btn mv-btn--primary"
-              data-testid="start-synthetic"
-              disabled={
-                busy || loading || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
+              <h3 className="mv-droom__secttitle">Evaluate from the real journal</h3>
+              <p className="mv-governed__lead">
+                Evaluations read the authenticated field events your registered sources submitted.
+                Nothing on this screen generates observations or scripts an incident.
+              </p>
+              <div className="mv-droom__actions">
+                <button
+                  type="button"
+                  className="mv-btn"
+                  data-testid="refresh-journal"
+                  disabled={operations.refreshing}
+                  onClick={operations.refresh}
+                >
+                  {operations.refreshing ? 'Reading journal…' : 'Refresh from journal'}
+                </button>
+                <button
+                  type="button"
+                  className="mv-btn mv-btn--primary"
+                  data-testid="evaluate-journal"
+                  disabled={
+                    !canOperate || next.stage === null || operations.evalBusy || csrfToken === null
+                  }
+                  onClick={() => {
+                    if (next.stage !== null) operations.evaluate(next.stage);
+                  }}
+                >
+                  {operations.evalBusy
+                    ? 'Recording…'
+                    : next.stage === 'baseline'
+                      ? 'Record baseline evaluation'
+                      : next.stage === 'incident'
+                        ? next.again
+                          ? 'Re-evaluate the latest evidence'
+                          : 'Evaluate the latest evidence'
+                        : 'Evaluate from journal'}
+                </button>
+              </div>
+              {next.stage === null && (
+                <p className="mv-governed__note" data-testid="evaluate-disabled-reason">
+                  {NEXT_EVALUATION_COPY[next.reason]}
+                </p>
+              )}
+              {!canOperate && (
+                <p className="mv-governed__note" role="note">
+                  Your role ({role ?? 'unknown'}) can read evaluations but cannot record them — the
+                  server requires operator or above.
+                </p>
+              )}
+              {operations.evalError !== null && (
+                <p className="mv-sheet__error" role="alert" data-testid="evaluate-error">
+                  {operations.evalError}
+                </p>
+              )}
+              {operations.ops.kind === 'error' && (
+                <p className="mv-sheet__error" role="alert" data-testid="ops-error">
+                  The journal read failed ({operations.ops.code}
+                  {operations.ops.status > 0 ? `, HTTP ${String(operations.ops.status)}` : ''}).
+                  Nothing below is a substitute for it — retry with Refresh.
+                </p>
+              )}
+              {operations.evaluation !== null && (
+                <div role="status" className="mv-droom__notice" data-testid="evaluation-recorded">
+                  <p>
+                    {operations.evaluation.replayed
+                      ? 'This evaluation was already recorded for exactly these facts — replayed, nothing duplicated.'
+                      : 'Evaluation recorded durably.'}{' '}
+                    Stage <strong>{operations.evaluation.snapshot.stage}</strong> · evaluation{' '}
+                    <span className="mv-num" title={operations.evaluation.snapshot.evaluationId}>
+                      {operations.evaluation.snapshot.evaluationId.slice(0, 16)}…
+                    </span>{' '}
+                    · case{' '}
+                    <span className="mv-num">
+                      {operations.evaluation.snapshot.caseId.slice(0, 18)}…
+                    </span>{' '}
+                    · {String(operations.evaluation.snapshot.acceptedEvents.length)} admitted event
+                    {operations.evaluation.snapshot.acceptedEvents.length === 1 ? '' : 's'} used
+                    {operations.evaluation.snapshot.withheldEventIds.length > 0
+                      ? ` · ${String(operations.evaluation.snapshot.withheldEventIds.length)} withheld`
+                      : ''}
+                  </p>
+                  <ul className="mv-xcard__list" aria-label="Recorded candidate scores">
+                    {operations.evaluation.snapshot.candidates.map((c) => (
+                      <li key={c.id}>
+                        <span className="mv-num">{c.id}</span> —{' '}
+                        {c.feasible ? 'eligible' : `refused: ${c.rejection}`} ·{' '}
+                        <span className="mv-num">{safeMoney(missionCurrency, c.grossMinor)}</span>{' '}
+                        gross
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {mode === 'customer' && (
+            <FieldObservations
+              field={operations.field}
+              admittedCount={
+                operations.ops.kind === 'ready' ? operations.ops.data.eventCount : null
               }
-              onClick={() => runStep('baseline')}
-            >
-              Start signed synthetic inspection
-            </button>
-            <button
-              type="button"
-              className="mv-btn"
-              data-testid="introduce-incident"
-              disabled={
-                busy ||
-                loading ||
-                !view.hasBaseline ||
-                view.hasIncident ||
-                csrfToken === null ||
-                !canAdmitSynthetic
-              }
-              onClick={() => runStep('incident')}
-            >
-              Introduce wind incident (24.6 kt)
-            </button>
-          </div>
-          <p className="mv-droom__note">
-            Modeled flight limit <strong>22 kt</strong> — the operator's rule, not a measurement.
-            The physical source does not control banking authority.
-          </p>
+            />
+          )}
+
+          {(mode === 'demo' || mode === 'unconfigured') && canAdmitSynthetic && journeyKnown && (
+            <section className="mv-governed mv-demo" data-testid="demo-source">
+              <h3 className="mv-droom__secttitle">
+                DEMO ENTRY POINTS{' '}
+                <span className="mv-hud">
+                  synthetic fixtures · local DEMO_AUTH only · not the customer workflow
+                </span>
+              </h3>
+              <p className="mv-governed__note">
+                These buttons admit signed SYNTHETIC observations from the built-in harbor and
+                warehouse catalogs so the product can be shown without a field system. A customer
+                mission never uses them — it evaluates from its own sources&rsquo; evidence.
+              </p>
+              <div className="mv-droom__actions">
+                <button
+                  type="button"
+                  className="mv-btn"
+                  data-testid="refresh-journal"
+                  onClick={refreshFromJournal}
+                >
+                  Refresh evaluations from journal
+                </button>
+                <button
+                  type="button"
+                  className="mv-btn mv-btn--primary"
+                  data-testid="start-synthetic"
+                  disabled={
+                    demoBusy || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
+                  }
+                  onClick={() => runStep('baseline')}
+                >
+                  Start signed synthetic inspection
+                </button>
+                <button
+                  type="button"
+                  className="mv-btn"
+                  data-testid="introduce-incident"
+                  disabled={
+                    demoBusy ||
+                    !view.hasBaseline ||
+                    view.hasIncident ||
+                    csrfToken === null ||
+                    !canAdmitSynthetic
+                  }
+                  onClick={() => runStep('incident')}
+                >
+                  Introduce wind incident (24.6 kt)
+                </button>
+              </div>
+              <p className="mv-droom__note">
+                {missionSpec?.safetyPolicy.uavWindLimitKt !== undefined ? (
+                  <>
+                    Modeled flight limit{' '}
+                    <strong>{String(missionSpec.safetyPolicy.uavWindLimitKt)} kt</strong> — the
+                    operator&rsquo;s rule, not a measurement.
+                  </>
+                ) : (
+                  <>Ground interrupt conditions from the catalog spec apply (no wind rule).</>
+                )}{' '}
+                The physical source does not control banking authority.
+              </p>
+              {isWarehouse ? (
+                <div className="mv-droom__actions">
+                  {WAREHOUSE_STEPS.filter((step) => step !== 'baseline').map((step) => (
+                    <button
+                      key={step}
+                      type="button"
+                      className="mv-btn"
+                      data-testid={`warehouse-step-${step}`}
+                      disabled={
+                        demoBusy || !view.hasBaseline || csrfToken === null || !canAdmitSynthetic
+                      }
+                      onClick={() => runWarehouseStep(step)}
+                    >
+                      DEMO · Admit {step.replace(/-/g, ' ')}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mv-droom__actions">
+                  <button
+                    type="button"
+                    className="mv-btn"
+                    data-testid="warehouse-entry"
+                    disabled={
+                      demoBusy || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
+                    }
+                    onClick={() => runWarehouseStep('baseline')}
+                  >
+                    DEMO · Register warehouse spec + admit baseline
+                  </button>
+                  <p className="mv-governed__note">
+                    Switches this mission&rsquo;s journal to the warehouse catalog (AMR runner;
+                    aisle/charger/comms conditions). Its harbor events then fail closed — domains
+                    never mix in one journal.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
           {loading && <SkeletonRows label="Loading actual journal and planner results…" />}
           {busy && <p role="status">Admitting signed synthetic observation to the server…</p>}
           {error !== null && (
@@ -1094,77 +1462,23 @@ export function DecisionRoom({
             </p>
           )}
 
-          {/* DEMO EVENT SOURCE — warehouse domain. Admitting a baseline
-              registers the mission spec (warehouse-inventory-v1) and switches
-              the mission journal to warehouse events; harbor events then
-              fail closed with MISSION_SPEC_CONFLICT. */}
-          <section className="mv-governed" data-testid="demo-source">
-            <h3 className="mv-droom__secttitle">
-              DEMO EVENT SOURCE{' '}
-              <span className="mv-hud">
-                local demo catalog only — production events arrive from authenticated sources
-              </span>
-            </h3>
-            {isWarehouse ? (
-              <div className="mv-droom__actions">
-                {WAREHOUSE_STEPS.filter((step) => step !== 'baseline').map((step) => (
-                  <button
-                    key={step}
-                    type="button"
-                    className="mv-btn"
-                    data-testid={`warehouse-step-${step}`}
-                    disabled={
-                      busy ||
-                      loading ||
-                      !view.hasBaseline ||
-                      csrfToken === null ||
-                      !canAdmitSynthetic
-                    }
-                    onClick={() => runWarehouseStep(step)}
-                  >
-                    DEMO · Admit {step.replace(/-/g, ' ')}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="mv-droom__actions">
-                <button
-                  type="button"
-                  className="mv-btn"
-                  data-testid="warehouse-entry"
-                  disabled={
-                    busy || loading || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
-                  }
-                  onClick={() => runWarehouseStep('baseline')}
-                >
-                  DEMO · Register warehouse spec + admit baseline
-                </button>
-                <p className="mv-governed__note">
-                  Switches this mission 's journal to the warehouse domain (AMR runner;
-                  aisle/charger/comms conditions). The mission 's harbor events then fail closed —
-                  domains never mix in one journal.
-                </p>
-              </div>
-            )}
-          </section>
-          {view.lastEvent !== null && view.lastEvent !== undefined && (
+          {mode !== 'customer' && view.lastEvent !== null && (
             <section className="mv-droom__incident" data-testid="physical-incident">
               <h3 className="mv-droom__secttitle">Admitted physical incident</h3>
               <p className="mv-droom__incidentreading">{view.lastEvent.reading}</p>
               <p className="mv-hud">
-                {view.lastEvent.provenance} · {view.lastEvent.sourceId} · event
-                <span className="mv-num mv-break">{view.lastEvent.eventId}</span> ·
+                {view.lastEvent.provenance} · {view.lastEvent.sourceId} · event{' '}
+                <span className="mv-num mv-break">{view.lastEvent.eventId}</span> ·{' '}
                 {view.lastEvent.observedAt}
               </p>
               <p className="mv-hud">
-                digest
-                <span className="mv-num">{view.lastEvent.eventDigest.slice(0, 16)}…</span>
+                digest <span className="mv-num">{view.lastEvent.eventDigest.slice(0, 16)}…</span>
                 <CopyButton value={view.lastEvent.eventDigest} label="digest" />
               </p>
             </section>
           )}
 
-          {/* ---- typed mission specification (C1, READ-ONLY) ---- */}
+          {/* ---- typed mission specification (C1, READ-ONLY reference) ---- */}
           <section
             className="mv-governed"
             aria-label="Mission specification"
@@ -1180,102 +1494,92 @@ export function DecisionRoom({
             )}
             {specState === 'ready' && missionSpec !== null && (
               <>
-                <dl className="mv-mandate__meta">
-                  <div>
-                    <dt>Industry / objective</dt>
-                    <dd>
-                      <HaloBadge
-                        tone={missionSpec.industry === 'warehouse-amr' ? 'info' : 'hold'}
-                        glyph="⌘"
-                        label={missionSpec.industry}
-                      />
-                      <span className="mv-governed__note"> {missionSpec.objective}</span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Assets</dt>
-                    <dd>
-                      {missionSpec.assets
-                        .map((a) => `${a.label} (${a.domainKind}, ${a.assetId.slice(0, 12)}…)`)
-                        .join(' · ')}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Safety policy v{String(missionSpec.safetyPolicy.version)}</dt>
-                    <dd>
-                      {missionSpec.safetyPolicy.uavWindLimitKt !== undefined
-                        ? `modeled UAV wind limit ${String(missionSpec.safetyPolicy.uavWindLimitKt)} kt (operator rule, not a measurement)`
-                        : null}
-                      {missionSpec.safetyPolicy.groundInterrupts !== undefined
-                        ? `ground interrupts: ${missionSpec.safetyPolicy.groundInterrupts.join(', ')}`
-                        : null}
-                      {' — '}
-                      {missionSpec.safetyPolicy.clearanceAuthority}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Economics</dt>
-                    <dd className="mv-num">
-                      {safeMoney(
-                        missionSpec.economics.currency,
-                        missionSpec.economics.missionValueMinor,
-                      )}
-                      {' mission value · failure cost '}
-                      {safeMoney(
-                        missionSpec.economics.currency,
-                        missionSpec.economics.failureCostMinor,
-                      )}
-                      {' · protected reserve '}
-                      {safeMoney(
-                        missionSpec.economics.currency,
-                        missionSpec.economics.protectedReserveMinor,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Supplier offers</dt>
-                    <dd>
-                      {missionSpec.offers.incumbent.label}
-                      {missionSpec.offers.alternatives.length > 0
-                        ? ' + ' + missionSpec.offers.alternatives.map((o) => o.label).join(' + ')
-                        : ''}
-                      {missionSpec.offers.diagnostics !== undefined
-                        ? ' + diagnostics: ' + missionSpec.offers.diagnostics.label
-                        : ''}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Mandate shape</dt>
-                    <dd>
-                      {missionSpec.financialMandateShape.currency} · beneficiaries:
-                      {missionSpec.financialMandateShape.allowedBeneficiaries.join(', ') ||
-                        ' (none registered)'}
-                    </dd>
-                  </div>
-                  {missionSpec.caseLineage !== null && (
+                <p>
+                  <HaloBadge
+                    tone={mode === 'customer' ? 'info' : 'hold'}
+                    glyph="⌘"
+                    label={missionSpec.industry}
+                  />{' '}
+                  {missionSpec.registered ? (
+                    <>
+                      <span className="mv-num">{missionSpec.specId}</span> · digest{' '}
+                      <span className="mv-num">{missionSpec.specDigest}</span>
+                    </>
+                  ) : (
+                    'no specification registered — built-in harbor DEMO default'
+                  )}{' '}
+                  · <a href="#setup">Edit configuration</a>
+                </p>
+                <p className="mv-governed__note">{missionSpec.objective}</p>
+                <details className="mv-governed__manual">
+                  <summary>Assets, thresholds, economics and suppliers</summary>
+                  <dl className="mv-mandate__meta">
                     <div>
-                      <dt>Decision case lineage</dt>
-                      <dd className="mv-num">
-                        {missionSpec.caseLineage.caseId.slice(0, 16)}… · evaluation
-                        {missionSpec.caseLineage.evaluationId.slice(0, 14)}…
+                      <dt>Assets</dt>
+                      <dd>
+                        {missionSpec.assets
+                          .map((a) => `${a.label} (${a.domainKind}, ${a.assetId})`)
+                          .join(' · ')}
                       </dd>
                     </div>
-                  )}
-                  <div>
-                    <dt>Spec digest</dt>
-                    <dd className="mv-num">
-                      {missionSpec.specDigest}
-                      <CopyButton value={missionSpec.specDigest} label="spec digest" />
-                    </dd>
-                  </div>
-                </dl>
+                    <div>
+                      <dt>Safety policy v{String(missionSpec.safetyPolicy.version)}</dt>
+                      <dd>
+                        {missionSpec.safetyPolicy.uavWindLimitKt !== undefined
+                          ? `modeled wind limit ${String(missionSpec.safetyPolicy.uavWindLimitKt)} kt (operator rule, not a measurement)`
+                          : null}
+                        {missionSpec.safetyPolicy.groundInterrupts !== undefined
+                          ? `ground interrupts: ${missionSpec.safetyPolicy.groundInterrupts.join(', ')}`
+                          : null}{' '}
+                        — {missionSpec.safetyPolicy.clearanceAuthority}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Economics</dt>
+                      <dd className="mv-num">
+                        {safeMoney(missionCurrency, missionSpec.economics.missionValueMinor)} value
+                        · failure{' '}
+                        {safeMoney(missionCurrency, missionSpec.economics.failureCostMinor)} ·
+                        reserve{' '}
+                        {safeMoney(missionCurrency, missionSpec.economics.protectedReserveMinor)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Suppliers</dt>
+                      <dd>
+                        {[
+                          missionSpec.offers.incumbent,
+                          ...missionSpec.offers.alternatives,
+                          ...(missionSpec.offers.diagnostics
+                            ? [missionSpec.offers.diagnostics]
+                            : []),
+                        ]
+                          .map(
+                            (o) =>
+                              `${o.id} → ${o.beneficiary} (${safeMoney(o.currency, o.baseCostMinor + o.feeMinor)})`,
+                          )
+                          .join(' · ')}
+                      </dd>
+                    </div>
+                    {missionSpec.caseLineage !== null && (
+                      <div>
+                        <dt>Decision case lineage</dt>
+                        <dd className="mv-num">
+                          {missionSpec.caseLineage.caseId.slice(0, 16)}… · evaluation{' '}
+                          {missionSpec.caseLineage.evaluationId.slice(0, 14)}…
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
                 <p className="mv-governed__note">
-                  {missionSpec.truthLabel} — this panel is READ-ONLY mission configuration; spending
-                  authority lives only in ledger mandates.
+                  {missionSpec.truthLabel} — READ-ONLY configuration; spending authority lives only
+                  in ledger mandates.
                 </p>
               </>
             )}
           </section>
+
           {/* durable recorded evaluations — physical/evidence context, always visible */}
           <section
             className="mv-governed"
@@ -1283,7 +1587,12 @@ export function DecisionRoom({
             data-testid="recorded-snapshots"
           >
             <h3 className="mv-droom__secttitle">Recorded durable evaluations</h3>
-            {snapshots.length === 0 ? (
+            {snapshots.length === 0 && mode === 'customer' ? (
+              <p className="mv-governed__note" data-testid="no-recorded-evaluations">
+                No evaluations recorded yet. Use <strong>Evaluate from the real journal</strong>{' '}
+                once your sources have submitted observations — GET requests never create records.
+              </p>
+            ) : snapshots.length === 0 ? (
               <div>
                 <p className="mv-governed__note">
                   No durable evaluations recorded yet.
