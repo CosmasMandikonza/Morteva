@@ -2300,10 +2300,10 @@ a {
 /* R-final: constrain Agent C's viewer to its container at narrow widths —
    the mpv HUD rows wrap rather than pushing the document wide. */
 .mv-droom__physical .mpv {
-  grid-template-columns: minmax(0, 1fr) !important;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  grid-template-columns: minmax(0, 1fr);
 }
 .mv-droom__physical [class*='mpv-'] {
   min-width: 0;
@@ -2328,5 +2328,14 @@ a {
 @media (max-width: 480px) {
   .mv-droom__physical .mpv-selected {
     grid-template-columns: 1fr;
+  }
+}
+
+/* R-final: the viewer module is decorative at narrow widths — clip inside the
+   physical column rather than letting the module's intrinsic min-content
+   width push the document past the viewport. */
+@media (max-width: 480px) {
+  .mv-droom__physical {
+    overflow-x: hidden;
   }
 }
