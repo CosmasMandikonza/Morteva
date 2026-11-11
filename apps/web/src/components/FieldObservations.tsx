@@ -85,7 +85,7 @@ export function FieldObservations({
                         {formatDate(e.observedAt)}
                       </time>
                     </div>
-                    <p className="mv-num mv-break">
+                    <p className="mv-num mv-wrap">
                       {e.observations.length === 0
                         ? '(no allowlisted observation kinds)'
                         : e.observations
@@ -95,7 +95,7 @@ export function FieldObservations({
                             )
                             .join(' · ')}
                     </p>
-                    <p className="mv-hud mv-break">
+                    <p className="mv-hud mv-wrap">
                       asset <span className="mv-num">{e.assetId}</span> · source{' '}
                       <span className="mv-num">{e.sourceId}</span>
                       {e.sourceType !== undefined && e.sourceType !== ''

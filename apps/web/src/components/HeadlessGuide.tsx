@@ -69,7 +69,7 @@ export function HeadlessGuide({
       <dl className="mv-mandate__meta">
         <div>
           <dt>Endpoint</dt>
-          <dd className="mv-num mv-break" data-testid="ingest-route">
+          <dd className="mv-num mv-wrap" data-testid="ingest-route">
             {INGEST_CONTRACT.method} {route}
           </dd>
         </div>

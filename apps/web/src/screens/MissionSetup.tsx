@@ -542,7 +542,7 @@ export function MissionSetup({
                 {reviewRows(wire).map((row) => (
                   <div key={row.label}>
                     <dt>{row.label}</dt>
-                    <dd className="mv-break">{row.value}</dd>
+                    <dd className="mv-wrap">{row.value}</dd>
                   </div>
                 ))}
               </dl>

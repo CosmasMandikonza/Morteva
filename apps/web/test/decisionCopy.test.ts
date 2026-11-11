@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   describeOutcome,
+  formatMinorInText,
   provenanceCopy,
   rejectionCopy,
   REJECTION_COPY,
@@ -35,6 +36,17 @@ describe('operator language for planner outcomes (no softened refusals)', () => 
     expect(describeOutcome('escalate', null).kind).toBe('escalate');
     // a spend is never described as approved
     expect(describeOutcome('select', { grossMinor: 5 }).label).toContain('AWAITING HUMAN APPROVAL');
+  });
+
+  it('raw minor units quoted in server reasons become exact, currency-aware amounts', () => {
+    expect(
+      formatMinorInText('expected net 34545500 minor, gross 0 minor, effective p=0.915', 'USD'),
+    ).toBe('expected net USD 345,455.00, gross USD 0.00, effective p=0.915');
+    expect(formatMinorInText('gross 760500 minor', 'JPY')).toBe('gross JPY 760,500');
+    expect(formatMinorInText('net -9100000 minor', 'USD')).toBe('net USD -91,000.00');
+    // unknown currency: left exactly as the server wrote it (never guessed)
+    expect(formatMinorInText('gross 5 minor', 'ZZZ')).not.toContain('ZZZ 0.05');
+    expect(formatMinorInText('no amounts here', 'USD')).toBe('no amounts here');
   });
 
   it('FIELD is a source-authenticated CLAIM, never independently measured truth', () => {

@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { PhysicalDecisionSummary } from '../lib/api';
-import { describeOutcome, rejectionCopy } from '../lib/decisionCopy';
+import { describeOutcome, formatMinorInText, rejectionCopy } from '../lib/decisionCopy';
 import { safeMoney } from '../lib/format';
 import { HaloBadge } from './ui';
 
@@ -71,7 +71,7 @@ export function DecisionComparison({
               data-feasible={alt.feasible ? 'true' : 'false'}
             >
               <div className="mv-cmp__head">
-                <strong className="mv-break">{alt.label}</strong>
+                <strong className="mv-wrap">{alt.label}</strong>
                 {selected ? (
                   <HaloBadge tone="info" glyph="◆" label="SELECTED" />
                 ) : alt.feasible ? (
@@ -105,7 +105,8 @@ export function DecisionComparison({
         <ul className="mv-xcard__list" aria-label="Decision reasons">
           {decision.reasons.map((reason, index) => (
             <li key={`${reason.code}-${String(index)}`}>
-              <span className="mv-tag">{reason.code}</span> {reason.message}
+              <span className="mv-tag">{reason.code}</span>{' '}
+              {formatMinorInText(reason.message, currency)}
             </li>
           ))}
         </ul>
@@ -126,6 +127,7 @@ export function DecisionComparison({
             {decision.currentSpendableMinor !== null
               ? ` · spendable ${safeMoney(currency, decision.currentSpendableMinor)}`
               : ' · no spendable figure'}
+            {' · internal ledger observation — not provider-verified'}
           </dd>
         </div>
         <div>
@@ -140,7 +142,7 @@ export function DecisionComparison({
         </div>
         <div>
           <dt>Evaluation id</dt>
-          <dd className="mv-num mv-break">
+          <dd className="mv-num mv-wrap">
             {decision.evaluationId.slice(0, 24)}…
             {sameAsRecorded === true && ' · identical to the recorded evaluation'}
             {sameAsRecorded === false &&

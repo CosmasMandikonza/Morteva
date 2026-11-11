@@ -63,13 +63,18 @@ export function Sheet({
       tabIndex={-1}
       ref={ref}
     >
-      <header className="mv-sheet__head">
-        <h2 className="mv-sheet__title">{title}</h2>
-        <button type="button" className="mv-btn mv-btn--ghost" onClick={onClose}>
-          Close ✕
-        </button>
-      </header>
-      <div className="mv-sheet__body">{children}</div>
+      {/* ONE card: the header belongs INSIDE the body (the CSS has always
+          styled it that way; as siblings the title and Close floated beside
+          the card and under the top bar). */}
+      <div className="mv-sheet__body">
+        <header className="mv-sheet__head">
+          <h2 className="mv-sheet__title">{title}</h2>
+          <button type="button" className="mv-btn mv-btn--ghost" onClick={onClose}>
+            Close ✕
+          </button>
+        </header>
+        {children}
+      </div>
     </div>
   );
 }

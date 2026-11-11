@@ -2677,3 +2677,9 @@ a.mv-btn {
 .mv-truth > * {
   min-width: 0;
 }
+
+/* Wrap only where a token would otherwise overflow (unlike .mv-break, which
+   breaks every word mid-letter): labels and ids stay readable. */
+.mv-wrap {
+  overflow-wrap: anywhere;
+}

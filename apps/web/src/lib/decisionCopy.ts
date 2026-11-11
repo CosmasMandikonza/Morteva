@@ -6,6 +6,8 @@
  * fails if a rejection code exists without copy (drift guard).
  */
 
+import { safeMoney } from './format';
+
 export const REJECTION_COPY: Readonly<Record<string, string>> = {
   ASSET_SAFETY_BLOCKED:
     'The asset this option depends on is blocked — or its status is unknown — under your safety policy, so it cannot be used.',
@@ -33,6 +35,20 @@ export const REJECTION_COPY: Readonly<Record<string, string>> = {
   PROBABILITY_OUT_OF_RANGE: 'The success probability is outside (0, 1].',
   INVALID_ARITHMETIC: 'The option’s amounts could not be computed exactly.',
 };
+
+/**
+ * Planner reason texts quote amounts as raw minor units ("expected net
+ * 34545500 minor"). A person reading "34545500" cannot tell USD from JPY, nor
+ * where the decimal point is — so every "<integer> minor" in a server message
+ * is replaced by the exact, currency-aware amount (BigInt formatter; unknown
+ * currencies stay as the server wrote them, never guessed).
+ */
+export function formatMinorInText(message: string, currency: string): string {
+  return message.replace(/(-?\d+) minor\b/g, (whole, digits: string) => {
+    const n = Number(digits);
+    return Number.isSafeInteger(n) ? safeMoney(currency, n) : whole;
+  });
+}
 
 export function rejectionCopy(code: string | null): string {
   if (code === null || code === 'none') return 'Eligible under your policy and mandate.';

@@ -7,7 +7,7 @@ import { TruthBoundary } from '../components/TruthBoundary';
 import { useOperations } from '../lib/useOperations';
 import { newestEvent } from '../lib/fieldEvents';
 import { NEXT_EVALUATION_COPY, nextEvaluation } from '../lib/operationsFlow';
-import { describeOutcome } from '../lib/decisionCopy';
+import { describeOutcome, formatMinorInText } from '../lib/decisionCopy';
 import {
   ApiError,
   approvalsFromEvidence,
@@ -162,7 +162,8 @@ function DecisionExpandable({
             <ul className="mv-xcard__list">
               {decision.reasons.map((reason, index) => (
                 <li key={index}>
-                  <span className="mv-tag">{reason.code}</span> {reason.message}
+                  <span className="mv-tag">{reason.code}</span>{' '}
+                  {formatMinorInText(reason.message, currency)}
                 </li>
               ))}
             </ul>
