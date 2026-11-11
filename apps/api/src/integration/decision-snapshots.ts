@@ -588,6 +588,76 @@ export function latestSnapshot(
   return loadSnapshots(ledger, orgId, missionId).find((s) => s.payload.stage === stage) ?? null;
 }
 
+/**
+ * GENERALIZED durable-snapshot journaling for a CALLER-DERIVED stage
+ * timeline (P0 productization). The demo `recordSnapshot` derives stage
+ * events from demo event ids; this sibling accepts any journal-derived
+ * timeline (production pathway) and reuses the SAME accepted machinery:
+ * evaluateMission (spec-driven bridge/policy/candidates/facts), the
+ * intent-keyed idempotency (same economic state → original journaled
+ * snapshot), baseline linkage, digest-verified append. NO demo knowledge.
+ */
+export function recordGeneralizedSnapshot(
+  ledger: Ledger,
+  orgId: string,
+  missionId: string,
+  stage: 'baseline' | 'incident',
+  stageTimeline: MissionTimelineView,
+  serviceFor: (ledger: Ledger, orgId: string, missionId: string) => MissionEventIngestService,
+): { snapshot: StoredSnapshot; replayed: boolean } {
+  void serviceFor;
+  const ctx = evaluateMission(ledger, orgId, missionId, stageTimeline);
+  const { facts } = ctx;
+  let baseline: StoredSnapshot | null = null;
+  if (stage === 'incident') {
+    // The baseline stage is recorded BEFORE the incident stage by the route's
+    // ordering contract (BASELINE_SNAPSHOT_BEFORE_INCIDENT_REQUIRED below);
+    // the latest journaled baseline IS the linkage predecessor — journal seq
+    // order already proves precedence, so no wall-clock comparison (recorded
+    // clock vs event-observed clocks are different time bases).
+    baseline =
+      loadSnapshots(ledger, orgId, missionId)
+        .filter((snapshot) => snapshot.payload.stage === 'baseline')
+        .sort((left, right) => right.seq - left.seq)[0] ?? null;
+    if (baseline === null) {
+      throw new Error('BASELINE_SNAPSHOT_BEFORE_INCIDENT_REQUIRED');
+    }
+  }
+  const payload = buildSnapshotPayload(ctx, stage, {
+    baselineEvaluationId: baseline === null ? null : String(baseline.payload.evaluationId),
+  });
+  const key = intentKey(
+    stage,
+    payload.acceptedEvents as { eventId: string; digest: string }[],
+    ctx.policy,
+    orgId,
+    missionId,
+    facts.mandate === null ? 'none' : `${facts.mandate.id}@${String(facts.mandate.version)}`,
+    facts,
+  );
+  const eventKey = `planner-snapshot:v${String(SNAPSHOT_VERSION)}:${stage}:${key.slice(0, 24)}`;
+  try {
+    ledger.evidence.append({
+      orgId,
+      missionId,
+      topic: 'operational',
+      type: SNAPSHOT_TYPE,
+      eventKey,
+      payload,
+    });
+  } catch (error) {
+    // Idempotent replay across requests AND restarts (accepted law).
+    if (isLedgerError(error) && error.code === 'DUPLICATE_EVENT') {
+      const existing = loadSnapshots(ledger, orgId, missionId).find((s) => s.eventKey === eventKey);
+      if (existing !== undefined) return { snapshot: existing, replayed: true };
+    }
+    throw error;
+  }
+  const stored = loadSnapshots(ledger, orgId, missionId).find((s) => s.eventKey === eventKey);
+  if (stored === undefined) throw new Error('SNAPSHOT_WRITE_LOST');
+  return { snapshot: stored, replayed: false };
+}
+
 export interface ProposalRejection {
   readonly status: number;
   readonly code: string;

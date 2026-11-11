@@ -119,9 +119,16 @@ export function physicalTimelineToPlannerSafety(
     const observedMs = Date.parse(event.observedAt);
     // An admitted event can be honest historical evidence without being
     // currently eligible to influence a consequential financial decision.
+    // PROVENANCE LAW (P0 productization): BOTH admitted provenance classes
+    // are planning-eligible — SYNTHETIC (demo/simulator sources, HMAC-
+    // signed with fixture keys) and FIELD (production server-to-server
+    // sources, HMAC-signed with operator-issued credentials). Every event
+    // here was already authenticated + sequence/freshness-checked by the
+    // ingest boundary; provenance labels the CLAIM's origin class for the
+    // decision record, it never weakens admission.
     if (
       !event.planningValid ||
-      event.provenance !== 'SYNTHETIC' ||
+      (event.provenance !== 'SYNTHETIC' && event.provenance !== 'FIELD') ||
       !Number.isFinite(observedMs) ||
       observedMs > nowMs ||
       nowMs - observedMs >= timeline.policy.maxAgeMs
