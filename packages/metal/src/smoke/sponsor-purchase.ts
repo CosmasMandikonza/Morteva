@@ -50,8 +50,10 @@ async function main(): Promise<void> {
     );
   }
 
+  // The price comes from the LIVE offer in plan-only mode; a pre-configured
+  // price is only required for a signed run (--confirm).
   const priceBaseUnits = process.env.METAL_SMOKE_PRICE_BASE_UNITS ?? '';
-  if (priceBaseUnits === '' || !/^\d+$/.test(priceBaseUnits)) {
+  if (!planOnly && (priceBaseUnits === '' || !/^\d+$/.test(priceBaseUnits))) {
     blocked(
       'METAL_SMOKE_PRICE_BASE_UNITS (the signed offer price in *USDZ base units) is required',
     );
@@ -63,11 +65,63 @@ async function main(): Promise<void> {
     cli: new NpxAgentCliRunner({ timeoutMs: 180_000 }),
     vendor: {
       fetchOffer: async (url) => {
-        // The real seller speaks x402: an unpaid GET returns the offer (402
-        // with an accepts payload on strict x402 sellers; the demo seller
-        // serves the quote JSON directly). The smoke reads it plainly.
+        // The real seller speaks x402: an unpaid GET answers HTTP 402 with the
+        // offer base64-encoded in the `payment-required` response header
+        // (verified live against x402-demo-testnet.metalntwx.com). Some
+        // sellers also serve the offer as the JSON body; both are parsed.
         try {
           const response = await fetch(url, { method: 'GET' });
+          const header = response.headers.get('payment-required');
+          if (header !== null && header !== '') {
+            try {
+              const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) as {
+                accepts?: Array<{
+                  scheme: string;
+                  network: string;
+                  amount: string;
+                  asset: string;
+                  payTo: string;
+                  maxTimeoutSeconds?: number;
+                  extra?: { primaryType?: string };
+                }>;
+              };
+              const exact = decoded.accepts?.find((a) => a.scheme === 'exact');
+              if (exact === undefined) {
+                return {
+                  ok: false,
+                  status: response.status,
+                  offer: null,
+                  error: 'the 402 offer names no exact-scheme payment',
+                };
+              }
+              return {
+                ok: true,
+                status: response.status,
+                offer: {
+                  sellerId: 'x402-seller',
+                  productName:
+                    process.env.METAL_SMOKE_PRODUCT_NAME ?? 'SYNTHETIC diagnostic (testnet)',
+                  priceBaseUnits: exact.amount,
+                  payee: exact.payTo,
+                  assetCaseId: process.env.METAL_SMOKE_ASSET_CASE_ID ?? 'case-smoke-1',
+                  signedOffer: null,
+                  reportUrl: url,
+                  quoteExpiresAt: new Date(
+                    Date.now() + (exact.maxTimeoutSeconds ?? 600) * 1000,
+                  ).toISOString(),
+                },
+              };
+            } catch (parseError) {
+              return {
+                ok: false,
+                status: response.status,
+                offer: null,
+                error: `the payment-required header is not a decodable offer: ${
+                  parseError instanceof Error ? parseError.message : String(parseError)
+                }`,
+              };
+            }
+          }
           const text = await response.text();
           try {
             const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -166,10 +220,17 @@ async function main(): Promise<void> {
   );
 
   // Plan mode stops here regardless of outcome: read-only verification of
-  // the offer/quote path without --confirm never signs.
-  if (!confirm && evidence.outcome !== 'declined') {
+  // the offer/quote path never signs (planOnly is enforced inside the
+  // journey; this final guard is defense in depth).
+  if (planOnly) {
+    console.info(
+      'PLAN-ONLY RUN: the journey never invoked the CLI payment (enforced inside the journey). Pass --confirm with explicit founder approval to sign.',
+    );
+    process.exit(0);
+  }
+  if (!confirm) {
     blocked(
-      'PLAN-ONLY RUN (--plan): the offer path was exercised read-only; pass --confirm with explicit founder approval of environment, payee, amount and asset/case to sign. Nothing was signed in this run.',
+      'no --confirm: a signed payment requires explicit founder approval of environment, payee, amount and asset/case. Nothing was signed in this run.',
     );
   }
   if (evidence.outcome === 'blocked') process.exit(2);
