@@ -29,6 +29,7 @@ import { registerWarehouseDemoRoutes } from './integration/warehouse-demo-routes
 import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import { registerMissionSpecRoutes } from './integration/mission-spec.js';
 import { registerMissionOperationsRoutes } from './integration/mission-operations.js';
+import { registerMachineIngestRoutes } from './integration/source-credentials.js';
 import { resolveMissionSpec } from './integration/decision-snapshots.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -98,11 +99,19 @@ export function buildApp(
       );
       // P0 PRODUCTIZATION: the production mission-operations pathway —
       // authenticated spec registration, source credential issuance
-      // (server-generated HMAC custody), signed event ingestion, journal-
-      // derived evaluation and bounded model assistance. RBAC + CSRF
-      // protected; mounted OUTSIDE the DEMO_AUTH gate (disclosed to Agent E;
-      // no identity/config/deploy file touched).
+      // (server-generated HMAC custody, SEALED at rest — no plaintext key
+      // reaches the journal), human-gated signed event ingestion, journal-
+      // derived evaluation, credential revocation/rotation, and bounded
+      // model assistance. RBAC + CSRF protected; mounted OUTSIDE the
+      // DEMO_AUTH gate (disclosed to Agent E; no identity/config/deploy
+      // file touched).
       registerMissionOperationsRoutes(scope, ledger);
+      // P0-1 machine-to-machine ingestion: headless telemetry integrations
+      // authenticate with the EVENT'S OWN HMAC credential — no cookie, no
+      // CSRF token. Tenant is pinned by the credential journal; the route
+      // REFUSES cookie-bearing requests. Human administrative surfaces keep
+      // their gates (CTO review PR #64 P0-1).
+      registerMachineIngestRoutes(scope, ledger);
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.

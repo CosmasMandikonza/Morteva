@@ -61,11 +61,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { isLedgerError } from '@moterva/ledger';
-import { canonicalJson } from '@moterva/domain';
 import { guard, csrfOk } from '../auth.js';
-import { MissionEventIngestService } from '../mission-events/src/ingest.js';
-import { MissionEventError } from '../mission-events/src/errors.js';
-import { SourceRegistry, type RegisteredSource } from '../mission-events/src/registry.js';
 import type { MissionTimelineView } from '../mission-events/src/view.js';
 import { registerMissionSpec, validateMissionSpec, MissionSpecError } from './mission-spec.js';
 import {
@@ -80,9 +76,17 @@ import {
   modelAdapterConfigFromEnv,
   type ModelAdapterConfig,
 } from './model-adapter.js';
+import {
+  SOURCE_CREDENTIAL_TYPE,
+  SOURCE_REVOCATION_TYPE,
+  type SourceCredentialRecord,
+  type SourceRevocationRecord,
+  resolveSourceKeyKek,
+  sealKey,
+  productionServiceFor,
+  isCredentialUsable,
+} from './source-credentials.js';
 
-export const SOURCE_SECRET_TYPE = 'mission.source.registered';
-const MAX_INGEST_ENVELOPES = 10;
 const SOURCE_ID_RE = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const KEY_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$/;
 
@@ -90,64 +94,44 @@ function sha(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-/**
- * Production credential registry: reads the journaled source credentials
- * (digest-verified) into the SAME SourceRegistry shape the demo pathway
- * uses — ingest code is unchanged; only the key CUSTODY differs (CSPRNG
- * secrets issued by trusted code vs deterministic fixture keys).
- */
-export class JournaledSourceRegistry extends SourceRegistry {
-  constructor(ledger: Ledger, orgId: string, missionId: string) {
-    super();
-    const rows = ledger.db
-      .prepare(
-        `SELECT seq, payload_digest, payload_json FROM evidence_events
-          WHERE org_id = ? AND mission_id = ? AND type = ?
-          ORDER BY seq ASC`,
-      )
-      .all(orgId, missionId, SOURCE_SECRET_TYPE) as {
-      seq: number;
-      payload_digest: string;
-      payload_json: string;
-    }[];
-    for (const row of rows) {
-      const payload: unknown = JSON.parse(row.payload_json);
-      const digest = sha(canonicalJson(payload as Record<string, unknown>));
-      if (digest !== row.payload_digest) {
-        throw new Error(`SOURCE_CREDENTIAL_INTEGRITY_VIOLATION:${String(row.seq)}`);
-      }
-      const record = payload as {
-        sourceId: string;
-        sourceType: RegisteredSource['sourceType'];
-        keyId: string;
-        secretKey: string;
-        assetIds: string[];
-        trustedForRecovery: boolean;
-        provenance: RegisteredSource['provenance'];
-      };
-      this.register({
-        orgId,
-        missionId,
-        sourceId: record.sourceId,
-        sourceType: record.sourceType,
-        keyId: record.keyId,
-        // The journal stores the key material TRUSTED-SIDE (server-to-server
-        // custody). It is never returned by any GET; only the issuance
-        // response shows it once.
-        secretKey: record.secretKey,
-        provenance: record.provenance,
-        assetIds: [...record.assetIds],
-        trustedForRecovery: record.trustedForRecovery,
-      });
-    }
-  }
+/** True when a credential record with this keyId exists in the journal (live OR revoked). */
+function credentialEverIssued(
+  ledger: Ledger,
+  orgId: string,
+  missionId: string,
+  keyId: string,
+): boolean {
+  const rows = ledger.db
+    .prepare(
+      `SELECT payload_json FROM evidence_events
+        WHERE org_id = ? AND mission_id = ? AND type = ?
+        ORDER BY seq ASC`,
+    )
+    .all(orgId, missionId, SOURCE_CREDENTIAL_TYPE) as { payload_json: string }[];
+  return rows.some((row) => {
+    const record = JSON.parse(row.payload_json) as { keyId?: string };
+    return record.keyId === keyId;
+  });
 }
 
-/** Production-scoped ingest service (journaled credentials, not fixtures). */
-export function productionServiceFor(ledger: Ledger, orgId: string, missionId: string) {
-  const registry = new JournaledSourceRegistry(ledger, orgId, missionId);
-  return new MissionEventIngestService(ledger, ledger.clock, registry);
+/** True when a revocation record exists for this keyId in the journal. */
+function isKeyRevoked(ledger: Ledger, orgId: string, missionId: string, keyId: string): boolean {
+  const rows = ledger.db
+    .prepare(
+      `SELECT payload_json FROM evidence_events
+        WHERE org_id = ? AND mission_id = ? AND type = ?
+        ORDER BY seq ASC`,
+    )
+    .all(orgId, missionId, SOURCE_REVOCATION_TYPE) as { payload_json: string }[];
+  return rows.some((row) => {
+    const record = JSON.parse(row.payload_json) as { keyId?: string };
+    return record.keyId === keyId;
+  });
 }
+
+// productionServiceFor (protected custody) is imported from
+// source-credentials.ts above and re-exported for existing call sites/tests.
+export { productionServiceFor } from './source-credentials.js';
 
 // ------------------------------------------------------------------- routes
 
@@ -220,6 +204,7 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
     const body = (request.body ?? {}) as {
       keyId?: unknown;
       trustedForRecovery?: unknown;
+      expiresAt?: unknown;
     };
     if (typeof sourceId !== 'string' || !SOURCE_ID_RE.test(sourceId)) {
       return reply.code(400).send({
@@ -260,29 +245,48 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
           },
         });
       }
-      const already = new JournaledSourceRegistry(ledger, g.actor.orgId, missionId);
-      if (already.findByKeyId(body.keyId) !== undefined) {
+      // The PROTECTED rehydration decides liveness: a keyId already live
+      // (or ever issued — revoked keys are never re-registrable) is refused.
+      if (
+        isCredentialUsable(
+          ledger,
+          g.actor.orgId,
+          missionId,
+          body.keyId,
+          Date.parse(ledger.clock.iso()),
+        ).usable ||
+        credentialEverIssued(ledger, g.actor.orgId, missionId, body.keyId)
+      ) {
         return reply.code(409).send({ error: { code: 'KEY_ID_ALREADY_REGISTERED' } });
       }
-      // CSPRNG secret, server-generated: the browser receives it ONCE.
+      // CSPRNG secret, server-generated: shown to the authorized recipient
+      // EXACTLY ONCE. At rest it exists ONLY as an AES-256-GCM envelope
+      // seal under the deployment KEK plus a SHA-256 audit digest — the
+      // journal never contains plaintext key bytes (P0-2).
       const secretKey = randomBytes(32).toString('base64url');
-      const payload = {
+      const kek = resolveSourceKeyKek(ledger);
+      const payload: SourceCredentialRecord = {
         sourceId,
         sourceType: declared.sourceType,
         keyId: body.keyId,
-        secretKey,
+        keyDigest: sha(secretKey),
+        sealed: sealKey(secretKey, kek),
         assetIds: [...declared.assetIds],
         trustedForRecovery: declared.trustedForRecovery,
         provenance: declared.provenance,
         issuedBy: g.actor.id,
         issuedAt: ledger.clock.iso(),
+        // Optional expiry from the operator (rotation hygiene).
+        ...(typeof body.expiresAt === 'string' && Number.isFinite(Date.parse(body.expiresAt))
+          ? { expiresAt: body.expiresAt }
+          : {}),
       };
       try {
         ledger.evidence.append({
           orgId: g.actor.orgId,
           missionId,
           topic: 'operational',
-          type: SOURCE_SECRET_TYPE,
+          type: SOURCE_CREDENTIAL_TYPE,
           eventKey: `mission-source:v1:${missionId}:${sourceId}:${body.keyId}`,
           payload: payload as unknown as Record<string, unknown>,
         });
@@ -301,12 +305,18 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
         assetIds: payload.assetIds,
         trustedForRecovery: payload.trustedForRecovery,
         provenance: payload.provenance,
-        // ONE-TIME DISPLAY: this is the only response that ever contains the
-        // secret. Store it in your integration's secret custody now.
+        ...(payload.expiresAt !== undefined ? { expiresAt: payload.expiresAt } : {}),
+        // ONE-TIME DISPLAY: the only place the plaintext key ever appears.
         secret: secretKey,
-        signing: 'HMAC-SHA256 over canonicalJson(event) — see mission-events contract v1',
+        machineIngest: {
+          endpoint: `/api/machine/missions/${missionId}/events`,
+          auth: 'HMAC-SHA256 signature over canonicalJson(event); NO cookie, NO CSRF token',
+          tenantBinding: 'the keyId pins org+mission+source — it cannot speak for any other tenant',
+        },
+        custody:
+          'sealed at rest (AES-256-GCM under MOTERVA_SOURCE_KEY_KEK); journal stores digest + ciphertext only',
         warning:
-          'This secret grants NO financial authority: it authenticates operational observations only.',
+          'This secret grants NO financial authority: it authenticates operational observations only. FIELD provenance = a credential-authenticated source CLAIMED a reading, not independently verified sensor truth.',
       };
     } catch (error) {
       request.log.error({ err: error }, 'source credential issuance failed');
@@ -314,69 +324,88 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
     }
   });
 
-  // ------------------------------------------------------ production ingestion
-  app.post('/api/missions/:missionId/events', async (request, reply) => {
-    const g = guard(request, reply, 'operate');
-    if ('blocked' in g) return reply;
-    if (!csrfOk(ledger, request, reply)) return reply;
-    const missionId = (request.params as { missionId: string }).missionId;
-    const body = (request.body ?? {}) as { events?: unknown };
-    const rawEvents = Array.isArray(body.events) ? body.events : [body.events];
-    if (rawEvents.length === 0 || rawEvents.length > MAX_INGEST_ENVELOPES) {
-      return reply.code(400).send({
-        error: {
-          code: 'INVALID_INPUT',
-          message: `1-${String(MAX_INGEST_ENVELOPES)} events required`,
-        },
-      });
-    }
-    try {
-      ledger.organizations.getMission(g.actor.orgId, missionId);
-    } catch {
-      return reply.code(404).send({ error: { code: 'NOT_FOUND_OR_UNAVAILABLE' } });
-    }
-    const service = productionServiceFor(ledger, g.actor.orgId, missionId);
-    const outcomes: unknown[] = [];
-    let anyAccepted = false;
-    let anyRejected = false;
-    for (const raw of rawEvents) {
+  // ------------------------------------------------------ credential revocation (P0-3)
+  app.post(
+    '/api/missions/:missionId/sources/:sourceId/keys/:keyId/revoke',
+    async (request, reply) => {
+      const g = guard(request, reply, 'manageAuthority');
+      if ('blocked' in g) return reply;
+      if (!csrfOk(ledger, request, reply)) return reply;
+      const { missionId, sourceId, keyId } = request.params as {
+        missionId: string;
+        sourceId: string;
+        keyId: string;
+      };
+      const body = (request.body ?? {}) as { reason?: unknown };
+      const reason =
+        typeof body.reason === 'string' && body.reason.trim() !== ''
+          ? body.reason.slice(0, 300)
+          : 'rotated-or-compromised';
       try {
-        // HMAC verification happens INSIDE service.ingest against the
-        // journaled credential — an envelope without a valid signature over
-        // its canonical form is refused regardless of session strength.
-        const outcome = service.ingest(g.actor.orgId, raw);
-        outcomes.push(outcome);
-        if (outcome.status === 'accepted') anyAccepted = true;
-        else anyRejected = true;
-      } catch (error) {
-        // Typed ingest errors (signature, tenancy, ordering, staleness,
-        // vocabulary) surface their REAL machine codes; only schema-level
-        // throws map to INVALID_ENVELOPE.
-        if (error instanceof MissionEventError) {
-          outcomes.push({
-            status: 'rejected',
-            eventId: null,
-            code: error.code,
-            message: error.message,
-          });
-        } else {
-          outcomes.push({
-            status: 'rejected',
-            eventId: null,
-            code: 'INVALID_ENVELOPE',
-            message: error instanceof Error ? error.message : 'malformed event',
-          });
+        ledger.organizations.getMission(g.actor.orgId, missionId);
+        // The key must have been issued in THIS mission for THIS source.
+        if (!credentialEverIssued(ledger, g.actor.orgId, missionId, keyId)) {
+          return reply.code(404).send({ error: { code: 'KEY_NOT_FOUND' } });
         }
-        anyRejected = true;
+        if (isKeyRevoked(ledger, g.actor.orgId, missionId, keyId)) {
+          return reply.code(409).send({ error: { code: 'KEY_ALREADY_REVOKED' } });
+        }
+        void sourceId;
+        const payload: SourceRevocationRecord = {
+          sourceId,
+          keyId,
+          revokedBy: g.actor.id,
+          revokedAt: ledger.clock.iso(),
+          reason,
+        };
+        try {
+          ledger.evidence.append({
+            orgId: g.actor.orgId,
+            missionId,
+            topic: 'operational',
+            type: SOURCE_REVOCATION_TYPE,
+            eventKey: `mission-source-revoked:v1:${missionId}:${sourceId}:${keyId}`,
+            payload: payload as unknown as Record<string, unknown>,
+          });
+        } catch (error) {
+          if (isLedgerError(error) && error.code === 'DUPLICATE_EVENT') {
+            return reply.code(409).send({ error: { code: 'KEY_ALREADY_REVOKED' } });
+          }
+          throw error;
+        }
+        return {
+          missionId,
+          sourceId,
+          keyId,
+          revoked: true,
+          effect:
+            'the key stops authenticating NEW events immediately — including after process restart (fail-closed rehydration); already-admitted events remain valid historical evidence',
+          note: 'rotation = issue a NEW keyId, then revoke the old one',
+        };
+      } catch (error) {
+        request.log.error({ err: error }, 'source revocation failed');
+        return reply.code(409).send({ error: { code: 'REVOCATION_REJECTED' } });
       }
-    }
-    return {
-      missionId,
-      outcomes,
-      admitted: anyAccepted,
-      refused: anyRejected,
-      note: 'Admission requires a registered source credential (HMAC over the canonical event). Events authenticate SOURCES, never browsers; a session alone authorizes nothing.',
-    };
+    },
+  );
+
+  // ------------------------------------------------------ production ingestion
+  // P0-1 (CTO review): ingestion is a MACHINE act — moved to
+  // `/api/machine/missions/:id/events` (source-credentials.ts), authenticated
+  // by the event's own HMAC credential with NO cookie/CSRF. The previous
+  // session-based route here WAS the defect (P0-1) and is intentionally NOT
+  // replaced by a session route: telemetry has no browser session, and a
+  // session path would be a parallel, weaker auth for the same act. Operator
+  // journeys that want to admit evidence do so through their registered
+  // machine source (the credential is issued to the operator's integration).
+  app.post('/api/missions/:missionId/events', async (_request, reply) => {
+    return reply.code(410).send({
+      error: {
+        code: 'EVENTS_ROUTE_MOVED',
+        message:
+          'event ingestion moved to POST /api/machine/missions/:missionId/events — machine sources authenticate with their issued HMAC credential (no session/CSRF); administrative configuration/issuance/evaluation keep human RBAC + CSRF',
+      },
+    });
   });
 
   // ------------------------------------------------- generalized evaluation

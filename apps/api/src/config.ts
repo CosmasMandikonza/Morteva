@@ -46,6 +46,14 @@ const configSchema = z.object({
     .default(8 * 3_600_000),
   GIT_SHA: z.string().min(1).optional(),
   MOTERVA_TRUST_PROXY: z.enum(['0', '1']).default('0'),
+  /**
+   * P0-2 secret custody (CTO review PR #64): the envelope-encryption KEK for
+   * machine-source signing credentials. OPTIONAL — when absent, a
+   * deterministic local derivation keeps local/test flows working, but
+   * PRODUCTION deployments MUST provision this from their secret manager
+   * (32 bytes; base64url or hex). The KEK itself is never journalled.
+   */
+  MOTERVA_SOURCE_KEY_KEK: z.string().min(16).max(512).optional(),
 });
 
 /**
@@ -108,6 +116,11 @@ export interface AppConfig {
    */
   readonly trustProxy: boolean;
   readonly gitSha?: string;
+  /**
+   * Envelope-encryption KEK for machine-source signing credentials
+   * (P0-2 secret custody). Optional; see the schema comment.
+   */
+  readonly sourceKeyKek?: string;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
 }
@@ -231,6 +244,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     identity,
     trustProxy: parsed.data.MOTERVA_TRUST_PROXY === '1',
     gitSha: parsed.data.GIT_SHA,
+    sourceKeyKek: parsed.data.MOTERVA_SOURCE_KEY_KEK,
     warnings,
   };
 }
