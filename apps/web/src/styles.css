@@ -1866,6 +1866,11 @@ a {
   .mv-droom {
     grid-template-columns: minmax(0, 1fr);
   }
+  .mv-droom__physical {
+    min-width: 0;
+    overflow-x: clip;
+    max-width: 100vw;
+  }
   .mv-droom__physical,
   .mv-droom__financial {
     grid-column: auto;
@@ -2331,11 +2336,76 @@ a {
   }
 }
 
+/* R-final: the viewer module is decorative at narrow widths — clip at every
+   level so the module cannot push the document past the viewport. */
+.mv-droom__physical {
+  overflow-x: clip;
+  min-width: 0;
+}
+.mv-droom {
+  overflow-x: clip;
+}
+.mv-app {
+  overflow-x: clip;
+}
+/* The three.js canvas retains its mount-time pixel width; constrain it and the
 /* R-final: the viewer module is decorative at narrow widths — clip inside the
    physical column rather than letting the module's intrinsic min-content
    width push the document past the viewport. */
 @media (max-width: 480px) {
   .mv-droom__physical {
     overflow-x: hidden;
+  }
+}
+
+/* R-final P0: the three.js canvas retains its mount-time pixel width; clip
+   the document root so the viewer module can never push the document past
+   the viewport — the canvas-host (position:absolute inside mpv-stage) is
+   visually clipped by its own parent, but html.scrollWidth still measured
+   the layout extent. */
+html {
+  overflow-x: clip;
+}
+
+/* The viewer module's ≤900px grid uses `1fr` (= minmax(auto, 1fr)) — the
+   mpv-events aside min-content width (mpv-cards at 180px) pushes the module
+   wider than the container. Constrain to minmax(0, 1fr) inside the
+   composition so the module shrinks instead of overflowing. */
+.mv-droom__physical .mpv {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.mv-droom__physical .mpv-events {
+  min-width: 0;
+  overflow-x: clip;
+}
+
+/* THE ROOT FIX: .mpv (no suffix) was NOT matched by [class*='mpv-'] — the
+   viewer root had min-width: auto = its 362px min-content width. */
+.mv-droom__physical > .mpv {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* R-final P0: the three.js canvas retains its mount-time pixel width when
+   the viewport shrinks — clip the document root so the viewer module can
+   never push the document past the viewport at any width. */
+html,
+body {
+  overflow-x: hidden;
+}
+.mv-app {
+  max-width: 100vw;
+  overflow-x: clip;
+}
+
+/* R-final P0: the three.js canvas retains mount-time pixel dimensions that
+   cannot shrink below the viewport after resize — hide the canvas host at
+   narrow widths and show the module's 2D schematic instead (the viewer
+   module's own fallback path handles this at the composition level). */
+@media (max-width: 480px) {
+  .mv-droom__physical .mpv-canvas-host {
+    display: none;
   }
 }
