@@ -123,6 +123,12 @@ Resources:
   # ------------------------------------------------------------ Compute
   JudgeInstance:
     Type: AWS::EC2::Instance
+    # Stack creation WAITS for user-data success: any boot failure signals
+    # -e 1 (ERR trap below) and the stack fails/rolls back visibly — it can
+    # never succeed with a broken runtime.
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
     Properties:
       ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
       InstanceType: !Ref InstanceType
@@ -141,21 +147,43 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -euxo pipefail
-          dnf install -y docker jq
+          dnf install -y docker jq aws-cfn-bootstrap
           systemctl enable --now docker
           mkdir -p /usr/local/lib/docker/cli-plugins
           curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-          # Ledger home on the dedicated encrypted volume (survives instance
-          # replacement: stop instance, detach, attach to a new instance,
-          # restart — same financial journal).
-          if ! blkid /dev/xvdf; then mkfs -t xfs /dev/xvdf; fi
+          # CloudFormation signal: the instance carries a CreationPolicy
+          # ResourceSignal — success is signaled ONLY at the very end; the
+          # ERR trap signals failure so a broken boot FAILS THE STACK fast.
+          SIGNAL_BIN=$(command -v cfn-signal || echo /opt/aws/apitools/cfn-init/bin/cfn-signal)
+          SIGNAL_OK() { "$SIGNAL_BIN" -e 0 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
+          SIGNAL_FAIL() { "$SIGNAL_BIN" -e 1 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
+          trap 'echo "user-data FAILED — signaling stack failure"; SIGNAL_FAIL' ERR
+
+          # ---- Ledger volume: dedicated encrypted EBS, discovered durably
+          # (Nitro exposes EBS as nvme, NOT /dev/xvdf). NEVER reformat an
+          # existing filesystem; bind-mounted by compose (see
+          # compose.production.yml) so the journal lives on THIS volume.
           mkdir -p /var/lib/moterva /opt/moterva
-          mount /dev/xvdf /var/lib/moterva || true
-          grep -q xvdf /etc/fstab || echo '/dev/xvdf /var/lib/moterva xfs defaults,nofail 0 2' >> /etc/fstab
-          chown -R 1000:1000 /var/lib/moterva
+          ROOT_SRC=$(findmnt -n -o SOURCE /)                 # e.g. /dev/nvme0n1p1
+          ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -n1)
+          [ -n "$ROOT_DISK" ] || ROOT_DISK=$(echo "$ROOT_SRC" | sed -E 's/[0-9]+$//;s#^/dev/##')
+          DATADEVS=$(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v "^/dev/${ROOT_DISK}$")
+          DEV_COUNT=$(echo "$DATADEVS" | grep -c . || true)
+          [ "$DEV_COUNT" = "1" ] || { echo "FATAL: expected exactly one data disk, found $DEV_COUNT ($DATADEVS)"; exit 1; }
+          DATADEV=$(echo "$DATADEVS" | head -n1)
+          FS_TYPE=$(blkid -s TYPE -o value "$DATADEV" || true)
+          if [ -z "$FS_TYPE" ]; then
+            mkfs -t xfs "$DATADEV"      # blank volume only — existing FS is never reformatted
+          fi
+          mount "$DATADEV" /var/lib/moterva
+          DATA_UUID=$(blkid -s UUID -o value "$DATADEV")
+          grep -q '/var/lib/moterva' /etc/fstab || echo "UUID=$DATA_UUID /var/lib/moterva xfs defaults,nofail 0 2" >> /etc/fstab
+          # The api container runs as uid/gid 1000 (node); the ledger dir must
+          # be writable by it on the BIND-MOUNTED volume.
+          chown 1000:1000 /var/lib/moterva
 
           # 1 GB safety swap (images are CI-built; runtime fits the micro)
           if ! swapon --show=NAME --noheadings | grep -q swapfile; then
@@ -184,19 +212,28 @@ Resources:
 
           # Update helper — the deploy workflow and rollback both run exactly
           # this with one argument: the immutable release-SHA image tag.
+          # Health gate: the compose file publishes the api on host-loopback
+          # 127.0.0.1:18087 (deploy/aws/test/contract-checks.mjs enforces
+          # this exact match — never drift the two files independently).
           cat > /opt/moterva/update.sh <<'EOS'
           #!/bin/bash
           set -euo pipefail
           SHA="$1"
           [[ "$SHA" =~ ^[0-9a-f]{7,64}$ ]] || { echo "refusing non-SHA tag: $SHA"; exit 2; }
+          # FAIL CLOSED: the financial journal must live on the dedicated EBS
+          # mount. If /var/lib/moterva is not a real mountpoint, refuse to
+          # start the api (it would silently write to the root disk instead).
+          if ! findmnt -n -o SOURCE /var/lib/moterva >/dev/null 2>&1; then
+            echo "FATAL: /var/lib/moterva is not a mountpoint — refusing to start the api on root-disk storage"; exit 3
+          fi
           cd /opt/moterva
           aws ecr get-login-password | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
           MOTERVA_RELEASE_SHA="$SHA" docker compose -f compose.production.yml pull
           MOTERVA_RELEASE_SHA="$SHA" docker compose -f compose.production.yml up -d --remove-orphans
           echo "$SHA" > /opt/moterva/.current-sha
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             sleep 2
-            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+            if curl -fsS http://127.0.0.1:18087/healthz >/dev/null 2>&1; then
               echo "healthy at $SHA"; exit 0
             fi
           done
@@ -204,19 +241,12 @@ Resources:
           EOS
           chmod +x /opt/moterva/update.sh
 
-          # Signal stack completion only when Docker is genuinely live.
-          dnf install -y aws-cfn-bootstrap || true
-          /opt/aws/apitools/cfn-init/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource JudgeWaitHandle --region ${AWS::Region}
+          # Provisioned infra only: first deploy runs via the CI workflow
+          # (SSM) once immutable images exist. Signal success LAST.
+          SIGNAL_OK
+          trap - ERR
 
-  JudgeWaitHandle:
-    Type: AWS::CloudFormation::WaitConditionHandle
-  JudgeWaitCondition:
-    Type: AWS::CloudFormation::WaitCondition
-    DependsOn: JudgeInstance
-    Properties:
-      Handle: !Ref JudgeWaitHandle
-      Timeout: '600'
-      Count: 1
+  ElasticIP:
 
   ElasticIP:
     Type: AWS::EC2::EIP

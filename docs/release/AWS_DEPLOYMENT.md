@@ -8,38 +8,61 @@ version (still: no Kubernetes/RDS/microservices; single SQLite writer).
 
 ## The ONE command (founder, in CloudShell, us-east-1)
 
+**Provenance-pinned** (CTO P0-6): the ref IS the exact reviewed SHA — the
+bootstrap fetches every companion from that same SHA and verifies each
+against an embedded sha256 map, refusing mixed revisions. No silent
+main-branch fallback exists.
+
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/CosmasMandikonza/Morteva/<ACCEPTED_SHA>/deploy/aws/bootstrap.sh \
-  | bash -s -- --domain judge.your-domain.com --email you@your-domain.com
+  https://raw.githubusercontent.com/CosmasMandikonza/Morteva/<REVIEWED_SHA>/deploy/aws/bootstrap.sh \
+  | bash -s -- --ref <REVIEWED_SHA> --domain judge.your-domain.com --email you@your-domain.com
 ```
 
 This single command, idempotently:
 
 1. Verifies CloudShell auth + region, resolves the default VPC/subnet
    (`vpc-000ecd971da3b24ba`).
-2. Creates the Secrets Manager secret `moterva/production`.
+2. Creates the Secrets Manager secret `moterva/production` — with
+   **`WEB_ORIGIN=https://<domain>`** (the variable `apps/api/src/config.ts`
+   actually reads for CORS + the OIDC landing).
 3. Provisions **Cognito** (`provision-cognito.sh`): user pool, hosted-UI
    domain, confidential app client (code + PKCE), owner user — client
    secret stored straight into the secret (never printed in full, never
    committed).
 4. Deploys the CloudFormation stack (`cloudformation.yaml`): t3.micro,
-   SSM-managed (no SSH), encrypted dedicated ledger EBS, EIP, immutable-tag
-   ECR repos, **$12/month budget alarm** + status-check alarm, health-signaled
-   creation. **This step is the founder's approval to spend** (~$10/month
-   steady state).
+   SSM-managed (no SSH), encrypted dedicated ledger EBS **bind-mounted into
+   the api container** (never a Docker named volume on the root disk),
+   EIP, immutable-tag ECR repos, **$18/month budget ALERT** (alert-only —
+   see Spend honesty) + status-check alarm, creation that **fails the stack
+   on any boot failure** (CreationPolicy ResourceSignal + ERR-trap signal).
+   **This step is the founder's approval to spend.**
 5. Writes the production compose (`compose.production.yml`) + env to the
    instance over SSM (no SSH keys anywhere).
 6. Creates the **GitHub OIDC deploy role** (short-lived credentials only;
-   chain thumbprints computed live; ECR-push-on-two-repos + SSM-on-one-
-   instance permissions, explicit Deny on iam/secrets/s3/terminate).
+   trust scoped to the release branch of this one repo; ECR push on the two
+   repos only; SSM on the RunShellScript document + judge-tagged instance;
+   explicit Deny on iam/secrets/s3/terminate).
 7. Waits for the Deploy-AWS workflow images (or you rerun with
-   `--wait-images 15` after triggering it), runs `update.sh`, then executes
-   the **reviewer smoke checks** (`reviewer-smoke.sh`) against the live URL.
+   `--wait-images 15` after triggering it), runs `update.sh` (which
+   **refuses to start the api if the EBS mount is missing**), then:
+   - **binds your first owner identity** (`link-owner.sh` over SSM —
+     auditable, one-shot; the same server-side seam the tests prove);
+   - executes the **reviewer smoke checks** (`reviewer-smoke.sh`) against
+     the live URL.
 
-Flags: `--release-sha <sha>` (wait for a specific SHA), `--ref <branch>`
-(script provenance, default integration branch), `--refresh-env`
+Flags: `--ref <sha>` (**required** for curl|bash runs — provenance),
+`--release-sha <sha>` (wait for a specific SHA), `--refresh-env`
 (re-push secret values into the running stack), `--skip-stack`.
+
+### Spend honesty (CTO P0-8)
+
+The budget is an **ALERT, not a hard spending cap**. Expected steady state
+≈ **$13.5/month**: t3.micro $7.60 + 20 GB gp3 $1.60 + **public IPv4 $3.60**
+(charged even while attached since Feb 2024) + ECR/CloudWatch/transfer
+≈ $0.70. Promotional credits do **not** necessarily cover every fee (e.g.
+some marketplace/support charges are credit-ineligible). The $18 budget
+(email at 80% actual / 100% forecast) is the control, not a cap.
 
 ### Genuinely unavoidable inputs
 
@@ -83,12 +106,32 @@ migration gate).
 | Layer | Mechanism |
 |---|---|
 | Container crash | `restart: unless-stopped`; Docker enabled at boot |
-| Instance failure | status-check alarm → SNS email; relaunch = re-run `terraform`-free: stack update recreates instance; ledger volume reattaches |
-| SQLite durability | dedicated encrypted gp3 volume (nofail mount), WAL; nightly backup: `docker compose exec api node deploy/scripts/backup-ledger.mjs` (verified copy) — schedule via `crontab` on the instance or run before demo |
-| Restore | documented procedure in `deploy/README.md` §restore; rehearse pre-launch |
-| Deploy-time health | `update.sh` polls loopback healthz before declaring success; workflow fails visibly otherwise |
-| Spend | Budget $12 (80% actual + 100% forecast alerts); steady state ≈ $10 (t3.micro 7.60 + 20 GB gp3 1.60 + ECR/alarms/transfer ≈ 0.5) |
+| Instance failure | status-check alarm → SNS email; stack update recreates the instance; the ledger volume REATTACHES (device discovered by UUID-pinned fstab, never reformatted) |
+| SQLite durability | dedicated encrypted gp3 volume **bind-mounted into the api container** (CTO P0-2: a named Docker volume would have silently lived on the root disk — fixed and contract-checked); WAL; verified backups |
+| Boot-time integrity | CloudFormation CreationPolicy waits for user-data; ANY boot failure signals `-e 1` and fails/rolls back the stack |
+| Deploy-time health | `update.sh` fails closed if the EBS mount is missing, then polls loopback healthz before declaring success; the workflow fails visibly otherwise |
+| Persistence proof | CI: compose-boot stops the api container, restarts it, and asserts identical ledger fingerprints (events/actors/operations) — real container-rebuild persistence, per PR |
+| Spend | Budget $18 **ALERT only** (80% actual + 100% forecast email); steady ≈ $13.5 incl. public IPv4 $3.60; credits do not necessarily cover every fee |
 | Secrets | Secrets Manager only; instance role reads exactly one ARN; nothing in git, AMI, or user-data |
+
+## First-owner onboarding & reviewer access (CTO P0-4)
+
+Production identity has NO public self-provisioning: an unlinked OIDC
+identity is refused at the callback (`IDENTITY_NOT_LINKED`, no session) —
+proven by `apps/api/test/identity/no-devauth-onboarding.test.ts`, which
+also proves the full fresh-organization path WITHOUT any development
+authentication (owner bound server-side → OIDC sign-in → invitation →
+operator role → reviewer capability usable).
+
+At deploy time `bootstrap.sh` runs `deploy/aws/link-owner.sh` ON THE
+INSTANCE over SSM: it resolves the Cognito `sub` server-side, enforces the
+one-shot/immutability guard (a different subject for the same username is
+REFUSED; reruns are no-ops), binds through the ledger's auditable
+provisioning seam (journals `actor.created` + `identity.provisioned`), and
+then the owner's first hosted-UI sign-in lands as org OWNER. Additional
+operators/approvers are onboarded INSIDE the app via `POST /api/invitations`
+(secrets delivered out-of-band) — the flow the identity E2E suite exercises
+in a real browser.
 
 ## Reviewer browser testing (E4 against the live URL)
 
@@ -104,10 +147,25 @@ immutable proposal → different approver → refresh):
 2. As the owner (first hosted-UI sign-in → set password), `POST
    /api/invitations {role:'operator'|'approver', email:...}` per reviewer;
    send the invitation secret out-of-band.
-3. Point the repo's E2E harness at the live origin (the identity spec's
-   server seam is a local fixture; for live runs drive the same steps via
-   the browser: hosted-UI sign-in lands the reviewer with the invited role,
-   then the Reviewer Demo flow is exercised through the UI).
+3. Drive the journey in the browser: hosted-UI sign-in lands the reviewer
+   with the invited role; the Reviewer Demo flow is exercised through the
+   UI (baseline → 24.6 kt incident → recorded planning response changes →
+   immutable proposal → different-approver approval → refresh/replay).
+4. Responsive acceptance at 320/390/1024/1440 widths during the live pass.
+
+Claims discipline unchanged: synthetic evidence labeled SYNTHETIC; provider
+rails honestly OFFLINE until real sandbox credentials are configured; no
+claim of real money movement.
+
+### Acceptance gate (honest)
+
+Infrastructure correctness is contract-checked per PR
+(`deploy/aws/test/contract-checks.mjs`, 28 assertions — the exact P0
+classes), and persistence is proven across container rebuilds in CI.
+**The live gate remains: an actual HTTPS deployment, first-owner login,
+persistent ledger under redeploy, and the real browser workflow — executed
+at founder-approved deploy time via the single command above.** CI booting
+localhost is necessary, not sufficient, and is never claimed otherwise.
 
 Claims discipline unchanged: synthetic evidence labeled SYNTHETIC; provider
 rails honestly OFFLINE until real sandbox credentials are configured; no

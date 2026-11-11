@@ -50,6 +50,15 @@ jobs:
       - name: DEMO_AUTH security suite (12 scenarios, real cookies/CSRF)
         run: node scripts/release/verify-demo-auth-security.mjs
 
+      - name: AWS deployment contract checks (CTO P0 regression harness)
+        run: |
+          bash -n deploy/aws/bootstrap.sh
+          bash -n deploy/aws/teardown.sh
+          bash -n deploy/aws/provision-cognito.sh
+          bash -n deploy/aws/link-owner.sh
+          bash -n deploy/aws/reviewer-smoke.sh
+          node deploy/aws/test/contract-checks.mjs
+
   compose-boot:
     name: Compose boot (build images, HTTPS edge, fail-closed surface)
     runs-on: ubuntu-latest
@@ -107,6 +116,39 @@ jobs:
           curl -kfsS https://localhost/ | grep -q '<div id="root">' || { echo "FAIL: web shell not served"; exit 1; }
 
           echo "ALL EDGE ASSERTIONS PASS"
+
+      - name: Ledger persistence across container rebuild (stop → verify → start → compare)
+        run: |
+          set -eu
+          FINGERPRINT='SELECT (SELECT COUNT(*) FROM evidence_events) AS events, (SELECT COUNT(*) FROM actors) AS actors, (SELECT COUNT(*) FROM operations) AS ops'
+          BEFORE=$(docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api node -e "
+            const {openLedger} = require('/repo/packages/ledger/dist/index.js');
+            const l = openLedger('/var/lib/moterva/ledger.sqlite');
+            console.log(JSON.stringify(l.db.prepare('$FINGERPRINT').get()));
+            l.db.close();
+          ")
+          echo "before: $BEFORE"
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env stop api
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env start api
+          # The api is container-private — poll health INSIDE the container.
+          HEALTHY=no
+          for i in $(seq 1 60); do
+            if docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api \
+                 node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              HEALTHY=yes; break
+            fi
+            sleep 2
+          done
+          [ "$HEALTHY" = "yes" ] || { echo "api did not come back healthy after restart"; exit 1; }
+          AFTER=$(docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api node -e "
+            const {openLedger} = require('/repo/packages/ledger/dist/index.js');
+            const l = openLedger('/var/lib/moterva/ledger.sqlite');
+            console.log(JSON.stringify(l.db.prepare('$FINGERPRINT').get()));
+            l.db.close();
+          ")
+          echo "after:  $AFTER"
+          [ "$BEFORE" = "$AFTER" ] || { echo "FAIL: ledger state changed across container rebuild (or journal lost)"; exit 1; }
+          echo "PASS: ledger persistence proven across container rebuild (events/actors/ops identical)"
 
       - name: Ledger backup through the running container
         run: |

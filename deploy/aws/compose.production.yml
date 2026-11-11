@@ -16,10 +16,13 @@
 #   /opt/moterva/update.sh <release-sha>     (run via SSM by the CI workflow)
 #
 # Hardening mirrors deploy/docker-compose.yml: non-root, read-only rootfs,
-# cap_drop ALL, no-new-privileges, ledger on the dedicated volume, single
-# SQLite writer. The api's ONLY host exposure is 127.0.0.1:18087 for the
-# update health check — never published publicly; Caddy remains the sole
-# public edge.
+# cap_drop ALL, no-new-privileges, single SQLite writer. The ledger is a
+# BIND MOUNT to the dedicated encrypted EBS mountpoint /var/lib/moterva
+# (provisioned + owned by instance user-data) — NOT a Docker named volume,
+# which would silently live on the root disk and defeat EBS persistence.
+# The api's ONLY host exposure is 127.0.0.1:18087 for the update health
+# check (update.sh polls exactly this port — contract-checked); Caddy
+# remains the sole public edge.
 name: moterva
 
 services:
@@ -40,7 +43,10 @@ services:
       # config), MOTERVA_PROVIDER_MODE (offline default). Provider credentials
       # may only enter via production.env (Secrets Manager) and stay server-side.
     volumes:
-      - moterva-ledger:/var/lib/moterva
+      # BIND mount: the financial journal lives on the dedicated encrypted
+      # EBS volume, not in Docker's root-disk storage. Fail-closed check in
+      # update.sh ensures the mount exists before the api starts.
+      - /var/lib/moterva:/var/lib/moterva
     ports:
       # Host-loopback ONLY: liveness for update.sh/rollback. Not 0.0.0.0.
       - '127.0.0.1:18087:8787'
@@ -64,6 +70,8 @@ services:
       - '80:80'
       - '443:443'
     volumes:
+      # Caddy cert/config state is small and regenerable: root-disk named
+      # volumes are acceptable (only the FINANCIAL ledger demands EBS).
       - caddy-data:/data
       - caddy-config:/config
     cap_drop:
@@ -74,6 +82,5 @@ services:
       - no-new-privileges:true
 
 volumes:
-  moterva-ledger:
   caddy-data:
   caddy-config:

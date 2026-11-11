@@ -37,7 +37,11 @@ trap 'rm -rf "$TMP"' EXIT
 MODE="provision"
 WAIT_MINUTES=15
 DOMAIN=""; EMAIL=""; RELEASE_SHA=""; EXTRA_ARGS=()
-REF="feat/mtv-19-connected-golden-path"
+# PROVENANCE (P0): --ref is REQUIRED and must be an exact reviewed SHA or
+# the founder's documented release ref. Companions are fetched ONLY from
+# this ref and verified against the embedded sha256 map below — a silent
+# main-branch fallback or mixed-revision bootstrap is refused.
+REF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
@@ -51,6 +55,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Embedded integrity map for the companion scripts (sha256 of each file as
+# committed AT THIS bootstrap revision). fetch_companion verifies every
+# download against this map: if the requested --ref contains a DIFFERENT
+# revision of any companion than this bootstrap was reviewed with, the run
+# REFUSES rather than silently mixing versions.
+EXPECTED_SHA256_provision_cognito_sh="aea27e3b20b451287210ff056205c64009d0577bdd3d550395714f0914fd0443"
+EXPECTED_SHA256_reviewer_smoke_sh="475319311eb7bef4d0b8c03a2f5defa7e4f6962618cd938fc42be8f5d3cd9f2e"
+EXPECTED_SHA256_compose_production_yml="347baf02c64a4a2f0912bf38e434f263367218402cbbd1da02c5d97dd737f4c5"
+EXPECTED_SHA256_cloudformation_yaml="c1aed448f9669021c5b40c545acaba5655e9dbe7b6ec07ee95081d0db984a62f"
+EXPECTED_SHA256_link_owner_sh="eade3ab815b520b581ab054afbcb26e51474b424f1253d29496c4a7b7b936feb"
+
 log() { printf '\n\033[1;36m[bootstrap]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[bootstrap FAILED]\033[0m %s\n' "$*" >&2; exit 1; }
 
@@ -59,16 +74,21 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text) || die "not
 log "account $ACCOUNT, region $REGION"
 
 # --------------------------------------------------------------- helpers
-fetch_companion() { # fetch sibling deploy scripts at the SAME ref as this bootstrap run
-  local name="$1"
-  if [ -f "$SCRIPT_DIR/$name" ]; then cp "$SCRIPT_DIR/$name" "$TMP/$name";
+fetch_companion() { # fetch + VERIFY a companion against the embedded sha256 map (no fallback ref, no mixed revisions)
+  local name="$1" var="EXPECTED_SHA256_${name//[.\/-]/_}" expected actual
+  expected="${!var:-}"
+  if [ -f "$SCRIPT_DIR/$name" ]; then
+    cp "$SCRIPT_DIR/$name" "$TMP/$name"
   else
+    [ -n "$REF" ] || die "--ref <exact-release-sha> is required when running via curl|bash (provenance cannot be pinned otherwise)"
     curl -fsSL "https://raw.githubusercontent.com/${GH_REPO_FULL}/${REF}/deploy/aws/$name" \
-      -o "$TMP/$name" || curl -fsSL \
-      "https://raw.githubusercontent.com/${GH_REPO_FULL}/main/deploy/aws/$name" \
-      -o "$TMP/$name" || die "cannot fetch $name at ref $REF (pass --ref <branch-or-sha>)"
+      -o "$TMP/$name" || die "cannot fetch $name at ref $REF — REFUSING to fall back to another ref (mixed revisions are dangerous)"
   fi
   chmod +x "$TMP/$name"
+  if [ -n "$expected" ] && [[ "$expected" != PLACEHOLDER_* ]]; then
+    actual=$(sha256sum "$TMP/$name" | cut -d' ' -f1)
+    [ "$actual" = "$expected" ] || die "companion $name at ref '$REF' is revision $actual but this bootstrap was reviewed with $expected — refusing mixed revisions (pass --ref matching THIS bootstrap's own URL)"
+  fi
 }
 
 ssm_run() { # run a shell command on the judge instance, wait, return stdout
@@ -107,6 +127,7 @@ fetch_companion provision-cognito.sh
 fetch_companion reviewer-smoke.sh
 fetch_companion compose.production.yml
 fetch_companion cloudformation.yaml
+fetch_companion link-owner.sh
 
 # --------------------------------------------------------------- refresh-env
 if [ "$MODE" = "refresh-env" ]; then
@@ -128,14 +149,17 @@ if [ -z "$SECRET_ARN" ] || [ "$SECRET_ARN" = "None" ]; then
   SECRET_ARN=$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --region "$REGION" --query ARN --output text)
 fi
 
-merge_secret() { # merge KEY=VALUE pairs into the secret JSON (existing wins nothing — new values overwrite)
+merge_secret() { # merge KEY=VALUE pairs into the secret JSON (existing values are overwritten by these)
+  # WEB_ORIGIN is what apps/api/src/config.ts actually reads (CORS origin +
+  # OIDC landing). The earlier draft wrote a differently-named origin var
+  # the API never read — the P0-3 contract check forbids any such key here.
   aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --region "$REGION" \
     --query SecretString --output text | jq -s '.[0] * .[1]' - <(jq -n \
       --arg domain "$DOMAIN" \
       --arg origin "https://$DOMAIN" \
       --arg redirect "https://$DOMAIN/api/auth/oidc/callback" \
       --arg issuer "$1" --arg clientid "$2" --arg secret "$3" \
-      '{MOTERVA_DOMAIN:$domain, MOTERVA_PUBLIC_ORIGIN:$origin, MOTERVA_REVIEWER_DEMO:"1", MOTERVA_TRUST_PROXY:"1", MOTERVA_OIDC_ISSUER:$issuer, MOTERVA_OIDC_CLIENT_ID:$clientid, MOTERVA_OIDC_CLIENT_SECRET:$secret, MOTERVA_OIDC_REDIRECT_URI:$redirect}') \
+      '{WEB_ORIGIN:$origin, MOTERVA_DOMAIN:$domain, MOTERVA_REVIEWER_DEMO:"1", MOTERVA_TRUST_PROXY:"1", MOTERVA_OIDC_ISSUER:$issuer, MOTERVA_OIDC_CLIENT_ID:$clientid, MOTERVA_OIDC_CLIENT_SECRET:$secret, MOTERVA_OIDC_REDIRECT_URI:$redirect}') \
     | aws secretsmanager put-secret-value --secret-id "$SECRET_NAME" --region "$REGION" --secret-string file:///dev/stdin >/dev/null
 }
 
@@ -182,6 +206,9 @@ COMPOSE_B64=$(base64 -w0 < "$TMP/compose.production.yml")
 ssm_run "$ID" "printf '%s' '$COMPOSE_B64' | base64 -d > /opt/moterva/compose.production.yml" 60 \
   || die "compose file delivery failed"
 ssm_run "$ID" "test -s /opt/moterva/compose.production.yml" 60 || die "compose file not delivered"
+LINK_B64=$(base64 -w0 < "$TMP/link-owner.sh")
+ssm_run "$ID" "printf '%s' '$LINK_B64' | base64 -d > /opt/moterva/link-owner.sh && chmod +x /opt/moterva/link-owner.sh" 60 \
+  || die "link-owner delivery failed"
 ssm_run "$ID" "printf 'ECR_REGISTRY=$ECR_REGISTRY\nMOTERVA_DOMAIN=$DOMAIN\n' > /opt/moterva/.env && chmod 600 /opt/moterva/.env" 60 \
   || die ".env delivery failed"
 
@@ -209,25 +236,45 @@ if [ -z "$PROVIDER_ARN" ]; then
     --tags Key=created-by,Value=moterva-bootstrap >/dev/null
 fi
 ROLE_NAME="moterva-github-deploy"
+RELEASE_BRANCH="feat/mtv-19-connected-golden-path"
+# Trust is scoped to the RELEASE BRANCH of this one repository — not
+# repo:* (P0 least-privilege). The workflow's job must run on that branch
+# for its OIDC subject to match.
 TRUST=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"$PROVIDER_ARN"},"Action":"sts:AssumeRoleWithWebIdentity","Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},"StringLike":{"token.actions.githubusercontent.com:sub":"repo:${GH_REPO_FULL}:*"}}}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"$PROVIDER_ARN"},"Action":"sts:AssumeRoleWithWebIdentity","Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},"StringLike":{"token.actions.githubusercontent.com:sub":"repo:${GH_REPO_FULL}:ref:refs/heads/${RELEASE_BRANCH}"}}}]}
 EOF
 )
 if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" >/dev/null
-  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege --policy-document '{
-    "Version":"2012-10-17",
-    "Statement":[
-      {"Effect":"Allow","Action":"ecr:GetAuthorizationToken","Resource":"*"},
-      {"Effect":"Allow","Action":["ecr:InitiateLayerUpload","ecr:UploadLayerPart","ecr:CompleteLayerUpload","ecr:PutImage","ecr:BatchCheckLayerAvailability","ecr:DescribeRepositories"],"Resource":["*"]},
-      {"Effect":"Allow","Action":["ssm:SendCommand","ssm:GetCommandInvocation"],"Resource":["*"]},
-      {"Effect":"Allow","Action":["ec2:DescribeInstances"],"Resource":"*"},
-      {"Effect":"Deny","Action":["iam:*","s3:*","secretsmanager:*","ec2:Delete*","ec2:TerminateInstances"],"Resource":"*"}
+  # Permissions scoped to the two ECR repositories, the judge instance
+  # (SSM), and the RunShellScript document. Explicit Deny on destructive
+  # and secret-bearing surfaces.
+  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege --policy-document "{
+    \"Version\":\"2012-10-17\",
+    \"Statement\":[
+      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
+      {\"Effect\":\"Allow\",\"Action\":[\"ecr:InitiateLayerUpload\",\"ecr:UploadLayerPart\",\"ecr:CompleteLayerUpload\",\"ecr:PutImage\",\"ecr:BatchCheckLayerAvailability\",\"ecr:DescribeRepositories\"],\"Resource\":[\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api\",\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web\"]},
+      {\"Effect\":\"Allow\",\"Action\":\"ssm:SendCommand\",\"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:document/AWS-RunShellScript\",\"Condition\":{\"StringEquals\":{\"ssm:resourceTag/Name\":\"moterva-judge\"}}},
+      {\"Effect\":\"Allow\",\"Action\":\"ssm:GetCommandInvocation\",\"Resource\":\"arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*\"},
+      {\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeInstances\"],\"Resource\":\"*\"},
+      {\"Effect\":\"Deny\",\"Action\":[\"iam:*\",\"s3:*\",\"secretsmanager:*\",\"ec2:Delete*\",\"ec2:TerminateInstances\"],\"Resource\":\"*\"}
     ]
-  }' >/dev/null
-  log "deploy role created"
+  }" >/dev/null
+  log "deploy role created (branch-scoped trust; ECR repos + tagged instance only)"
 else
-  log "deploy role $ROLE_NAME exists — reusing"
+  log "deploy role $ROLE_NAME exists — refreshing its trust + policy to current scoping"
+  aws iam update-assume-role-policy --role-name "$ROLE_NAME" --assume-role-policy-document "$TRUST" >/dev/null
+  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name moterva-deploy-least-privilege --policy-document "{
+    \"Version\":\"2012-10-17\",
+    \"Statement\":[
+      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
+      {\"Effect\":\"Allow\",\"Action\":[\"ecr:InitiateLayerUpload\",\"ecr:UploadLayerPart\",\"ecr:CompleteLayerUpload\",\"ecr:PutImage\",\"ecr:BatchCheckLayerAvailability\",\"ecr:DescribeRepositories\"],\"Resource\":[\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api\",\"arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-web\"]},
+      {\"Effect\":\"Allow\",\"Action\":\"ssm:SendCommand\",\"Resource\":\"arn:aws:ssm:${REGION}:${ACCOUNT}:document/AWS-RunShellScript\",\"Condition\":{\"StringEquals\":{\"ssm:resourceTag/Name\":\"moterva-judge\"}}},
+      {\"Effect\":\"Allow\",\"Action\":\"ssm:GetCommandInvocation\",\"Resource\":\"arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*\"},
+      {\"Effect\":\"Allow\",\"Action\":[\"ec2:DescribeInstances\"],\"Resource\":\"*\"},
+      {\"Effect\":\"Deny\",\"Action\":[\"iam:*\",\"s3:*\",\"secretsmanager:*\",\"ec2:Delete*\",\"ec2:TerminateInstances\"],\"Resource\":\"*\"}
+    ]
+  }" >/dev/null
 fi
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
 
@@ -251,8 +298,18 @@ cat <<SUMMARY
          AWS_REGION          = $REGION
      then run: Actions → "Deploy AWS" → Run workflow
        release_sha = <the accepted SHA>   confirm_live = DEPLOY
+       (dispatch from the release branch — the deploy role trust is scoped
+        to that branch's OIDC subject)
 
- Budget guardrail: \$12/month hard alert ($EMAIL). Steady state ≈ \$10.
+ AFTER FIRST DEPLOY this script automatically:
+   - binds YOUR Cognito owner identity to a fresh organization (one-shot,
+     audited ledger evidence; first hosted-UI sign-in lands as OWNER)
+   - runs the reviewer smoke checks against https://$DOMAIN
+
+ Spend honesty: the budget is an ALERT ONLY (no hard spending cap).
+ Expected steady state ≈ \$13.5/month (t3.micro 7.6 + 20 GB gp3 1.6 +
+ public IPv4 3.6 + ECR/alarms/transfer ≈ 0.7) — promotional credits do
+ NOT necessarily cover every fee; the \$EMAIL budget alert is the control.
  Teardown: deploy/aws/teardown.sh (reverses everything incl. Cognito).
 ==========================================================================
 SUMMARY
@@ -275,9 +332,14 @@ if [ "$MODE" = "wait-images" ] || [ "$MODE" = "provision" ]; then
       if [ "$API_OK" != "None" ] && [ "$WEB_OK" != "None" ] && [ -n "$API_OK" ] && [ -n "$WEB_OK" ]; then
         log "images found for sha-$SHA_TO_WAIT — deploying"
         ssm_run "$ID" "/opt/moterva/update.sh ${SHA_TO_WAIT}" 600 || die "update.sh failed"
-        log "deployed. running reviewer smoke checks against https://$DOMAIN"
+        # P0-4: bind the founder's Cognito owner identity once (SSM, on the
+        # instance — never an HTTP endpoint), then verify the public surface.
+        log "binding first owner identity (auditable, one-shot, server-side)"
+        ssm_run "$ID" "ISSUER='$ISSUER' OWNER_EMAIL='$EMAIL' bash /opt/moterva/link-owner.sh" 300 \
+          || die "owner identity binding failed"
+        log "deployed + owner bound. running reviewer smoke checks against https://$DOMAIN"
         DOMAIN="$DOMAIN" RELEASE_SHA="$SHA_TO_WAIT" bash "$TMP/reviewer-smoke.sh" || die "smoke checks failed"
-        log "JUDGE ENVIRONMENT LIVE: https://$DOMAIN"
+        log "JUDGE ENVIRONMENT LIVE: https://$DOMAIN — sign in as $EMAIL via the hosted UI"
         exit 0
       fi
     else
@@ -289,9 +351,12 @@ if [ "$MODE" = "wait-images" ] || [ "$MODE" = "provision" ]; then
         if [ "$WEB_TAG" != "None" ] && [ -n "$WEB_TAG" ]; then
           log "images found for $TAG — deploying"
           ssm_run "$ID" "/opt/moterva/update.sh ${TAG#sha-}" 600 || die "update.sh failed"
-          log "deployed. running reviewer smoke checks against https://$DOMAIN"
+          log "binding first owner identity (auditable, one-shot, server-side)"
+          ssm_run "$ID" "ISSUER='$ISSUER' OWNER_EMAIL='$EMAIL' bash /opt/moterva/link-owner.sh" 300 \
+            || die "owner identity binding failed"
+          log "deployed + owner bound. running reviewer smoke checks against https://$DOMAIN"
           DOMAIN="$DOMAIN" RELEASE_SHA="${TAG#sha-}" bash "$TMP/reviewer-smoke.sh" || die "smoke checks failed"
-          log "JUDGE ENVIRONMENT LIVE: https://$DOMAIN"
+          log "JUDGE ENVIRONMENT LIVE: https://$DOMAIN — sign in as $EMAIL via the hosted UI"
           exit 0
         fi
       done
