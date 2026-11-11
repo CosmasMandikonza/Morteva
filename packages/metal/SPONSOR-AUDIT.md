@@ -71,3 +71,39 @@ status` needs one, so ours should too — verified at smoke time, not assumed).
 - Live behavior of the facilitator (timeouts, duplicate settlement) — modeled
   from the documented taxonomy and tested via fixtures; live behavior requires
   the founder-authorized smoke.
+
+## Addendum (2026-11-11): console endpoint "Require a credential" — probe matrix and resolution
+
+The founder's console endpoint (`alta-testnet`, endpoint ID `1a4d7d7f…`, verified by the
+founder: `eth_chainId` → `0xf951`) has **Require a credential: On**. Access attempts WITHOUT
+the secret (plain URL, exactly as the shipped CLI constructs it) are rejected server-side:
+
+| Attempt | Result |
+| --- | --- |
+| POST `eth_chainId` plain URL | `{"code":-32001,"message":"invalid or revoked credential","reason":"invalid_or_revoked_credential","x402":{"url":"…/v1"}}` |
+| GET plain URL | 401 |
+| Official CLI `metal-agent status <tx> --rpc-url <url>` | `Status: 401 / Requested resource not found` |
+| Official CLI x402 `pay <rpc-url>` (the documented flow for RPC endpoints sold over x402) | 401 invalid credential BEFORE any offer is served |
+| Bearer / x-api-key / raw Authorization / x-mrpc-key headers with the Endpoint Secret | all rejected, same error |
+| URL-embedded Basic (secret as user / as password / empty-user), URL-encoded | all rejected, same error |
+| Path `/v1/<id>/<secret>`, `/v1/<secret>`, `?secret=` query | rejected / 404 |
+| Shipped CLI/SDK support for endpoint-secret headers | **none in 0.3.3/0.3.4**: `rpcClient` uses plain viem `http(url)`; `rpcTransport` scrubs URL `user:password` but the server rejects every presentation probed |
+
+**Conclusion:** the shipped official CLI has no supported way to present the console Secret or
+a JWT; the server rejects all probed presentations of this endpoint's credential. Per the CTO
+directive, the resolution is founder-approved option 2: a **separate disposable testnet RPC
+endpoint with "Require a credential" OFF** (tight daily cap via the console, privately held
+rotated URL, revocable at any time), used with the official CLI as designed — never disabling
+security on the primary endpoint, never hardcoding a secret.
+
+**Live evidence captured while blocked (no signing, no RPC reads):**
+- Agent key (disposable, outside repo, owner-only ACLs): address `0x2636Bc67b099645745Be2A1c423E826109B583F2`.
+- Faucet funding: **100 *USDZ**; tx `0x1345bc559da38f042f45a5cf458314551d6182d201935febc62eac8a0234c896`; explorer tx page HTTP 200.
+- LIVE seller offer (official demo seller, HTTP 402 header decoded): 0.01 *USDZ on
+  `eip155:63825`, asset `0x…B5d5`, ERC-3009 `TransferWithAuthorization`, exact-scheme payee
+  `0xa1ea44afe3948831194c90438f23827c8b458f88` — all matching the verified constants.
+- LIVE refusal test: official CLI refused pre-sign against the real seller (`--max` below the
+  offer) — zero spend.
+- REAL smoke `--plan` against the LIVE seller: all gates pass, outcome plan-only, no payment
+  id/nonce/tx; and the no-purchase gate verifiably declines when no information value is
+  configured.
