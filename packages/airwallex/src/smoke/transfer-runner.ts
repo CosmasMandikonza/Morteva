@@ -434,7 +434,7 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
 async function readVerifiedUsdBalance(client: AirwallexClient): Promise<number | null> {
   const balances = await client.balancesCurrent();
   const usd = balances.find((balance) => balance.currency === SMOKE_CURRENCY);
-  if (usd === undefined) return null;
+  if (usd === undefined || usd.availableAmount === null) return null;
   return usd.availableAmount.minorUnits;
 }
 

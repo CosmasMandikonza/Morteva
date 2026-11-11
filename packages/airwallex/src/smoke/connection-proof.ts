@@ -82,14 +82,22 @@ export async function runConnectionProof(
   // Durable balance-read receipt in a REAL sqlite ledger under the state dir.
   // The payload is computed up front: this function either persists it and
   // returns, or throws — the success flag below is only reachable on success.
-  const payload = JSON.stringify(
-    balances.map((b) => ({
-      currency: b.currency,
-      available: b.availableAmount.minorUnits,
-      pending: b.pendingAmount.minorUnits,
-      reserved: b.reservedAmount.minorUnits,
-    })),
-  );
+  // Only SUPPORTED-currency aggregates enter the receipt (minor units are the
+  // internal representation); unsupported currencies are listed by name with
+  // their RAW provider amount — never silently dropped, never guessed.
+  const payload = JSON.stringify({
+    supported: balances
+      .filter((b) => b.availableAmount !== null)
+      .map((b) => ({
+        currency: b.currency,
+        available: b.availableAmount!.minorUnits,
+        pending: b.pendingAmount!.minorUnits,
+        reserved: b.reservedAmount!.minorUnits,
+      })),
+    unsupported: balances
+      .filter((b) => b.availableAmount === null)
+      .map((b) => ({ currency: b.currency, providerAvailableMajor: b.providerAvailableMajor })),
+  });
   mkdirSync(input.stateDir, { recursive: true });
   const ledger = (input.openLedgerAt ?? openLedgerAtDefault)(join(input.stateDir, 'ledger.sqlite'));
   try {
@@ -145,7 +153,8 @@ export function payoutReadiness(result: ConnectionProofResult): {
   const usd = result.balances.find((b) => b.currency === 'USD');
   const ids = result.beneficiaryPage?.items ?? [];
   return {
-    usdAvailableMinor: usd !== undefined ? usd.availableAmount.minorUnits : null,
+    usdAvailableMinor:
+      usd !== undefined && usd.availableAmount !== null ? usd.availableAmount.minorUnits : null,
     payoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length > 0).map((b) => b.id),
     nonPayoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length === 0).map((b) => b.id),
   };
@@ -197,9 +206,15 @@ export function printConnectionProof(result: ConnectionProofResult): void {
   console.info('  authentication: OK (bearer token issued; held in memory only, never printed)');
   const usd = result.balances.find((b) => b.currency === 'USD');
   for (const b of result.balances) {
-    console.info(
-      `  balance ${b.currency}: available ${b.availableAmount.minorUnits} minor (major ${minorToMajorUnits(b.currency, b.availableAmount.minorUnits)}) account_type=${b.accountType}`,
-    );
+    if (b.availableAmount !== null) {
+      console.info(
+        `  balance ${b.currency}: available ${b.availableAmount.minorUnits} minor (major ${minorToMajorUnits(b.currency, b.availableAmount.minorUnits)}) account_type=${b.accountType}`,
+      );
+    } else {
+      console.info(
+        `  balance ${b.currency}: available ${String(b.providerAvailableMajor)} (provider major units) — currency NOT in the internal money table; reported honestly, not converted, not a zero`,
+      );
+    }
   }
   if (usd === undefined) {
     console.info('  balance USD: NOT PRESENT in this sandbox account (report honestly)');

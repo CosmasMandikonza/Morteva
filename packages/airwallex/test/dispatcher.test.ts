@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,7 @@ import type { DispatchCommand } from '@moterva/ledger';
  * fixture. The type system itself proves dispatch can never return confirmed.
  */
 
-const CONFIG = loadAirwallexConfig({}); // disabled config is fine for the fixture
+const CONFIG = fixtureClientConfig();
 
 function makeStore() {
   const path = join(mkdtempSync(join(tmpdir(), 'awx-dispatch-')), 'ledger.sqlite');
@@ -479,9 +480,9 @@ describe('builder guards', () => {
       getTransfer: [],
       balances: [],
     });
-    expect(() => buildSandboxDispatcher(CONFIG, fixture, store, clock, () => 'b')).toThrowError(
-      /enabled sandbox configuration/,
-    );
+    expect(() =>
+      buildSandboxDispatcher(loadAirwallexConfig({}), fixture, store, clock, () => 'b'),
+    ).toThrowError(/enabled sandbox configuration/);
 
     const enabled = loadAirwallexConfig({
       AIRWALLEX_ENV: 'sandbox',

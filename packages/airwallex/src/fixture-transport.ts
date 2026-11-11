@@ -79,6 +79,8 @@ export class FixtureTransport {
     method: string;
     path: string;
     query: Record<string, string> | null;
+    /** Extra headers the client attached (auth headers; captured for tests). */
+    headers: Record<string, string>;
     body: unknown;
   }> = [];
   private readonly lanes: Record<string, readonly FixtureStep[] | undefined>;
@@ -110,7 +112,7 @@ export class FixtureTransport {
   }
 
   async request(
-    _authHeaders: Record<string, string>,
+    authHeaders: Record<string, string>,
     request: {
       method: 'GET' | 'POST';
       path: string;
@@ -122,6 +124,7 @@ export class FixtureTransport {
       method: request.method,
       path: request.path,
       query: request.query ?? null,
+      headers: { ...authHeaders },
       body: request.body ?? null,
     });
     const lane = this.laneFor(request.method, request.path);

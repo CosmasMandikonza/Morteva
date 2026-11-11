@@ -47,9 +47,15 @@ try {
   const balances = await client.balancesCurrent();
   console.info(`airwallex sandbox balance read OK (${balances.length} currency account(s)):`);
   for (const balance of balances) {
-    console.info(
-      `  ${balance.currency}: available ${balance.availableAmount.minorUnits} minor units (provider major units: ${minorToMajorUnits(balance.currency, balance.availableAmount.minorUnits)}) account_type=${balance.accountType}`,
-    );
+    if (balance.availableAmount !== null) {
+      console.info(
+        `  ${balance.currency}: available ${balance.availableAmount.minorUnits} minor units (provider major units: ${minorToMajorUnits(balance.currency, balance.availableAmount.minorUnits)}) account_type=${balance.accountType}`,
+      );
+    } else {
+      console.info(
+        `  ${balance.currency}: available ${String(balance.providerAvailableMajor)} (provider major units) — currency NOT in the internal money table; reported honestly, not converted`,
+      );
+    }
   }
   ledger.providerReceipts.append({
     provider: 'airwallex',
@@ -61,14 +67,19 @@ try {
     environment: 'sandbox',
     httpStatus: 200,
     providerStatus: null,
-    payloadJson: JSON.stringify(
-      balances.map((b) => ({
-        currency: b.currency,
-        available: b.availableAmount.minorUnits,
-        pending: b.pendingAmount.minorUnits,
-        reserved: b.reservedAmount.minorUnits,
-      })),
-    ),
+    payloadJson: JSON.stringify({
+      supported: balances
+        .filter((b) => b.availableAmount !== null)
+        .map((b) => ({
+          currency: b.currency,
+          available: b.availableAmount!.minorUnits,
+          pending: b.pendingAmount!.minorUnits,
+          reserved: b.reservedAmount!.minorUnits,
+        })),
+      unsupported: balances
+        .filter((b) => b.availableAmount === null)
+        .map((b) => ({ currency: b.currency, providerAvailableMajor: b.providerAvailableMajor })),
+    }),
     recordedAt: new Date().toISOString(),
   });
   console.info('receipt persisted (environment=sandbox, kind=balance-read).');

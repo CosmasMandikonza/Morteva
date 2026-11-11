@@ -1,10 +1,10 @@
 # Airwallex read-only connection proof (issue #5, A1)
 
-**Status:** implemented, ready to execute the moment founder-provisioned
-sandbox credentials exist in the server environment. Nothing in this document
-claims a live provider interaction has occurred — the real-provider gate
-stays BLOCKED until then, and no credential is requested through public
-channels (never commit, log or print one).
+**Status: EXECUTED — the genuine proof succeeded on 2026-11-11** with the
+founder-provisioned read-only sandbox key (login fixed, real balances and
+beneficiaries read, durable receipts persisted; see docs/STATE.md for the
+redacted record). This document remains the procedure and law reference.
+No credential is committed, logged or printed anywhere.
 
 ## What it proves (once run with credentials)
 
