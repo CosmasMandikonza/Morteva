@@ -211,7 +211,8 @@ export interface SponsorJourneyInput {
   readonly missionId: string;
   readonly purpose: string;
   readonly config: SponsorConfig;
-  readonly paths: SponsorSecretPaths;
+  /** Required for signed runs (plan-only never touches them). */
+  readonly paths: SponsorSecretPaths | null;
   readonly cli: AgentCliRunner;
   readonly vendor: SponsorVendorClient;
   readonly clock: { now(): Date; iso(): string };
@@ -261,7 +262,7 @@ export async function runSponsorPurchaseJourney(
       'BLOCKED: the sponsor rail is not enabled (METAL_SPEND_ENV=sponsor-testnet + console RPC endpoint + agent key file + mandate credential). The legacy Tahoe config is not a substitute (SPONSOR-AUDIT.md).',
     );
   }
-  if (!config.spendApproved) {
+  if (!config.spendApproved && input.planOnly !== true) {
     return blocked(
       evidenceBase,
       'BLOCKED: no founder authorization for signed spend (METAL_SPEND_APPROVED unset). Read-only verification may run, but nothing is signed. This is the D3 stop-before-signing gate.',
@@ -374,10 +375,23 @@ export async function runSponsorPurchaseJourney(
     }
     gatesPassed.push('economics-ok');
     if (!config.hasMandateCredential) {
-      return blocked(
-        evidenceBase,
-        'BLOCKED: no mandate credential configured — a payment without an on-chain mandate is not authorized',
-      );
+      // Hard block WITH the decision trace: the rehearsal (plan-only) shows
+      // exactly which gates passed before the missing mandate stopped it.
+      trace.gateFailed = 'MANDATE_CREDENTIAL_MISSING';
+      return {
+        ...(evidenceBase as unknown as SponsorPurchaseEvidence),
+        outcome: 'blocked',
+        reason:
+          'BLOCKED: no mandate credential configured — a payment without an on-chain mandate is not authorized; create and bind one, then rerun',
+        sellerId: offer.sellerId,
+        offerDigest,
+        amountBaseUnits: offer.priceBaseUnits,
+        amountUsdz: usdzFromBaseUnits(offer.priceBaseUnits),
+        txHash: null,
+        settlement: null,
+        delivery: null,
+        decisionTrace: trace,
+      };
     }
     gatesPassed.push('mandate-credential-present');
 
@@ -421,6 +435,12 @@ export async function runSponsorPurchaseJourney(
     writeStateAtomic(input.stateDir, state);
 
     // ---- Pay through the OFFICIAL CLI under the on-chain mandate.
+    if (input.paths === null) {
+      return blocked(
+        { ...evidenceBase },
+        'BLOCKED: signed payment requires the configured credential paths (METAL_RPC_URL/METAL_AGENT_KEY_FILE/METAL_MANDATE_CREDENTIAL); plan-only runs never reach this line',
+      );
+    }
     const payment: AgentPaymentResult = await input.cli.pay({
       url: config.diagnosticSellerUrl,
       mandateCredentialPath: input.paths.mandateCredential,
@@ -545,6 +565,9 @@ async function verifySponsorSettlement(
   // Independent verification FROM THE CHAIN ALONE via the official CLI: the
   // binding, the credential under its issuer, and this payment/refusal as the
   // mandate key's own signed per-payment mandate, rebuilt from its transaction.
+  if (input.paths === null) {
+    return { ok: false, detail: 'credential paths not configured' };
+  }
   const verify = await input.cli.mandateVerify({
     mandateCredentialPath: input.paths.mandateCredential,
     issuerPublicKeyFile:
