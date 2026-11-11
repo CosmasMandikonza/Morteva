@@ -2296,3 +2296,37 @@ a {
 .mv-stepper__step.is-done .mv-stepper__label {
   color: var(--mv-ink-1);
 }
+
+/* R-final: constrain Agent C's viewer to its container at narrow widths —
+   the mpv HUD rows wrap rather than pushing the document wide. */
+.mv-droom__physical .mpv {
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.mv-droom__physical [class*='mpv-'] {
+  min-width: 0;
+  max-width: 100%;
+}
+.mv-droom__physical .mpv-hud__row,
+.mv-droom__physical .mpv-hud__grid {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.mv-droom__physical .mpv-chip {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+/* The mpv-card 180px minimum (× 2 columns in mpv-selected) is the intrinsic
+   floor that pushed the document to 362px at 320. Constrain it inside our
+   composition so the module clips instead of overflowing. */
+.mv-droom__physical .mpv-card {
+  min-width: 0;
+}
+@media (max-width: 480px) {
+  .mv-droom__physical .mpv-selected {
+    grid-template-columns: 1fr;
+  }
+}
