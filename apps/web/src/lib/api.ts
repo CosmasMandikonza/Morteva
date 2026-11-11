@@ -357,6 +357,152 @@ export function fetchPhysicalDecision(
   );
 }
 
+// ---------------------- C1 mission specification read (typed, read-only)
+
+export interface MissionSpecAsset {
+  readonly assetId: string;
+  readonly domainKind: 'aerial' | 'ground' | 'surface';
+  readonly label: string;
+}
+
+export interface SpecOfferView {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: string;
+  readonly currency: string;
+  readonly baseCostMinor: number;
+  readonly feeMinor: number;
+  readonly leadTimeMinutes: number;
+  readonly durationMinutes: number;
+  readonly probabilityOfSuccess: number;
+  readonly availability: string;
+  readonly beneficiary: string;
+  readonly purpose: string;
+  readonly requiresAssetId?: string;
+}
+
+export interface MissionSpecView {
+  readonly missionId: string;
+  readonly registered: boolean;
+  readonly specId: string;
+  readonly specDigest: string;
+  readonly industry: 'maritime-uav' | 'warehouse-amr';
+  readonly objective: string;
+  readonly truthLabel: string;
+  readonly assets: readonly MissionSpecAsset[];
+  readonly safetyPolicy: {
+    readonly version: number;
+    readonly clearanceAuthority: string;
+    readonly uavWindLimitKt?: number;
+    readonly groundInterrupts?: readonly string[];
+  };
+  readonly economics: {
+    readonly currency: string;
+    readonly missionValueMinor: number;
+    readonly failureCostMinor: number;
+    readonly protectedReserveMinor: number;
+    readonly deadlineOffsetMinutes: number;
+  };
+  readonly offers: {
+    readonly incumbent: SpecOfferView;
+    readonly alternatives: readonly SpecOfferView[];
+    readonly diagnostics?: SpecOfferView;
+  };
+  readonly financialMandateShape: {
+    readonly currency: string;
+    readonly allowedBeneficiaries: readonly string[];
+    readonly allowedPurposes: readonly string[];
+  };
+  readonly caseLineage: { readonly caseId: string; readonly evaluationId: string } | null;
+  readonly authorization: string;
+}
+
+/** GET /api/missions/:id/mission-spec — READ-ONLY typed mission configuration
+ *  (C1 contract): industry, objective, assets, safety policy, economics,
+ *  supplier offers and decision-case lineage. Never authority. */
+export function fetchMissionSpec(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<MissionSpecView> {
+  return request<MissionSpecView>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/mission-spec',
+    { signal },
+  );
+}
+
+// ---------------------- warehouse domain journey (C2, spec-driven)
+
+export interface WarehouseJourneyLastEvent {
+  readonly eventId: string;
+  readonly assetId: string;
+  readonly sourceId: string;
+  readonly eventDigest: string;
+  readonly observedAt: string;
+  readonly reading: string;
+  readonly provenance: string;
+}
+
+export interface WarehouseDecisionJourney {
+  readonly missionId: string;
+  readonly specId: string;
+  readonly industry: 'warehouse-amr';
+  readonly stage: string;
+  readonly before: PhysicalDecisionSummary | null;
+  readonly after: PhysicalDecisionSummary | null;
+  readonly admittedEventIds: readonly string[];
+  readonly lastEvent: WarehouseJourneyLastEvent | null;
+  readonly disclaimer: string;
+}
+
+export const WAREHOUSE_STEPS = [
+  'baseline',
+  'aisle-obstruction',
+  'charger-fault',
+  'comms-loss',
+  'comms-restored',
+] as const;
+export type WarehouseStep = (typeof WAREHOUSE_STEPS)[number];
+
+/** GET /api/missions/:id/warehouse-decision — the warehouse journey read
+ *  (same decision-view shape as harbor; spec-driven stage ladder). */
+export function fetchWarehouseDecision(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<WarehouseDecisionJourney> {
+  return request<WarehouseDecisionJourney>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/warehouse-decision',
+    { signal },
+  );
+}
+
+/** POST /api/missions/:id/warehouse-step — DEMO event source: admits the
+ *  signed synthetic events for one warehouse step (idempotent; registers
+ *  the mission spec once) and returns the refreshed journey. */
+export function admitWarehouseStep(
+  missionId: string,
+  step: WarehouseStep,
+  csrfToken: string,
+): Promise<WarehouseDecisionJourney> {
+  return request<WarehouseDecisionJourney>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/warehouse-step',
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify({ step }),
+    },
+  );
+}
+
+/** POST /api/demo/refresh-authority — demo-time authority refresh
+ *  (manageAuthority + CSRF): issues a FRESH mandate version from the
+ *  registered mission spec shape; nothing is silently extended. */
+export function refreshMissionAuthority(missionId: string, csrfToken: string): Promise<unknown> {
+  return request('/api/demo/refresh-authority', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify({ missionId }),
+  });
+}
 export function submitSyntheticStep(
   missionId: string,
   step: 'baseline' | 'incident',

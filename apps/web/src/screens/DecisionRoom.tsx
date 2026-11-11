@@ -24,9 +24,17 @@ import {
   type RecordedApproval,
   type RecordedSnapshot,
   type RecordedSnapshotDecision,
+  WAREHOUSE_STEPS,
+  admitWarehouseStep,
+  fetchMissionSpec,
+  fetchWarehouseDecision,
+  refreshMissionAuthority,
+  type MissionSpecView,
   type SessionState,
+  type WarehouseDecisionJourney,
+  type WarehouseStep,
 } from '../lib/api';
-import { money as moneyOf, moneyAmount } from '../lib/format';
+import { money as moneyOf, moneyAmount, safeMoney } from '../lib/format';
 import { ApprovePlanSheet, ManualPlanSheet } from '../components/GovernedActions';
 import {
   CopyButton,
@@ -81,6 +89,7 @@ function DecisionExpandable({
               ? 'no spend proposed'
               : `gross ${money(selected.grossMinor)} · net ${money(selected.expectedNetMinor)}`}
           </span>
+          {decision !== null && outcomeBadge(decision)}
           <span className="mv-xcard__meta">
             {decision.outcome} · POLICY-ONLY ·{' '}
             {decision.authorization ===
@@ -158,9 +167,9 @@ function outcomeLine(decision: RecordedSnapshotDecision): string {
   return `recorded selection: ${selected.candidateId} · ${moneyOf(selected.currency, selected.grossMinor)} gross (server terms)`;
 }
 
-/** Factual lifecycle strip derived from the journey + durable records. */
+/** Factual lifecycle strip derived from the unified journey view + durable records. */
 function journeySteps(
-  journey: PhysicalDecisionJourney | null,
+  view: { hasBaseline: boolean; hasIncident: boolean; stage: string },
   incidentRecorded: boolean,
 ): readonly {
   key: string;
@@ -168,23 +177,26 @@ function journeySteps(
   state: 'done' | 'active' | 'pending' | 'halted' | 'unknown';
   note?: string;
 }[] {
-  const stage = journey?.stage ?? 'empty';
   return [
     {
       key: 'observe',
-      label: 'Physical event',
-      state: stage === 'empty' ? 'pending' : 'done',
-      note: stage === 'empty' ? 'awaiting signed observation' : 'admitted to the journal',
+      label: 'Physical observation event',
+      state: view.hasBaseline ? 'pending' : 'done',
+      note: view.hasBaseline ? 'awaiting signed observation' : 'admitted to the journal',
     },
     {
       key: 'baseline',
       label: 'Baseline evaluation',
-      state: stage === 'empty' ? 'pending' : 'done',
+      state: view.hasBaseline ? 'pending' : 'done',
     },
     {
       key: 'incident',
       label: 'Incident evaluation',
-      state: incidentRecorded ? 'done' : stage === 'baseline' ? 'active' : 'pending',
+      state: incidentRecorded
+        ? 'done'
+        : !view.hasIncident && view.hasBaseline
+          ? 'active'
+          : 'pending',
       note: incidentRecorded ? undefined : 'recorded explicitly when the incident lands',
     },
     {
@@ -202,6 +214,24 @@ function journeySteps(
   ];
 }
 
+/** Structured outcome chip — no-action, decline and escalation are
+ *  first-class outcomes with their own tone+glyph, never collapsed into a
+ *  generic success state (R-final directive). */
+function outcomeBadge(decision: {
+  outcome: 'select' | 'decline' | 'escalate';
+  selected: { readonly grossMinor: number } | null;
+}): JSX.Element {
+  if (decision.outcome === 'escalate') {
+    return <HaloBadge tone="hold" glyph="??" label="ESCALATED — HUMAN DECISION" />;
+  }
+  if (decision.outcome === 'decline') {
+    return <HaloBadge tone="neutral" glyph="∅" label="DECLINED" />;
+  }
+  if (decision.selected === null || decision.selected.grossMinor <= 0) {
+    return <HaloBadge tone="hold" glyph="∅" label="NO ACTION" />;
+  }
+  return <HaloBadge tone="transit" glyph="▶" label="EXECUTABLE — PROPOSAL PENDING" />;
+}
 export function DecisionRoom({
   session,
   mission,
@@ -216,6 +246,9 @@ export function DecisionRoom({
   onReviewerMissionReady: (missionId: string) => void;
 }): JSX.Element {
   const [journey, setJourney] = useState<PhysicalDecisionJourney | null>(null);
+  const [whJourney, setWhJourney] = useState<WarehouseDecisionJourney | null>(null);
+  const [missionSpec, setMissionSpec] = useState<MissionSpecView | null>(null);
+  const [specState, setSpecState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +316,57 @@ export function DecisionRoom({
       })
       .finally(() => setReviewerBusy(false));
   };
+
+  // C1 spec read — typed mission configuration; industry decides which
+  // journey endpoints this room uses (harbor vs warehouse), never a guess.
+  useEffect(() => {
+    if (session.kind !== 'signed-in' || mission === null) {
+      setMissionSpec(null);
+      setSpecState('loading');
+      return;
+    }
+    const controller = new AbortController();
+    setSpecState('loading');
+    fetchMissionSpec(mission.id, controller.signal)
+      .then((spec) => {
+        if (!controller.signal.aborted) {
+          setMissionSpec(spec);
+          setSpecState('ready');
+        }
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        if (reason instanceof ApiError && reason.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        setMissionSpec(null);
+        setSpecState('unavailable');
+      });
+    return () => controller.abort();
+  }, [mission?.id, session.kind, onSessionExpired]);
+
+  const isWarehouse = missionSpec?.industry === 'warehouse-amr';
+
+  // Warehouse journey read — mirrors the harbor read on the same durable
+  // state; the two domains never mix inside one mission journal.
+  useEffect(() => {
+    if (session.kind !== 'signed-in' || mission === null) {
+      setWhJourney(null);
+      return;
+    }
+    if (!isWarehouse) {
+      setWhJourney(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetchWarehouseDecision(mission.id, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setWhJourney(result);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [mission?.id, session.kind, isWarehouse]);
 
   const refreshDurableState = useCallback((missionId: string, signal: AbortSignal): void => {
     fetchDecisionSnapshots(missionId, signal)
@@ -384,6 +468,60 @@ export function DecisionRoom({
     return () => controller.abort();
   }, [mission?.id, session.kind]);
 
+  // Unified journey view across both domains (identical decision-view shape;
+  // the warehouse journey maps its stage ladder + last event onto the same
+  // fields, so every read below stays domain-neutral).
+  const view: {
+    stage: string;
+    hasBaseline: boolean;
+    hasIncident: boolean;
+    before: PhysicalDecisionSummary | null;
+    after: PhysicalDecisionSummary | null;
+    lastEvent: {
+      eventId: string;
+      sourceId: string;
+      eventDigest: string;
+      observedAt: string;
+      reading: string;
+      provenance: string;
+    } | null;
+    disclaimer: string | null;
+  } = (() => {
+    if (whJourney !== null) {
+      const last = whJourney.lastEvent;
+      const stepped = whJourney.stage !== 'empty' && whJourney.stage !== 'baseline';
+      return {
+        stage: whJourney.stage,
+        hasBaseline: whJourney.stage !== 'empty',
+        hasIncident: stepped,
+        before: whJourney.before,
+        after: whJourney.after,
+        lastEvent:
+          last === null
+            ? null
+            : {
+                eventId: last.eventId,
+                sourceId: last.sourceId,
+                eventDigest: last.eventDigest,
+                observedAt: last.observedAt,
+                reading: last.reading,
+                provenance: last.provenance + ' · asset ' + last.assetId,
+              },
+        disclaimer: whJourney.disclaimer,
+      };
+    }
+    const harborStage = journey?.stage ?? 'empty';
+    return {
+      stage: harborStage,
+      hasBaseline: harborStage !== 'empty',
+      hasIncident: harborStage === 'incident',
+      before: journey?.before ?? null,
+      after: journey?.after ?? null,
+      lastEvent: journey?.incident ?? null,
+      disclaimer: journey?.disclaimer ?? null,
+    };
+  })();
+
   const runStep = (step: 'baseline' | 'incident'): void => {
     if (
       session.kind !== 'signed-in' ||
@@ -465,6 +603,84 @@ export function DecisionRoom({
       });
   };
 
+  /** DEMO EVENT SOURCE admission for one warehouse step (operate + CSRF;
+   *  idempotent; registers the warehouse spec once). */
+  const runWarehouseStep = (step: WarehouseStep): void => {
+    if (session.kind !== 'signed-in' || mission === null || csrfToken === null || busy) return;
+    setBusy(true);
+    setError(null);
+    setSnapshotNotice(null);
+
+    admitWarehouseStep(mission.id, step, csrfToken)
+      .then((result) => {
+        setWhJourney(result);
+        // The spec registry changed on first admission — refetch so the room
+        // flips to the registered industry journey.
+        fetchMissionSpec(mission.id)
+          .then((spec) => setMissionSpec(spec))
+          .catch(() => undefined);
+        setSnapshotNotice('Warehouse step admitted — evaluations refreshed from the journal.');
+        // After the first baseline admission, an owner/admin must refresh the
+        // mission authority from the registered spec shape (server enforces
+        // the role; operators see the honest note).
+        if (step === 'baseline' && (role === 'owner' || role === 'admin') && csrfToken !== null) {
+          refreshMissionAuthority(mission.id, csrfToken)
+            .then(() =>
+              setSnapshotNotice(
+                'Baseline admitted and mission authority refreshed from the registered spec.',
+              ),
+            )
+            .catch(() =>
+              setSnapshotNotice(
+                'Baseline admitted — authority refresh failed; an owner/admin can retry from Mission Treasury.',
+              ),
+            );
+        }
+        refreshDurableState(mission.id, new AbortController().signal);
+        setBusy(false);
+      })
+      .catch((reason: unknown) => {
+        if (reason instanceof ApiError && reason.status === 401) {
+          onSessionExpired();
+          setBusy(false);
+          return;
+        }
+        setError(
+          reason instanceof ApiError
+            ? `warehouse step ${step}: ${reason.code} — ${reason.message}`
+            : 'warehouse step admission failed',
+        );
+        setBusy(false);
+      });
+  };
+
+  /** Refresh evaluations from the journal — the PRIMARY operator action.
+   *  Evaluations exist only from ADMITTED events; in production those arrive
+   *  from authenticated sources, not from this screen. */
+  const refreshFromJournal = (): void => {
+    if (session.kind !== 'signed-in' || mission === null) return;
+    const controller = new AbortController();
+    refreshDurableState(mission.id, controller.signal);
+    if (isWarehouse) {
+      fetchWarehouseDecision(mission.id, controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted) setWhJourney(result);
+        })
+        .catch(() => undefined)
+        .finally(() => controller.abort());
+    } else {
+      fetchPhysicalDecision(
+        mission.id,
+        controller.signal,
+        session.session.demoAuth ? 'local-demo' : 'reviewer-demo',
+      )
+        .then((result) => {
+          if (!controller.signal.aborted) setJourney(result);
+        })
+        .catch(() => undefined)
+        .finally(() => controller.abort());
+    }
+  };
   const incidentSnapshot =
     [...snapshots].reverse().find((s) => s.stage === 'incident') ??
     snapshots.find((s) => s.stage === 'incident') ??
@@ -535,16 +751,12 @@ export function DecisionRoom({
     <>
       {/* before/after as expandable candidate cards */}
       <div className="mv-droom__cards">
-        <DecisionExpandable
-          title="Before · initial plan"
-          decision={journey?.before ?? null}
-          tone="noaction"
-        />
+        <DecisionExpandable title="Before · initial plan" decision={view.before} tone="noaction" />
         <DecisionExpandable
           title="After · updated constraints"
-          decision={journey?.after ?? null}
-          tone={journey?.after?.selected ? 'selected' : 'noaction'}
-          defaultOpen={journey?.stage === 'incident'}
+          decision={view.after}
+          tone={view.after?.selected ? 'selected' : 'noaction'}
+          defaultOpen={view.hasIncident}
         />
       </div>
 
@@ -689,7 +901,7 @@ export function DecisionRoom({
         <h3 className="mv-droom__secttitle">Workflow</h3>
         <Stepper
           ariaLabel="Mission decision workflow"
-          steps={journeySteps(journey, incidentRecorded)}
+          steps={journeySteps(view, incidentRecorded)}
         />
       </section>
       <section className="mv-governed" aria-label="Live evaluation detail">
@@ -699,11 +911,11 @@ export function DecisionRoom({
           Finance cards (expand After · updated constraints). This lens follows the operational
           story as the physical evidence lands.
         </p>
-        {journey?.incident !== null && journey?.incident !== undefined ? (
+        {view.lastEvent !== null ? (
           <p className="mv-droom__incidentreading">
-            {journey.incident.reading} — the 24.6 kt observation exceeds the modeled 22 kt UAV
-            operating threshold; the safety policy blocks the UAV alternative and the planner
-            reselects under the revised constraints.
+            {view.lastEvent.reading} — admitted against this mission 's registered safety policy
+            (deterministic domain policy; no live inference). The planner reselects under the
+            revised constraints.
           </p>
         ) : (
           <p className="mv-governed__note">
@@ -724,7 +936,7 @@ export function DecisionRoom({
         </p>
         <a href="#evidence">Inspect mission evidence in Evidence Replay →</a>
         <p className="mv-decision-room__disclaimer" data-testid="decision-provenance">
-          {journey?.disclaimer ??
+          {view.disclaimer ??
             'Synthetic inspection only. No Airwallex funds or live physical vehicle are involved.'}
         </p>
         <p className="mv-governed__note">
@@ -740,9 +952,9 @@ export function DecisionRoom({
       title="Physical incident → financial decision"
       meta={
         <span className="mv-tag">
-          {journey?.stage === 'incident'
+          {view.hasIncident
             ? 'INCIDENT RECORDED'
-            : journey?.stage === 'baseline'
+            : view.hasBaseline && !view.hasIncident
               ? 'BASELINE RECORDED'
               : 'AWAITING OBSERVATION'}
         </span>
@@ -755,9 +967,9 @@ export function DecisionRoom({
           <h2 className="mv-droom__title">{mission.title}</h2>
           <p className="mv-droom__sub mv-hud">
             mission <span className="mv-num">{mission.id.slice(0, 14)}…</span> ·{' '}
-            {journey?.stage === 'incident'
+            {view.hasIncident
               ? 'incident constraints active'
-              : journey?.stage === 'baseline'
+              : view.hasBaseline && !view.hasIncident
                 ? 'baseline established'
                 : 'no evaluation yet'}
           </p>
@@ -766,10 +978,10 @@ export function DecisionRoom({
           <HaloBadge tone="hold" glyph="⚑" label="SIMULATED OPERATION" />
           <HaloBadge tone="neutral" glyph="◇" label="POLICY-ONLY" />
           <HaloBadge
-            tone={journey?.stage === 'incident' ? 'transit' : 'neutral'}
+            tone={view.hasIncident ? 'transit' : 'neutral'}
             glyph="◆"
-            label={journey?.stage === 'incident' ? 'INCIDENT ACTIVE' : '22 KT MODELED LIMIT'}
-            live={journey?.stage === 'incident'}
+            label={view.hasIncident ? 'INCIDENT ACTIVE' : '22 KT MODELED LIMIT'}
+            live={view.hasIncident}
           />
         </div>
       </header>
@@ -815,14 +1027,14 @@ export function DecisionRoom({
             event alone stays S2; a fetch failure implies no decision.
           */}
           <PhysicalMissionViewport
-            key={`${mission.id}:${journey?.stage ?? 'empty'}`}
+            key={`${mission.id}:${view.stage ?? 'empty'}`}
             missionId={mission.id}
-            incidentEventId={journey?.incident?.eventId ?? null}
+            incidentEventId={view.lastEvent?.eventId ?? null}
             decisionVerified={
-              journey?.incident !== null &&
-              journey?.incident !== undefined &&
-              journey?.after !== null &&
-              journey?.after !== undefined
+              view.lastEvent !== null &&
+              view.lastEvent !== undefined &&
+              view.after !== null &&
+              view.after !== undefined
             }
           />
 
@@ -830,13 +1042,17 @@ export function DecisionRoom({
             <button
               type="button"
               className="mv-btn mv-btn--primary"
+              data-testid="refresh-journal"
+              onClick={refreshFromJournal}
+            >
+              Refresh evaluations from journal
+            </button>
+            <button
+              type="button"
+              className="mv-btn mv-btn--primary"
               data-testid="start-synthetic"
               disabled={
-                busy ||
-                loading ||
-                journey?.stage !== 'empty' ||
-                csrfToken === null ||
-                !canAdmitSynthetic
+                busy || loading || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
               }
               onClick={() => runStep('baseline')}
             >
@@ -849,7 +1065,8 @@ export function DecisionRoom({
               disabled={
                 busy ||
                 loading ||
-                journey?.stage !== 'baseline' ||
+                !view.hasBaseline ||
+                view.hasIncident ||
                 csrfToken === null ||
                 !canAdmitSynthetic
               }
@@ -875,25 +1092,188 @@ export function DecisionRoom({
             </p>
           )}
 
-          {journey?.incident !== null && journey?.incident !== undefined && (
+          {/* DEMO EVENT SOURCE — warehouse domain. Admitting a baseline
+              registers the mission spec (warehouse-inventory-v1) and switches
+              the mission journal to warehouse events; harbor events then
+              fail closed with MISSION_SPEC_CONFLICT. */}
+          <section className="mv-governed" data-testid="demo-source">
+            <h3 className="mv-droom__secttitle">
+              DEMO EVENT SOURCE{' '}
+              <span className="mv-hud">
+                local demo catalog only — production events arrive from authenticated sources
+              </span>
+            </h3>
+            {isWarehouse ? (
+              <div className="mv-droom__actions">
+                {WAREHOUSE_STEPS.filter((step) => step !== 'baseline').map((step) => (
+                  <button
+                    key={step}
+                    type="button"
+                    className="mv-btn"
+                    data-testid={`warehouse-step-${step}`}
+                    disabled={
+                      busy ||
+                      loading ||
+                      !view.hasBaseline ||
+                      csrfToken === null ||
+                      !canAdmitSynthetic
+                    }
+                    onClick={() => runWarehouseStep(step)}
+                  >
+                    DEMO · Admit {step.replace(/-/g, ' ')}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mv-droom__actions">
+                <button
+                  type="button"
+                  className="mv-btn"
+                  data-testid="warehouse-entry"
+                  disabled={
+                    busy || loading || view.hasBaseline || csrfToken === null || !canAdmitSynthetic
+                  }
+                  onClick={() => runWarehouseStep('baseline')}
+                >
+                  DEMO · Register warehouse spec + admit baseline
+                </button>
+                <p className="mv-governed__note">
+                  Switches this mission 's journal to the warehouse domain (AMR runner;
+                  aisle/charger/comms conditions). The mission 's harbor events then fail closed —
+                  domains never mix in one journal.
+                </p>
+              </div>
+            )}
+          </section>
+          {view.lastEvent !== null && view.lastEvent !== undefined && (
             <section className="mv-droom__incident" data-testid="physical-incident">
               <h3 className="mv-droom__secttitle">Admitted physical incident</h3>
-              <p className="mv-droom__incidentreading">{journey.incident.reading}</p>
+              <p className="mv-droom__incidentreading">{view.lastEvent.reading}</p>
               <p className="mv-hud">
-                {journey.incident.provenance} · {journey.incident.sourceId} · event{' '}
-                <span className="mv-num mv-break">{journey.incident.eventId}</span> ·{' '}
-                {journey.incident.observedAt}
+                {view.lastEvent.provenance} · {view.lastEvent.sourceId} · event
+                <span className="mv-num mv-break">{view.lastEvent.eventId}</span> ·
+                {view.lastEvent.observedAt}
               </p>
               <p className="mv-hud">
-                digest{' '}
-                <span className="mv-num" title={journey.incident.eventDigest}>
-                  {journey.incident.eventDigest.slice(0, 16)}…
-                </span>
-                <CopyButton value={journey.incident.eventDigest} label="digest" />
+                digest
+                <span className="mv-num">{view.lastEvent.eventDigest.slice(0, 16)}…</span>
+                <CopyButton value={view.lastEvent.eventDigest} label="digest" />
               </p>
             </section>
           )}
 
+          {/* ---- typed mission specification (C1, READ-ONLY) ---- */}
+          <section
+            className="mv-governed"
+            aria-label="Mission specification"
+            data-testid="mission-spec-panel"
+          >
+            <h3 className="mv-droom__secttitle">Mission specification</h3>
+            {specState === 'loading' && <SkeletonRows rows={2} />}
+            {specState === 'unavailable' && (
+              <p className="mv-sheet__error" role="alert">
+                The mission specification read failed — configuration is unavailable, NOT absent.
+                Retry by reselecting the mission.
+              </p>
+            )}
+            {specState === 'ready' && missionSpec !== null && (
+              <>
+                <dl className="mv-mandate__meta">
+                  <div>
+                    <dt>Industry / objective</dt>
+                    <dd>
+                      <HaloBadge
+                        tone={missionSpec.industry === 'warehouse-amr' ? 'info' : 'hold'}
+                        glyph="⌘"
+                        label={missionSpec.industry}
+                      />
+                      <span className="mv-governed__note"> {missionSpec.objective}</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Assets</dt>
+                    <dd>
+                      {missionSpec.assets
+                        .map((a) => `${a.label} (${a.domainKind}, ${a.assetId.slice(0, 12)}…)`)
+                        .join(' · ')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Safety policy v{String(missionSpec.safetyPolicy.version)}</dt>
+                    <dd>
+                      {missionSpec.safetyPolicy.uavWindLimitKt !== undefined
+                        ? `modeled UAV wind limit ${String(missionSpec.safetyPolicy.uavWindLimitKt)} kt (operator rule, not a measurement)`
+                        : null}
+                      {missionSpec.safetyPolicy.groundInterrupts !== undefined
+                        ? `ground interrupts: ${missionSpec.safetyPolicy.groundInterrupts.join(', ')}`
+                        : null}
+                      {' — '}
+                      {missionSpec.safetyPolicy.clearanceAuthority}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Economics</dt>
+                    <dd className="mv-num">
+                      {safeMoney(
+                        missionSpec.economics.currency,
+                        missionSpec.economics.missionValueMinor,
+                      )}
+                      {' mission value · failure cost '}
+                      {safeMoney(
+                        missionSpec.economics.currency,
+                        missionSpec.economics.failureCostMinor,
+                      )}
+                      {' · protected reserve '}
+                      {safeMoney(
+                        missionSpec.economics.currency,
+                        missionSpec.economics.protectedReserveMinor,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Supplier offers</dt>
+                    <dd>
+                      {missionSpec.offers.incumbent.label}
+                      {missionSpec.offers.alternatives.length > 0
+                        ? ' + ' + missionSpec.offers.alternatives.map((o) => o.label).join(' + ')
+                        : ''}
+                      {missionSpec.offers.diagnostics !== undefined
+                        ? ' + diagnostics: ' + missionSpec.offers.diagnostics.label
+                        : ''}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Mandate shape</dt>
+                    <dd>
+                      {missionSpec.financialMandateShape.currency} · beneficiaries:
+                      {missionSpec.financialMandateShape.allowedBeneficiaries.join(', ') ||
+                        ' (none registered)'}
+                    </dd>
+                  </div>
+                  {missionSpec.caseLineage !== null && (
+                    <div>
+                      <dt>Decision case lineage</dt>
+                      <dd className="mv-num">
+                        {missionSpec.caseLineage.caseId.slice(0, 16)}… · evaluation
+                        {missionSpec.caseLineage.evaluationId.slice(0, 14)}…
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt>Spec digest</dt>
+                    <dd className="mv-num">
+                      {missionSpec.specDigest}
+                      <CopyButton value={missionSpec.specDigest} label="spec digest" />
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mv-governed__note">
+                  {missionSpec.truthLabel} — this panel is READ-ONLY mission configuration; spending
+                  authority lives only in ledger mandates.
+                </p>
+              </>
+            )}
+          </section>
           {/* durable recorded evaluations — physical/evidence context, always visible */}
           <section
             className="mv-governed"
@@ -902,18 +1282,41 @@ export function DecisionRoom({
           >
             <h3 className="mv-droom__secttitle">Recorded durable evaluations</h3>
             {snapshots.length === 0 ? (
-              <p className="mv-governed__note">
-                No durable evaluations recorded yet. The actions above journal the physical event
-                and then explicitly record its evaluation snapshot — GET requests never create
-                records.
-              </p>
+              <div>
+                <p className="mv-governed__note">
+                  No durable evaluations recorded yet.
+                  {view.hasBaseline
+                    ? ' The journal already carries admitted events — record their evaluations now (explicit, idempotent):'
+                    : ' The actions above journal the physical event and then explicitly record its evaluation snapshot — GET requests never create records.'}
+                </p>
+                {view.hasBaseline && (
+                  <div className="mv-droom__actions">
+                    <button
+                      type="button"
+                      className="mv-btn mv-btn--primary"
+                      data-testid="record-baseline-snapshot"
+                      disabled={busy || csrfToken === null}
+                      onClick={() => runStep('baseline')}
+                    >
+                      Record baseline evaluation
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn"
+                      data-testid="record-incident-snapshot"
+                      disabled={busy || csrfToken === null}
+                      onClick={() => runStep('incident')}
+                    >
+                      Record incident evaluation
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <ul className="mv-governed__list">
                 {[...snapshots].reverse().map((s) => {
                   const journalStageReached =
-                    s.stage === 'baseline'
-                      ? journey?.stage !== 'empty'
-                      : journey?.stage === 'incident';
+                    s.stage === 'baseline' ? view.hasBaseline : view.hasIncident;
                   return (
                     <li key={s.evaluationId} data-testid={`snapshot-${s.stage}`}>
                       <HaloBadge
@@ -924,7 +1327,7 @@ export function DecisionRoom({
                       <span className="mv-num" title={s.evaluationId}>
                         {s.evaluationId.slice(0, 14)}…
                       </span>{' '}
-                      · {outcomeLine(s.decision)}
+                      {outcomeBadge(s.decision)} · {outcomeLine(s.decision)}
                       {!journalStageReached && (
                         <>
                           {' '}
@@ -946,7 +1349,8 @@ export function DecisionRoom({
             )}
             {baselineSnapshot !== null &&
               incidentSnapshot === null &&
-              journey?.stage === 'baseline' && (
+              view.hasBaseline &&
+              !view.hasIncident && (
                 <p className="mv-governed__note">
                   Baseline is recorded; the incident evaluation is recorded explicitly when the
                   incident is introduced — never by a background process or a read.
