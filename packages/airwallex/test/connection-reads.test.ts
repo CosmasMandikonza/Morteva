@@ -24,6 +24,7 @@ import {
 import { SANDBOX_BASE_URL } from '../src/config.js';
 import type { AirwallexAdapterConfig } from '../src/config.js';
 import { runConnectionProof } from '../src/smoke/connection-proof.js';
+import { classifyConnectionFailure, payoutReadiness } from '../src/smoke/connection-proof.js';
 
 const CONFIG: AirwallexAdapterConfig = {
   enabled: true,
@@ -265,6 +266,82 @@ describe('A1 — connection proof orchestration (offline fixture; still zero wri
       } finally {
         ledger.close();
       }
+    } finally {
+      rmSync(join(dir, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('A1 — empty-resource vs scope/IP-block vs failure classification', () => {
+  it('classifies 403 as scope-or-ip with an actionable, honest diagnostic', async () => {
+    const client = new AirwallexClient(
+      CONFIG,
+      new FixtureTransport(baseScript({ balances: [httpError(403, 'unauthorized', 'denied')] })),
+      { now: () => new Date() },
+    );
+    try {
+      await client.balancesCurrent();
+      expect.unreachable('403 must throw');
+    } catch (error) {
+      const c = classifyConnectionFailure(error);
+      expect(c.kind).toBe('scope-or-ip');
+      expect(c.detail).toContain('scope');
+      expect(c.detail).toContain('IP');
+      // Honest: not an empty-resource claim, not a success claim.
+      expect(c.detail).not.toMatch(/no beneficiaries|zero beneficiaries|empty account/i);
+    }
+  });
+
+  it('classifies 404 as a wrong-id configuration error and 429 as ambiguous', () => {
+    const nf = classifyConnectionFailure(
+      new AirwallexDefinitiveRejectionError(404, 'not_found', 'x', null),
+    );
+    expect(nf.kind).toBe('not-found');
+    expect(nf.detail).toContain('does not exist');
+    const amb = classifyConnectionFailure(new TransportUnavailableError('connection lost'));
+    expect(amb.kind).toBe('ambiguous');
+    expect(amb.detail).toContain('AMBIGUOUS');
+    const other = classifyConnectionFailure(new Error('boom'));
+    expect(other.kind).toBe('other');
+  });
+
+  it('payout readiness: USD balance + transfer-method split; empty page is empty, not an error', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'awx-conn-')), 'state');
+    try {
+      const result = await runConnectionProof({
+        config: CONFIG,
+        transport: new FixtureTransport(
+          baseScript({
+            login: LOGIN_OK,
+            beneficiaries: [
+              ok({
+                has_more: false,
+                items: [
+                  { id: 'bene_ok', nickname: 'ready', transfer_methods: ['LOCAL'] },
+                  { id: 'bene_stuck', nickname: 'incomplete', transfer_methods: [] },
+                ],
+              }),
+            ],
+          }),
+        ),
+        stateDir: dir,
+      });
+      const readiness = payoutReadiness(result);
+      expect(readiness.usdAvailableMinor).toBe(500000);
+      expect(readiness.payoutReadyBeneficiaries).toEqual(['bene_ok']);
+      expect(readiness.nonPayoutReadyBeneficiaries).toEqual(['bene_stuck']);
+
+      const empty = await runConnectionProof({
+        config: CONFIG,
+        transport: new FixtureTransport(
+          baseScript({ login: LOGIN_OK, beneficiaries: [ok({ has_more: false, items: [] })] }),
+        ),
+        stateDir: join(dir, 'b'),
+      });
+      const emptyReadiness = payoutReadiness(empty);
+      expect(emptyReadiness.payoutReadyBeneficiaries).toEqual([]);
+      expect(emptyReadiness.nonPayoutReadyBeneficiaries).toEqual([]);
+      expect(emptyReadiness.usdAvailableMinor).toBe(500000); // a real read, not a guess
     } finally {
       rmSync(join(dir, '..'), { recursive: true, force: true });
     }

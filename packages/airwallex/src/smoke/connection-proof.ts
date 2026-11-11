@@ -24,7 +24,9 @@ import { mkdirSync } from 'node:fs';
 import type { AirwallexAdapterConfig } from '../config.js';
 import type { AirwallexTransport } from '../transport.js';
 import { AirwallexClient, type AirwallexBeneficiary, type AirwallexBalance } from '../client.js';
+import { AirwallexDefinitiveRejectionError } from '../client.js';
 import { minimizeTransfer, type MinimizedTransfer } from '../minimize.js';
+import { TransportUnavailableError } from '../transport.js';
 import { minorToMajorUnits } from '../money.js';
 
 export interface ConnectionProofInput {
@@ -127,6 +129,66 @@ export async function runConnectionProof(
 
 function openLedgerAtDefault(dbPath: string): Ledger {
   return openLedger(dbPath);
+}
+
+/**
+ * Payout-readiness summary from a connection proof: which beneficiary ids are
+ * LOCAL/SWIFT-payable (a beneficiary with NO transfer methods is NOT payout
+ * ready — an empty resource is reported as such, never an error and never a
+ * success), plus the USD available balance the founder's funding check uses.
+ */
+export function payoutReadiness(result: ConnectionProofResult): {
+  usdAvailableMinor: number | null;
+  payoutReadyBeneficiaries: string[];
+  nonPayoutReadyBeneficiaries: string[];
+} {
+  const usd = result.balances.find((b) => b.currency === 'USD');
+  const ids = result.beneficiaryPage?.items ?? [];
+  return {
+    usdAvailableMinor: usd !== undefined ? usd.availableAmount.minorUnits : null,
+    payoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length > 0).map((b) => b.id),
+    nonPayoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length === 0).map((b) => b.id),
+  };
+}
+
+/**
+ * Distinguishes an EMPTY sandbox resource from a scope/IP block from a plain
+ * failure (founder step 2): a 403 from a least-privilege read key is a
+ * permissions/IP-allowlist diagnostic, not an empty account and not a bug;
+ * an empty beneficiary page is a real (valid) empty resource.
+ */
+export function classifyConnectionFailure(error: unknown): {
+  kind: 'scope-or-ip' | 'not-found' | 'ambiguous' | 'other';
+  detail: string;
+} {
+  if (error instanceof AirwallexDefinitiveRejectionError) {
+    if (error.httpStatus === 403) {
+      return {
+        kind: 'scope-or-ip',
+        detail: `403 ${error.providerCode}: the credential's scope does not cover this resource OR the source IP is not on the sandbox IP allowlist. This is a permissions/network configuration diagnostic — not an empty resource and not a fabricated failure. Check: (1) the key's scopes in the Airwallex sandbox UI, (2) the allowlisted public egress IP of THIS machine (an AWS host's EIP differs from a local IP).`,
+      };
+    }
+    if (error.httpStatus === 404) {
+      return {
+        kind: 'not-found',
+        detail: `404 ${error.providerCode}: the requested resource id does not exist in this sandbox account (a wrong id is a configuration error, not an empty list).`,
+      };
+    }
+    return {
+      kind: 'other',
+      detail: `${String(error.httpStatus)} ${error.providerCode}: definitive provider rejection.`,
+    };
+  }
+  if (error instanceof TransportUnavailableError) {
+    return {
+      kind: 'ambiguous',
+      detail: `${error.message} — AMBIGUOUS: the provider may or may not have processed anything; reads can be retried safely, but this is never reported as success.`,
+    };
+  }
+  return {
+    kind: 'other',
+    detail: error instanceof Error ? error.message : String(error),
+  };
 }
 
 /** Redacted console lines for the CLI (never the token, never bank details). */
