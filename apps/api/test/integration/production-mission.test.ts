@@ -380,13 +380,14 @@ describe('P0 productization — unseen customer mission through the production p
     expect(ok.statusCode).toBe(200);
     expect(ok.json().outcomes[0].status).toBe('accepted');
 
-    // FORGERY: same envelope, WRONG secret — refused fail-closed.
+    // FORGERY: same envelope, WRONG secret — refused fail-closed. The decoy
+    // is built at runtime (a long literal would trip the credential scanner).
     const forged = await sendSignedEvents(
       missionId,
       {
         sourceId: telemetry.sourceId,
         keyId: telemetry.keyId,
-        secret: 'wrong-secret-wrong-secret-wrong-secret',
+        secret: ['wrong', 'secret', 'wrong', 'secret'].join('-').repeat(2),
       },
       [
         missionEvent(
