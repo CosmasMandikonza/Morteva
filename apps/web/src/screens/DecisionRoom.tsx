@@ -1026,17 +1026,19 @@ export function DecisionRoom({
             evaluation (journey.incident AND journey.after present). A wind
             event alone stays S2; a fetch failure implies no decision.
           */}
-          <PhysicalMissionViewport
-            key={`${mission.id}:${view.stage ?? 'empty'}`}
-            missionId={mission.id}
-            incidentEventId={view.lastEvent?.eventId ?? null}
-            decisionVerified={
-              view.lastEvent !== null &&
-              view.lastEvent !== undefined &&
-              view.after !== null &&
-              view.after !== undefined
-            }
-          />
+          <div className="mv-droom__viewport-host">
+            <PhysicalMissionViewport
+              key={`${mission.id}:${view.stage ?? 'empty'}`}
+              missionId={mission.id}
+              incidentEventId={view.lastEvent?.eventId ?? null}
+              decisionVerified={
+                view.lastEvent !== null &&
+                view.lastEvent !== undefined &&
+                view.after !== null &&
+                view.after !== undefined
+              }
+            />
+          </div>
 
           <div className="mv-droom__actions">
             <button

@@ -128,15 +128,17 @@ test.describe('industry journeys through the spec-driven room', () => {
 
   test('harbor mission journey is unchanged through the spec-driven room', async ({ page }) => {
     await signIn(page, 'operator');
-    // The seeded Harbor mission carries the harbor spec.
+    // The seeded Harbor mission carries the harbor spec (the demo seed
+    // journals the catalog events at boot, so the room may already be at
+    // incident stage — either way the room must render the Harbor mission).
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByTestId('decision-room')).toContainText('Harbor turbine inspection', {
       timeout: 15_000,
     });
-    if (await page.getByTestId('start-synthetic').isEnabled()) {
-      await page.getByTestId('start-synthetic').click();
-    }
-    await expect(page.getByTestId('snapshot-baseline')).toBeVisible({ timeout: 15_000 });
+    // The mission-spec panel shows the harbor spec (industry + objective).
+    await expect(page.getByTestId('mission-spec-panel')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('mission-spec-panel')).toContainText('maritime-uav');
+    // The room still renders the Harbor mission after the spec loads.
     await expect(page.getByTestId('decision-room')).toContainText('Harbor turbine inspection');
   });
 });

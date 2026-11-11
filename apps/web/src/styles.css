@@ -2371,9 +2371,6 @@ html {
    mpv-events aside min-content width (mpv-cards at 180px) pushes the module
    wider than the container. Constrain to minmax(0, 1fr) inside the
    composition so the module shrinks instead of overflowing. */
-.mv-droom__physical .mpv {
-  grid-template-columns: minmax(0, 1fr) !important;
-}
 .mv-droom__physical .mpv-events {
   min-width: 0;
   overflow-x: clip;
@@ -2382,10 +2379,12 @@ html {
 /* THE ROOT FIX: .mpv (no suffix) was NOT matched by [class*='mpv-'] — the
    viewer root had min-width: auto = its 362px min-content width. */
 .mv-droom__physical > .mpv {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  overflow: hidden;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  contain: layout paint size;
+  height: fit-content;
 }
 
 /* R-final P0: the three.js canvas retains its mount-time pixel width when
@@ -2408,4 +2407,26 @@ body {
   .mv-droom__physical .mpv-canvas-host {
     display: none;
   }
+}
+
+/* R-final: the viewer module
+'s ≤900px grid uses 1fr (= minmax(auto, 1fr)) — the mpv-events aside
+   min-content width (chips, event ids, cards) exceeds 320px minus padding,
+   pushing the module wider than the container. Constrain to minmax(0, 1fr)
+   inside the composition so the module shrinks instead of overflowing. */
+@media (max-width: 900px) {
+  .mv-droom__physical .mpv {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Hard containment for the viewer mount: the mpv module cannot push its
+   parent wider regardless of CSS load order or module-level media queries. */
+.mv-droom__viewport-host {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  contain: layout paint;
 }
