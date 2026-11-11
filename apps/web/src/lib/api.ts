@@ -620,6 +620,38 @@ export function issueSourceCredential(
   );
 }
 
+export interface SourceKeyRevoked {
+  readonly missionId: string;
+  readonly sourceId: string;
+  readonly keyId: string;
+  readonly revoked: true;
+  readonly effect: string;
+}
+
+/** POST /api/missions/:id/sources/:sourceId/keys/:keyId/revoke — owner/admin
+ *  (manageAuthority) + CSRF. Immediate and irreversible: the key stops
+ *  authenticating NEW events (also after restart); admitted events stay valid
+ *  history; a revoked key id is never re-issuable. Rotation = issue a NEW key
+ *  id, then revoke the old one. */
+export function revokeSourceKey(
+  missionId: string,
+  sourceId: string,
+  keyId: string,
+  reason: string,
+  csrfToken: string,
+): Promise<SourceKeyRevoked> {
+  return request<SourceKeyRevoked>(
+    '/api/missions/' +
+      encodeURIComponent(missionId) +
+      '/sources/' +
+      encodeURIComponent(sourceId) +
+      '/keys/' +
+      encodeURIComponent(keyId) +
+      '/revoke',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ reason }) },
+  );
+}
+
 export interface OperationsCandidateScore {
   readonly id: string;
   readonly kind: string;

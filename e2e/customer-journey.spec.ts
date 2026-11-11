@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { INGEST_CONTRACT } from '../apps/web/src/lib/ingestContract.js';
 import {
   createMissionViaSheet,
   deliver,
   fillSpecForm,
   FIXTURE_ROUTE,
+  headlessClient,
   selectMission,
   signedEnvelope,
   signIn,
@@ -18,7 +18,8 @@ import {
  *
  *   founder authors an UNSEEN mission → registers it → onboards a source with
  *   a one-time credential → grants authority → an independent "field system"
- *   (no browser; the product's own printed signer) submits authenticated FIELD
+ *   (NO browser, NO cookie, NO CSRF — only the issued credential, signing with
+ *   the product's own printed signer) submits authenticated FIELD
  *   evidence → operator evaluates from the real journal (baseline = NO
  *   ACTION; threshold breach = different supplier at a different price) →
  *   immutable proposal → a DIFFERENT person approves exact terms → Evidence
@@ -147,7 +148,6 @@ test('customer journey: unseen mission → authenticated evidence → decision �
   await expect(page.getByTestId('setup-mandate-active')).toContainText('USD');
 
   // capture what the independent field system needs
-  const csrf = await page.evaluate(() => window.localStorage.getItem('moterva-csrf') ?? '');
   const missionId = await page.evaluate(
     () => window.sessionStorage.getItem('moterva-selected-mission') ?? '',
   );
@@ -165,9 +165,12 @@ test('customer journey: unseen mission → authenticated evidence → decision �
     keyId: 'key-bench7-a',
   };
 
+  const csrfNow = await page.evaluate(() => window.localStorage.getItem('moterva-csrf') ?? '');
+
   // =================================================== 4. the independent field system
-  // A client that holds ONLY the credential (no browser, no cookie, no CSRF).
-  const headless = await playwright.request.newContext({ baseURL: baseURL ?? '' });
+  // A client that holds ONLY the credential: no browser, no cookie jar, no CSRF.
+  await expect(page.getByTestId('ingest-auth-status')).toContainText('CREDENTIAL-ONLY INGRESS');
+  const headless = await headlessClient(playwright, baseURL);
 
   // BASELINE observation: an unseen healthy reading, well under the 27 kt limit.
   const baselineEnvelope = signedEnvelope(
@@ -184,47 +187,48 @@ test('customer journey: unseen mission → authenticated evidence → decision �
     },
     secret,
   );
-  const machineIngress = INGEST_CONTRACT.authentication === 'source-credential';
-  const bare = await deliver(headless, missionId, [baselineEnvelope], undefined);
-  if (machineIngress) {
-    // Credential-only ingress is available: the bare client is admitted.
-    expect(bare.http).toBe(200);
-    expect(bare.outcomes[0]?.status, JSON.stringify(bare)).toBe('accepted');
-  } else {
-    // INTERIM (CTO P0-1 on #64): a bare credential cannot post yet — and the
-    // product says so instead of implying otherwise.
-    expect([401, 403]).toContain(bare.http);
-    await expect(page.getByTestId('ingest-auth-status')).toContainText('INTERIM');
-  }
-  const relay = machineIngress ? undefined : { csrf };
-  const client = machineIngress ? headless : page.request;
-  if (!machineIngress) {
-    const relayed = await deliver(client, missionId, [baselineEnvelope], relay);
-    expect(relayed.outcomes[0]?.status, JSON.stringify(relayed)).toBe('accepted');
-  }
+
+  // A browser session gains NOTHING on the machine surface: a cookie-bearing
+  // request is refused outright (the surfaces are disjoint by design) …
+  const withCookie = await deliver(page.request, missionId, [baselineEnvelope]);
+  expect(withCookie.http).toBe(401);
+  expect(withCookie.errorCode).toBe('MACHINE_SURFACE_BROWSER_FORBIDDEN');
+  // … and the old operator-session event route no longer exists.
+  const oldRoute = await page.request.post(`/api/missions/${missionId}/events`, {
+    headers: { 'x-csrf-token': csrfNow },
+    data: { events: [baselineEnvelope] },
+  });
+  expect(oldRoute.status()).toBe(410);
+  expect(((await oldRoute.json()) as { error?: { code?: string } }).error?.code).toBe(
+    'EVENTS_ROUTE_MOVED',
+  );
+
+  // The bare client is admitted: authentication IS the credential.
+  const bare = await deliver(headless, missionId, [baselineEnvelope]);
+  expect(bare.http).toBe(200);
+  expect(bare.outcomes[0]?.status, JSON.stringify(bare)).toBe('accepted');
 
   // Forgery with a wrong key is refused with the typed code (never admitted).
-  const forged = await deliver(
-    client,
-    missionId,
-    [
-      signedEnvelope(
-        {
-          ...base,
-          eventId: `evt_forged_${suffix}`,
-          sequence: 2,
-          agoMs: 20_000,
-          observations: [{ kind: 'asset_comms', unit: 'state', value: 'online' }],
-        },
-        ['wrong', 'key', 'material', 'for', 'the', 'forgery', 'case', 'only', 'ok'].join('-'),
-      ),
-    ],
-    relay,
-  );
+  const forged = await deliver(headless, missionId, [
+    signedEnvelope(
+      {
+        ...base,
+        eventId: `evt_forged_${suffix}`,
+        sequence: 2,
+        agoMs: 20_000,
+        observations: [{ kind: 'asset_comms', unit: 'state', value: 'online' }],
+      },
+      ['wrong', 'key', 'material', 'for', 'the', 'forgery', 'case', 'only', 'ok'].join('-'),
+    ),
+  ]);
+  expect(forged.http).toBe(422);
   expect(forged.outcomes[0]?.status).toBe('rejected');
   expect(forged.outcomes[0]?.code).toBe('SIGNATURE_INVALID');
+  // A key cannot speak for another mission: tenant pinned by the credential.
+  const foreign = await deliver(headless, `msn_not_this_mission_${suffix}`, [baselineEnvelope]);
+  expect([401, 403]).toContain(foreign.http);
   // Replaying the exact admitted event is an idempotent refusal, not a second record.
-  const replayed = await deliver(client, missionId, [baselineEnvelope], relay);
+  const replayed = await deliver(headless, missionId, [baselineEnvelope]);
   expect(replayed.outcomes[0]?.code).toBe('DUPLICATE_EVENT');
 
   await signOut(page);
@@ -278,29 +282,21 @@ test('customer journey: unseen mission → authenticated evidence → decision �
   await expect(page.getByTestId('evaluate-disabled-reason')).toContainText('Waiting for a new');
 
   // =================================================== 6. unseen threshold breach arrives
-  // The relay now runs under the OPERATOR session: use ITS csrf token.
-  const operatorCsrf = await page.evaluate(() => window.localStorage.getItem('moterva-csrf') ?? '');
-  const incidentRelay = machineIngress ? undefined : { csrf: operatorCsrf };
-  const incident = await deliver(
-    client,
-    missionId,
-    [
-      signedEnvelope(
-        {
-          ...base,
-          eventId: `evt_breach_${suffix}`,
-          sequence: 2,
-          agoMs: 10_000,
-          observations: [
-            { kind: 'wind_speed', unit: 'kt', value: UNSEEN.breachWind },
-            { kind: 'weather_hold', unit: 'state', value: 'active' },
-          ],
-        },
-        secret,
-      ),
-    ],
-    incidentRelay,
-  );
+  const incident = await deliver(headless, missionId, [
+    signedEnvelope(
+      {
+        ...base,
+        eventId: `evt_breach_${suffix}`,
+        sequence: 2,
+        agoMs: 10_000,
+        observations: [
+          { kind: 'wind_speed', unit: 'kt', value: UNSEEN.breachWind },
+          { kind: 'weather_hold', unit: 'state', value: 'active' },
+        ],
+      },
+      secret,
+    ),
+  ]);
   expect(incident.outcomes[0]?.status, JSON.stringify(incident)).toBe('accepted');
 
   await page.getByTestId('refresh-journal').click();

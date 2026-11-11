@@ -1,8 +1,7 @@
 /**
  * How a REAL field system sends signed observations (documentation + the one
- * place the UI learns the ingest route). This is the single module to update
- * when Agent C publishes the final machine-ingress contract (PR #64, CTO P0-1):
- * the guide in Mission Setup reads ONLY from here.
+ * place the UI learns the ingest route). Mirrors Agent C's machine-ingress
+ * contract (PR #64): `POST /api/machine/missions/:missionId/events`.
  *
  * Truth boundary printed to the operator:
  *  - a source credential authenticates THE SOURCE (it proves a registered
@@ -18,10 +17,12 @@ export interface IngestContract {
   readonly method: 'POST';
   readonly route: (missionId: string) => string;
   /**
-   * `operator-session`: the build only accepts the signed envelope through an
-   * authenticated operator session (RBAC + CSRF) — a headless client holding
-   * ONLY a source credential cannot post yet (CTO P0-1 on #64).
-   * `source-credential`: credential-only machine ingress is available.
+   * `source-credential`: machine ingress authenticated by the event HMAC
+   * alone — NO cookie, NO CSRF; the key id pins tenant + mission + source and
+   * a request carrying a browser cookie is refused.
+   * `operator-session`: an older build that only accepted signed events
+   * through an authenticated operator session (kept so the guide stays honest
+   * against such a build).
    */
   readonly authentication: 'operator-session' | 'source-credential';
   readonly maxEnvelopesPerRequest: number;
@@ -29,10 +30,29 @@ export interface IngestContract {
 
 export const INGEST_CONTRACT: IngestContract = {
   method: 'POST',
-  route: (missionId) => `/api/missions/${encodeURIComponent(missionId)}/events`,
-  authentication: 'operator-session',
+  route: (missionId) => `/api/machine/missions/${encodeURIComponent(missionId)}/events`,
+  authentication: 'source-credential',
   maxEnvelopesPerRequest: 10,
 };
+
+/** HTTP-level answers to the whole request (before per-envelope outcomes). */
+export const INGEST_HTTP_GUIDE: readonly { status: string; meaning: string }[] = [
+  { status: '200', meaning: 'At least one envelope was admitted; read each outcome.' },
+  { status: '422', meaning: 'Every envelope was refused; read each outcome code.' },
+  {
+    status: '401',
+    meaning:
+      'Unknown key (MACHINE_AUTH_UNKNOWN_KEY), key/mission mismatch (MACHINE_TENANT_MISMATCH), or a browser cookie was sent (MACHINE_SURFACE_BROWSER_FORBIDDEN).',
+  },
+  {
+    status: '403',
+    meaning: 'The credential was revoked (CREDENTIAL_REVOKED) or expired (CREDENTIAL_EXPIRED).',
+  },
+  {
+    status: '410',
+    meaning: 'EVENTS_ROUTE_MOVED — the old operator-session route no longer accepts events.',
+  },
+];
 
 /** Typed outcomes a sender will see per envelope (`outcomes[].code`). */
 export const INGEST_OUTCOME_GUIDE: readonly { code: string; meaning: string }[] = [
@@ -44,10 +64,7 @@ export const INGEST_OUTCOME_GUIDE: readonly { code: string; meaning: string }[] 
     code: 'SIGNATURE_INVALID',
     meaning: 'The HMAC did not match — wrong key, altered bytes or wrong canonical form.',
   },
-  {
-    code: 'UNAUTHENTICATED_SOURCE',
-    meaning: 'No registered credential for this source/keyId (or it was revoked).',
-  },
+  { code: 'UNAUTHENTICATED_SOURCE', meaning: 'No registered credential for this source/keyId.' },
   {
     code: 'DUPLICATE_EVENT',
     meaning: 'This eventId was already admitted — safe to treat as delivered.',
@@ -57,6 +74,10 @@ export const INGEST_OUTCOME_GUIDE: readonly { code: string; meaning: string }[] 
   {
     code: 'STALE_EVENT',
     meaning: 'Too old to be planning-valid; stale history never re-enters as fresh.',
+  },
+  {
+    code: 'CROSS_ORG_EVENT',
+    meaning: 'The envelope names a different organisation than the credential.',
   },
   {
     code: 'INVALID_ENVELOPE',
@@ -89,7 +110,7 @@ function signEvent(event, secret) {
     .digest('hex');
 }`;
 
-export function headlessSnippet(): string {
+export function headlessSnippet(route: string): string {
   return `import { createHmac } from 'node:crypto';
 
 ${HEADLESS_SIGNING_CORE}
@@ -98,7 +119,14 @@ ${HEADLESS_SIGNING_CORE}
 // Never commit it, never log it, never put it in a URL or a browser.
 const secret = process.env.MOTERVA_SOURCE_SECRET;
 
-// event = the envelope shown above, with source.signature omitted or ignored.
+// event = the envelope shown above (source.signature is recomputed here).
 event.source.signature = signEvent(event, secret);
-// then POST { "events": [event] } to the ingest route.`;
+
+// NO cookie, NO CSRF token: the signature is the authentication.
+const response = await fetch(MOTERVA_ORIGIN + '${route}', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ events: [event] }),
+});
+const { outcomes } = await response.json(); // one typed outcome per envelope`;
 }

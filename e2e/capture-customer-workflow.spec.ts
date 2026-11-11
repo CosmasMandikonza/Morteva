@@ -3,6 +3,7 @@ import {
   createMissionViaSheet,
   deliver,
   fillSpecForm,
+  headlessClient,
   selectMission,
   signedEnvelope,
   signIn,
@@ -91,7 +92,6 @@ test('capture the customer-operated workflow (dark + light, 1440 → 320, 200% z
   await shot(page, 'setup-authority-granted-1440x900');
 
   // ----------------------------------- independent field system (no browser)
-  const csrf = await page.evaluate(() => window.localStorage.getItem('moterva-csrf') ?? '');
   const missionId = await page.evaluate(
     () => window.sessionStorage.getItem('moterva-selected-mission') ?? '',
   );
@@ -107,7 +107,7 @@ test('capture the customer-operated workflow (dark + light, 1440 → 320, 200% z
     sourceType: 'asset_telemetry',
     keyId: 'key-bench7-a',
   };
-  const headless = await playwright.request.newContext({ baseURL: baseURL ?? '' });
+  const headless = await headlessClient(playwright, baseURL);
   const baseline = signedEnvelope(
     {
       ...base,
@@ -122,8 +122,7 @@ test('capture the customer-operated workflow (dark + light, 1440 → 320, 200% z
     },
     secret,
   );
-  await deliver(headless, missionId, [baseline]); // refused today (interim) — proven in e2e
-  await deliver(page.request, missionId, [baseline], { csrf });
+  await deliver(headless, missionId, [baseline]); // credential-only: no cookie, no CSRF
   await signOut(page);
 
   // -------------------------------------------------- operator: baseline
@@ -147,27 +146,21 @@ test('capture the customer-operated workflow (dark + light, 1440 → 320, 200% z
   await shot(page, 'decision-baseline-no-action-1440x900');
 
   // -------------------------------------------------- unseen threshold breach
-  const operatorCsrf = await page.evaluate(() => window.localStorage.getItem('moterva-csrf') ?? '');
-  await deliver(
-    page.request,
-    missionId,
-    [
-      signedEnvelope(
-        {
-          ...base,
-          eventId: `evt_cap_breach_${suffix}`,
-          sequence: 2,
-          agoMs: 10_000,
-          observations: [
-            { kind: 'wind_speed', unit: 'kt', value: UNSEEN.breachWind },
-            { kind: 'weather_hold', unit: 'state', value: 'active' },
-          ],
-        },
-        secret,
-      ),
-    ],
-    { csrf: operatorCsrf },
-  );
+  await deliver(headless, missionId, [
+    signedEnvelope(
+      {
+        ...base,
+        eventId: `evt_cap_breach_${suffix}`,
+        sequence: 2,
+        agoMs: 10_000,
+        observations: [
+          { kind: 'wind_speed', unit: 'kt', value: UNSEEN.breachWind },
+          { kind: 'weather_hold', unit: 'state', value: 'active' },
+        ],
+      },
+      secret,
+    ),
+  ]);
   await page.getByTestId('refresh-journal').click();
   await expect(page.getByTestId('evaluate-journal')).toHaveText('Evaluate the latest evidence');
   await page.getByTestId('evaluate-journal').click();

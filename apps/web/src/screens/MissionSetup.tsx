@@ -588,6 +588,7 @@ export function MissionSetup({
             credentials={credentialsMeta}
             csrfToken={csrfToken}
             canIssue={canOperate}
+            canRevoke={canGrant}
             onSessionExpired={onSessionExpired}
             onIssued={() => setIssuedKeyCount((n) => n + 1)}
           />

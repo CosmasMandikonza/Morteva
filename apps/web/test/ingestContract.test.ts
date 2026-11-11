@@ -53,13 +53,15 @@ describe('headless sender guide (executable documentation)', () => {
   });
 
   it('the printed snippet never embeds a secret', () => {
-    const text = headlessSnippet();
+    const text = headlessSnippet(INGEST_CONTRACT.route('msn_x'));
     expect(text).toContain('process.env.MOTERVA_SOURCE_SECRET');
     expect(text).not.toMatch(/[A-Za-z0-9_-]{40,}/);
   });
 
   it('declares the current ingest authentication honestly', () => {
-    expect(INGEST_CONTRACT.route('msn_x')).toBe('/api/missions/msn_x/events');
+    expect(INGEST_CONTRACT.route('msn_x')).toBe('/api/machine/missions/msn_x/events');
+    // machine ingress: NO cookie, NO csrf — the printed snippet must say so
+    expect(headlessSnippet(INGEST_CONTRACT.route('msn_x'))).toContain('NO cookie, NO CSRF');
     expect(['operator-session', 'source-credential']).toContain(INGEST_CONTRACT.authentication);
   });
 });

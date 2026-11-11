@@ -1,6 +1,11 @@
 import type { JSX } from 'react';
 import type { MissionSpecSourceView } from '../lib/api';
-import { headlessSnippet, INGEST_CONTRACT, INGEST_OUTCOME_GUIDE } from '../lib/ingestContract';
+import {
+  headlessSnippet,
+  INGEST_CONTRACT,
+  INGEST_HTTP_GUIDE,
+  INGEST_OUTCOME_GUIDE,
+} from '../lib/ingestContract';
 import { sampleEnvelope, type DomainKind } from '../lib/missionSpecForm';
 import { CopyButton, HaloBadge } from './ui';
 
@@ -10,9 +15,10 @@ import { CopyButton, HaloBadge } from './ui';
  * signature and an environment-variable reference only). The reference signer
  * is executed against the API verifier in CI (apps/web/test/ingestContract).
  *
- * Honest about what is true TODAY: when the build only accepts signed events
- * through an operator session, the guide says so instead of implying that a
- * bare credential is enough.
+ * Honest about what is true of THIS build: with machine ingress the guide
+ * describes credential-only delivery (no cookie, no CSRF); against an older
+ * build that only accepts signed events through an operator session it says
+ * so instead of implying that a bare credential is enough.
  */
 export function HeadlessGuide({
   missionId,
@@ -39,7 +45,7 @@ export function HeadlessGuide({
     keyId: '<the keyId you were issued>',
   });
   const exampleText = JSON.stringify({ events: [example] }, null, 2);
-  const snippet = headlessSnippet();
+  const snippet = headlessSnippet(route);
   const machine = INGEST_CONTRACT.authentication === 'source-credential';
 
   return (
@@ -62,7 +68,7 @@ export function HeadlessGuide({
           label={machine ? 'CREDENTIAL-ONLY INGRESS' : 'OPERATOR-SESSION INGRESS (INTERIM)'}
         />{' '}
         {machine
-          ? 'A system holding only the issued credential can submit signed events.'
+          ? 'A system holding only the issued credential can submit signed events: send NO cookie and NO CSRF token. The key id pins the organisation, mission and source, and a request carrying a browser cookie is refused by design.'
           : 'This build accepts signed events only through an authenticated operator session. A credential-only machine route is pending (tracked on PR #64); until it ships, a headless client holding only a source credential cannot post here, and this guide will not pretend otherwise.'}
       </p>
 
@@ -117,7 +123,25 @@ export function HeadlessGuide({
       </details>
 
       <details className="mv-governed__manual">
-        <summary>What the server answers per envelope</summary>
+        <summary>What the server answers</summary>
+        <table className="mv-spec__table" aria-label="HTTP status of the whole request">
+          <thead>
+            <tr>
+              <th scope="col">HTTP</th>
+              <th scope="col">meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {INGEST_HTTP_GUIDE.map((row) => (
+              <tr key={row.status}>
+                <th scope="row" className="mv-num">
+                  {row.status}
+                </th>
+                <td>{row.meaning}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         <table className="mv-spec__table">
           <thead>
             <tr>

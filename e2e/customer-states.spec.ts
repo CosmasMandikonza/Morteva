@@ -4,8 +4,11 @@ import {
   apiIssueCredential,
   apiProvisionMission,
   createMissionViaSheet,
+  deliver,
   fillSpecForm,
+  headlessClient,
   selectMission,
+  signedEnvelope,
   signIn,
   UNSEEN,
 } from './support/customer.js';
@@ -198,6 +201,8 @@ test.describe('decision states from the real journal', () => {
   test('with NO mandate the engine DECLINES — a first-class outcome with typed reasons', async ({
     page,
     request,
+    playwright,
+    baseURL,
   }) => {
     const title = uniq('No authority mission');
     const { missionId, session } = await apiProvisionMission(request, title, { mandate: false });
@@ -209,7 +214,8 @@ test.describe('decision states from the real journal', () => {
       'key-state-a',
     );
     await apiAdmitEvidence(
-      request,
+      playwright,
+      baseURL,
       session,
       missionId,
       secret,
@@ -234,6 +240,8 @@ test.describe('decision states from the real journal', () => {
   test('several observations before a baseline: the closed baseline window is explained, not a dead button', async ({
     page,
     request,
+    playwright,
+    baseURL,
   }) => {
     const title = uniq('Closed baseline mission');
     const { missionId, session } = await apiProvisionMission(request, title, { mandate: true });
@@ -244,7 +252,15 @@ test.describe('decision states from the real journal', () => {
       'bench7-flight-link',
       'key-state-a',
     );
-    await apiAdmitEvidence(request, session, missionId, secret, uniq('c').replace(/\W/g, ''), true);
+    await apiAdmitEvidence(
+      playwright,
+      baseURL,
+      session,
+      missionId,
+      secret,
+      uniq('c').replace(/\W/g, ''),
+      true,
+    );
     await openDecisionRoom(page, 'operator', title);
     await expect(page.getByTestId('field-events').locator('li')).toHaveCount(2, {
       timeout: 15_000,
@@ -288,6 +304,128 @@ test.describe('decision states from the real journal', () => {
   });
 });
 
+test.describe('credential lifecycle: rotation and revocation (real machine ingress)', () => {
+  test('rotation: the revoked key is refused immediately, its replacement works; revoking is owner/admin only', async ({
+    page,
+    request,
+    playwright,
+    baseURL,
+  }) => {
+    const title = uniq('Rotation mission');
+    const { missionId, session } = await apiProvisionMission(request, title, { mandate: false });
+    const secretA = await apiIssueCredential(
+      request,
+      session,
+      missionId,
+      'bench7-flight-link',
+      'key-rot-a',
+    );
+    const headless = await headlessClient(playwright, baseURL);
+    const base = {
+      orgId: session.orgId,
+      missionId,
+      assetId: 'survey-quad-q3',
+      sourceId: 'bench7-flight-link',
+      sourceType: 'asset_telemetry',
+    };
+    const reading = [{ kind: 'asset_comms', unit: 'state', value: 'online' }];
+
+    // old key A works …
+    const first = await deliver(headless, missionId, [
+      signedEnvelope(
+        {
+          ...base,
+          keyId: 'key-rot-a',
+          eventId: 'evt_rot_1',
+          sequence: 1,
+          agoMs: 50_000,
+          observations: reading,
+        },
+        secretA,
+      ),
+    ]);
+    expect(first.outcomes[0]?.status, JSON.stringify(first)).toBe('accepted');
+
+    // … the operator rotates in the UI: issue key B (shown once) …
+    await signIn(page, 'founder');
+    await selectMission(page, title);
+    await page.getByRole('link', { name: 'Mission Setup' }).click();
+    await chooseSource(page, 'bench7-flight-link');
+    await page.getByTestId('issue-keyid').fill('key-rot-b');
+    await page.getByTestId('issue-credential').click();
+    await expect(page.getByTestId('credential-reveal')).toBeVisible();
+    await page.getByTestId('credential-reveal-toggle').click();
+    const secretB = ((await page.getByTestId('credential-secret').textContent()) ?? '').trim();
+    await page.getByTestId('credential-ack').check();
+    await page.getByTestId('credential-done').click();
+
+    // … then revokes key A (two-step confirmation; irreversible)
+    const revokeSource = page.getByTestId('revoke-source');
+    if ((await revokeSource.evaluate((el) => el.tagName.toLowerCase())) === 'select') {
+      await revokeSource.selectOption('bench7-flight-link');
+    } else {
+      await revokeSource.fill('bench7-flight-link');
+    }
+    await page.getByTestId('revoke-keyid').fill('key-rot-a');
+    await page.getByTestId('revoke-reason').fill('rotated after contractor change');
+    await page.getByTestId('revoke-start').click();
+    await expect(page.getByTestId('revoke-confirm')).toContainText('can never be re-issued');
+    await page.getByTestId('revoke-confirm-btn').click();
+    await expect(page.getByTestId('revoke-done')).toContainText('key-rot-a revoked');
+
+    // the revoked key is refused IMMEDIATELY with its specific code …
+    const revoked = await deliver(headless, missionId, [
+      signedEnvelope(
+        {
+          ...base,
+          keyId: 'key-rot-a',
+          eventId: 'evt_rot_2',
+          sequence: 2,
+          agoMs: 40_000,
+          observations: reading,
+        },
+        secretA,
+      ),
+    ]);
+    expect(revoked.http).toBe(403);
+    expect(revoked.errorCode).toBe('CREDENTIAL_REVOKED');
+    // … while the replacement key authenticates the very next event
+    const second = await deliver(headless, missionId, [
+      signedEnvelope(
+        {
+          ...base,
+          keyId: 'key-rot-b',
+          eventId: 'evt_rot_3',
+          sequence: 2,
+          agoMs: 30_000,
+          observations: reading,
+        },
+        secretB,
+      ),
+    ]);
+    expect(second.outcomes[0]?.status, JSON.stringify(second)).toBe('accepted');
+    // a revoked key id can never be issued again
+    await chooseSource(page, 'bench7-flight-link');
+    await page.getByTestId('issue-keyid').fill('key-rot-a');
+    await page.getByTestId('issue-credential').click();
+    await expect(page.getByTestId('issue-error')).toContainText('NEW key id');
+    await headless.dispose();
+  });
+
+  test('an operator cannot revoke: the control is disabled and says why', async ({
+    page,
+    request,
+  }) => {
+    const title = uniq('Operator revoke mission');
+    await apiProvisionMission(request, title, { mandate: false });
+    await signIn(page, 'operator');
+    await selectMission(page, title);
+    await page.getByRole('link', { name: 'Mission Setup' }).click();
+    await expect(page.getByTestId('revoke-start')).toBeDisabled();
+    await expect(page.getByTestId('revoke-key')).toContainText('only an owner or admin');
+  });
+});
+
 test.describe('credential custody hygiene', () => {
   test('the browser stops holding a revealed secret after its hard time limit', async ({
     page,
@@ -321,6 +459,8 @@ test.describe('responsive: 320 / 390 / 640 (200% zoom of a 1280 window) / 1024',
   test('setup and decision surfaces stay usable — nothing clipped, HUD never covers the scene', async ({
     page,
     request,
+    playwright,
+    baseURL,
   }) => {
     const title = uniq('Responsive mission');
     const { missionId, session } = await apiProvisionMission(request, title, { mandate: true });
@@ -332,7 +472,8 @@ test.describe('responsive: 320 / 390 / 640 (200% zoom of a 1280 window) / 1024',
       'key-state-a',
     );
     await apiAdmitEvidence(
-      request,
+      playwright,
+      baseURL,
       session,
       missionId,
       secret,

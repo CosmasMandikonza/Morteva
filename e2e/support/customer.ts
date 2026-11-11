@@ -1,5 +1,10 @@
 import { createHmac } from 'node:crypto';
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import {
+  expect,
+  type APIRequestContext,
+  type Page,
+  type PlaywrightWorkerArgs,
+} from '@playwright/test';
 import { HEADLESS_SIGNING_CORE } from '../../apps/web/src/lib/ingestContract.js';
 
 /**
@@ -192,19 +197,43 @@ export interface IngestOutcome {
   eventId?: string | null;
 }
 
-/** Deliver envelopes. `session` = the interim operator-relay path. */
+export interface DeliverResult {
+  http: number;
+  outcomes: IngestOutcome[];
+  /** top-level machine error code (401/403/410), when the whole request failed */
+  errorCode?: string;
+}
+
+/**
+ * The independent FIELD SYSTEM: a client with NO cookie jar and NO CSRF token,
+ * holding only an issued source credential. It posts to Agent C's machine
+ * ingress (`/api/machine/missions/:id/events`) — authentication IS the HMAC.
+ */
+export async function headlessClient(
+  playwright: PlaywrightWorkerArgs['playwright'],
+  baseURL: string | undefined,
+): Promise<APIRequestContext> {
+  return playwright.request.newContext({ baseURL: baseURL ?? '' });
+}
+
 export async function deliver(
-  request: APIRequestContext,
+  client: APIRequestContext,
   missionId: string,
   envelopes: Record<string, unknown>[],
-  session?: { csrf: string },
-): Promise<{ http: number; outcomes: IngestOutcome[] }> {
-  const response = await request.post(`/api/missions/${encodeURIComponent(missionId)}/events`, {
-    headers: session ? { 'x-csrf-token': session.csrf } : {},
-    data: { events: envelopes },
-  });
-  const body = (await response.json().catch(() => ({}))) as { outcomes?: IngestOutcome[] };
-  return { http: response.status(), outcomes: body.outcomes ?? [] };
+): Promise<DeliverResult> {
+  const response = await client.post(
+    `/api/machine/missions/${encodeURIComponent(missionId)}/events`,
+    { data: { events: envelopes } },
+  );
+  const body = (await response.json().catch(() => ({}))) as {
+    outcomes?: IngestOutcome[];
+    error?: { code?: string };
+  };
+  return {
+    http: response.status(),
+    outcomes: body.outcomes ?? [],
+    errorCode: body.error?.code,
+  };
 }
 
 // ------------------------------------------------------------------ UI helpers
@@ -348,12 +377,14 @@ export async function apiIssueCredential(
 
 /** Admit baseline + (optionally) a breach through the production ingest path. */
 export async function apiAdmitEvidence(
-  request: APIRequestContext,
+  playwright: PlaywrightWorkerArgs['playwright'],
+  baseURL: string | undefined,
   session: ApiSession,
   missionId: string,
   secret: string,
   suffix: string,
   withBreach: boolean,
+  keyId = 'key-state-a',
 ): Promise<void> {
   const base = {
     orgId: session.orgId,
@@ -361,7 +392,7 @@ export async function apiAdmitEvidence(
     assetId: 'survey-quad-q3',
     sourceId: 'bench7-flight-link',
     sourceType: 'asset_telemetry',
-    keyId: 'key-state-a',
+    keyId,
   };
   const envs = [
     signedEnvelope(
@@ -396,9 +427,14 @@ export async function apiAdmitEvidence(
       ),
     );
   }
-  for (const env of envs) {
-    const res = await deliver(request, missionId, [env], { csrf: session.csrf });
-    expect(res.outcomes[0]?.status, JSON.stringify(res)).toBe('accepted');
+  const headless = await headlessClient(playwright, baseURL);
+  try {
+    for (const env of envs) {
+      const res = await deliver(headless, missionId, [env]);
+      expect(res.outcomes[0]?.status, JSON.stringify(res)).toBe('accepted');
+    }
+  } finally {
+    await headless.dispose();
   }
 }
 

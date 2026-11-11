@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import {
   ApiError,
   issueSourceCredential,
+  revokeSourceKey,
   type MissionSpecSourceView,
   type SourceCredentialIssued,
   type SourceCredentialMeta,
@@ -185,12 +186,30 @@ function describeIssueError(error: ApiError): string {
   }
 }
 
+function describeRevokeError(error: ApiError): string {
+  switch (error.code) {
+    case 'KEY_NOT_FOUND':
+      return 'No key with that id was issued for this mission.';
+    case 'KEY_ALREADY_REVOKED':
+      return 'That key is already revoked — a revoked key id is never re-issuable.';
+    case 'REVOCATION_REJECTED':
+      return 'The server rejected the revocation. Nothing changed.';
+    default:
+      break;
+  }
+  if (error.status === 403) {
+    return 'Revoking a credential is authority: the server requires an owner or admin.';
+  }
+  return `${error.code}: ${error.message}`;
+}
+
 export function SourceCredentials({
   missionId,
   sources,
   credentials,
   csrfToken,
   canIssue,
+  canRevoke,
   onSessionExpired,
   onIssued,
 }: {
@@ -200,6 +219,8 @@ export function SourceCredentials({
   credentials: readonly SourceCredentialMeta[] | undefined;
   csrfToken: string | null;
   canIssue: boolean;
+  /** Owner/admin only (server: manageAuthority) — revocation is authority. */
+  canRevoke: boolean;
   onSessionExpired: () => void;
   /** Fired after a successful issuance (carries NO secret). */
   onIssued?: () => void;
@@ -212,6 +233,14 @@ export function SourceCredentials({
   const [issued, setIssued] = useState<SourceCredentialIssued | null>(null);
   // NON-SECRET memory of what this session issued (key inventory fallback).
   const [notes, setNotes] = useState<readonly IssuedKeyNote[]>([]);
+  // --- revocation (rotation = issue a NEW key id, then revoke the old one)
+  const [rvSource, setRvSource] = useState('');
+  const [rvKey, setRvKey] = useState('');
+  const [rvReason, setRvReason] = useState('');
+  const [rvConfirm, setRvConfirm] = useState(false);
+  const [rvBusy, setRvBusy] = useState(false);
+  const [rvError, setRvError] = useState<string | null>(null);
+  const [revokedNow, setRevokedNow] = useState<readonly string[]>([]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -227,6 +256,39 @@ export function SourceCredentials({
   const ready = canIssue && csrfToken !== null && effectiveSource !== '' && keyOk && !busy;
 
   const dismiss = useCallback(() => setIssued(null), []);
+
+  const rvSourceId = sources !== null ? rvSource : rvSource.trim();
+  const rvKeyOk = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$/.test(rvKey.trim());
+  const rvReady = canRevoke && csrfToken !== null && rvSourceId !== '' && rvKeyOk && !rvBusy;
+
+  const revoke = (): void => {
+    if (!rvReady || csrfToken === null) return;
+    setRvBusy(true);
+    setRvError(null);
+    revokeSourceKey(missionId, rvSourceId, rvKey.trim(), rvReason.trim(), csrfToken)
+      .then((r) => {
+        if (!mounted.current) return;
+        setRvBusy(false);
+        setRvConfirm(false);
+        setRevokedNow((list) => [...list, r.keyId]);
+        setRvKey('');
+        setRvReason('');
+      })
+      .catch((reason: unknown) => {
+        if (!mounted.current) return;
+        setRvBusy(false);
+        setRvConfirm(false);
+        if (reason instanceof ApiError && reason.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        setRvError(
+          reason instanceof ApiError
+            ? describeRevokeError(reason)
+            : 'Could not reach the server — nothing was revoked.',
+        );
+      });
+  };
 
   const issue = (): void => {
     if (!ready || csrfToken === null) return;
@@ -406,6 +468,145 @@ export function SourceCredentials({
           {busy ? 'Issuing…' : 'Issue credential (shown once)'}
         </button>
       </form>
+
+      <fieldset className="mv-spec__section" data-testid="revoke-key" disabled={!canRevoke}>
+        <legend className="mv-droom__secttitle">Revoke a key</legend>
+        <p className="mv-governed__note">
+          Rotation is two steps: issue a <strong>new</strong> key id, switch your sender to it, then
+          revoke the old one. Revocation is immediate and irreversible — the key stops
+          authenticating new events (also after a restart); events it already authenticated stay
+          valid history; the key id can never be re-issued.
+        </p>
+        <div className="mv-sheet__grid">
+          {sources !== null ? (
+            <label className="mv-field">
+              <span className="mv-field__label">Source</span>
+              <select
+                className="mv-input"
+                value={rvSource}
+                data-testid="revoke-source"
+                onChange={(e) => setRvSource(e.target.value)}
+              >
+                <option value="">— choose a declared source —</option>
+                {sources.map((x) => (
+                  <option key={x.sourceId} value={x.sourceId}>
+                    {x.sourceId}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="mv-field">
+              <span className="mv-field__label">Source id</span>
+              <input
+                className="mv-input"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={rvSource}
+                data-testid="revoke-source"
+                onChange={(e) => setRvSource(e.target.value)}
+              />
+            </label>
+          )}
+          <label className="mv-field">
+            <span className="mv-field__label">Key id to revoke</span>
+            <input
+              className="mv-input"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              value={rvKey}
+              data-testid="revoke-keyid"
+              onChange={(e) => {
+                setRvKey(e.target.value);
+                setRvConfirm(false);
+              }}
+            />
+          </label>
+          <label className="mv-field">
+            <span className="mv-field__label">Reason (optional, journaled)</span>
+            <input
+              className="mv-input"
+              type="text"
+              maxLength={300}
+              value={rvReason}
+              data-testid="revoke-reason"
+              onChange={(e) => setRvReason(e.target.value)}
+            />
+          </label>
+        </div>
+        {notes.length > 0 && (
+          <p className="mv-hud">
+            keys issued this session:{' '}
+            {notes.map((n) => (
+              <button
+                key={n.keyId}
+                type="button"
+                className="mv-btn mv-btn--ghost"
+                onClick={() => {
+                  setRvSource(n.sourceId);
+                  setRvKey(n.keyId);
+                  setRvConfirm(false);
+                }}
+              >
+                {n.keyId}
+                {revokedNow.includes(n.keyId) ? ' (revoked)' : ''}
+              </button>
+            ))}
+          </p>
+        )}
+        {!canRevoke && (
+          <p className="mv-governed__note" role="note">
+            Revoking a credential is authority: only an owner or admin can do it (the server
+            enforces this).
+          </p>
+        )}
+        {rvError !== null && (
+          <p className="mv-sheet__error" role="alert" data-testid="revoke-error">
+            {rvError}
+          </p>
+        )}
+        {revokedNow.length > 0 && (
+          <p role="status" className="mv-droom__notice" data-testid="revoke-done">
+            Key {revokedNow[revokedNow.length - 1]} revoked. It no longer authenticates new events;
+            historical evidence it authenticated remains valid.
+          </p>
+        )}
+        {!rvConfirm ? (
+          <button
+            type="button"
+            className="mv-btn"
+            data-testid="revoke-start"
+            disabled={!rvReady}
+            onClick={() => setRvConfirm(true)}
+          >
+            Revoke this key…
+          </button>
+        ) : (
+          <div role="alert" className="mv-sheet__error" data-testid="revoke-confirm">
+            <p>
+              Revoke <strong className="mv-num">{rvKey.trim()}</strong> of{' '}
+              <strong className="mv-num">{rvSourceId}</strong>? It stops authenticating new events
+              immediately and can never be re-issued.
+            </p>
+            <div className="mv-sheet__actions">
+              <button type="button" className="mv-btn" onClick={() => setRvConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="mv-btn mv-btn--primary"
+                data-testid="revoke-confirm-btn"
+                disabled={rvBusy}
+                onClick={revoke}
+              >
+                {rvBusy ? 'Revoking…' : 'Confirm revoke'}
+              </button>
+            </div>
+          </div>
+        )}
+      </fieldset>
 
       {issued !== null && <CredentialRevealSheet issued={issued} onDismiss={dismiss} />}
     </section>
