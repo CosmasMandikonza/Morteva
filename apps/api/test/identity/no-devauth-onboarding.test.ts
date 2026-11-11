@@ -218,7 +218,9 @@ describe('fresh organization onboarding without development authentication', () 
       emailAtLink: 'founder@customer.test',
     });
     expect(again.created).toBe(false);
-    const orgs = ledger.db.prepare('SELECT COUNT(*) AS c FROM organizations').get() as { c: number };
+    const orgs = ledger.db.prepare('SELECT COUNT(*) AS c FROM organizations').get() as {
+      c: number;
+    };
     expect(orgs.c).toBe(1);
   });
 
