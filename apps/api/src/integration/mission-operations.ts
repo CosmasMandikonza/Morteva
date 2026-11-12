@@ -19,24 +19,25 @@
  *
  * 2. `POST /api/missions/:missionId/sources/:sourceId/secret` — secure
  *    non-demo source credential issuance. The server GENERATES the HMAC
- *    secret (32 bytes CSPRNG), persists it in the append-only operational
- *    journal under a type reserved to trusted code, and returns it EXACTLY
- *    ONCE to the managing operator (same one-time-display contract as
- *    identity API credentials). Server-to-server sources sign their events
- *    with it; the browser never sees a telemetry credential twice and can
- *    never mint one. Registration binds source → assets → tenant exactly
- *    like the spec declares.
+ *    secret (32 bytes CSPRNG) and returns it EXACTLY ONCE to the managing
+ *    operator (same one-time-display contract as identity API credentials;
+ *    the response is `Cache-Control: no-store`). At rest the key exists ONLY
+ *    as an AES-256-GCM envelope seal under the deployment KEK plus a SHA-256
+ *    audit digest — never in plaintext (see source-key-custody.ts; production
+ *    refuses to run without a real 32-byte KEK). Registration binds source →
+ *    assets → tenant exactly like the spec declares; a credential is scoped to
+ *    (org, mission, source, keyId) and has no global identity.
  *
- * 3. `POST /api/missions/:missionId/events` — PRODUCTION event ingestion:
- *    the operator (or a server-to-server integration holding the source
- *    secret) submits the typed envelope; the event MUST carry a valid HMAC
- *    `signature` computed with the source's secret over the canonical form.
- *    Every existing ingest law applies unchanged: unregistered/revoked keys
- *    refused, per-stream monotonicity, duplicate idempotency, future/stale
- *    bounds, offline-recovery trust rule, banking-vocabulary ban. A browser
- *    session can NEVER authorize telemetry by session alone — no secret, no
- *    admission. Ingress NEVER mutates money: zero financial rows is proven
- *    by test.
+ * 3. Event INGESTION is a machine act and is NOT on this surface: it lives at
+ *    `POST /api/machine/missions/:missionId/events` (source-credentials.ts),
+ *    authenticated by the event's own HMAC credential with no cookie/CSRF. The
+ *    former session route here answers 410 — a session path would be a
+ *    parallel, weaker authentication for the same act. Every ingest law is the
+ *    accepted one: unregistered/revoked keys refused, per-stream monotonicity,
+ *    duplicate idempotency, future/stale bounds, offline-recovery trust rule,
+ *    banking-vocabulary ban. Ingress NEVER mutates money: zero financial rows
+ *    is proven by test. Credential REVOCATION (below) stays an authenticated
+ *    human act (`manageAuthority` + CSRF).
  *
  * 4. `POST /api/missions/:missionId/operations/evaluate` — generalized
  *    evidence-driven planning for ANY registered mission: baseline/incident
@@ -57,7 +58,7 @@
  * mission's decisions draw ONLY on registered sources' signed events plus
  * optional model-derived typed evidence — never on fixture catalogs.
  */
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ledger } from '@moterva/ledger';
 import { isLedgerError } from '@moterva/ledger';
@@ -77,65 +78,34 @@ import {
   type ModelAdapterConfig,
 } from './model-adapter.js';
 import {
+  KEY_ID_RE,
   SOURCE_CREDENTIAL_TYPE,
+  SOURCE_ID_RE,
   SOURCE_REVOCATION_TYPE,
+  credentialEventKey,
+  findIssuedCredential,
+  isKeyRevoked,
+  keyDigestOf,
+  revocationEventKey,
   type SourceCredentialRecord,
   type SourceRevocationRecord,
-  resolveSourceKeyKek,
-  sealKey,
-  productionServiceFor,
-  isCredentialUsable,
-} from './source-credentials.js';
-
-const SOURCE_ID_RE = /^[a-z0-9][a-z0-9._-]{2,63}$/;
-const KEY_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$/;
-
-function sha(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex');
-}
-
-/** True when a credential record with this keyId exists in the journal (live OR revoked). */
-function credentialEverIssued(
-  ledger: Ledger,
-  orgId: string,
-  missionId: string,
-  keyId: string,
-): boolean {
-  const rows = ledger.db
-    .prepare(
-      `SELECT payload_json FROM evidence_events
-        WHERE org_id = ? AND mission_id = ? AND type = ?
-        ORDER BY seq ASC`,
-    )
-    .all(orgId, missionId, SOURCE_CREDENTIAL_TYPE) as { payload_json: string }[];
-  return rows.some((row) => {
-    const record = JSON.parse(row.payload_json) as { keyId?: string };
-    return record.keyId === keyId;
-  });
-}
-
-/** True when a revocation record exists for this keyId in the journal. */
-function isKeyRevoked(ledger: Ledger, orgId: string, missionId: string, keyId: string): boolean {
-  const rows = ledger.db
-    .prepare(
-      `SELECT payload_json FROM evidence_events
-        WHERE org_id = ? AND mission_id = ? AND type = ?
-        ORDER BY seq ASC`,
-    )
-    .all(orgId, missionId, SOURCE_REVOCATION_TYPE) as { payload_json: string }[];
-  return rows.some((row) => {
-    const record = JSON.parse(row.payload_json) as { keyId?: string };
-    return record.keyId === keyId;
-  });
-}
-
-// productionServiceFor (protected custody) is imported from
-// source-credentials.ts above and re-exported for existing call sites/tests.
-export { productionServiceFor } from './source-credentials.js';
+} from './source-credential-store.js';
+import { replayServiceFor } from './source-credentials.js';
+import type { KekRing } from './source-key-custody.js';
 
 // ------------------------------------------------------------------- routes
 
-export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Ledger): void {
+/**
+ * `ring` is the KEK ring `buildApp` established (fail-closed policy + boot
+ * verification) BEFORE this scope mounted; issuance seals new credentials
+ * under its current KEK. Reads never open a key — the replay service carries
+ * an empty registry.
+ */
+export function registerMissionOperationsRoutes(
+  app: FastifyInstance,
+  ledger: Ledger,
+  ring: KekRing,
+): void {
   // ---------------------------------------------------------- spec registration
   app.post('/api/missions/:missionId/mission-spec', async (request, reply) => {
     const g = guard(request, reply, 'operate');
@@ -194,6 +164,8 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
 
   // ------------------------------------------------------ source credential issuance
   app.post('/api/missions/:missionId/sources/:sourceId/secret', async (request, reply) => {
+    // The response may carry the one-time key: never cacheable, on any outcome.
+    void reply.header('cache-control', 'no-store');
     const g = guard(request, reply, 'operate');
     if ('blocked' in g) return reply;
     if (!csrfOk(ledger, request, reply)) return reply;
@@ -245,18 +217,11 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
           },
         });
       }
-      // The PROTECTED rehydration decides liveness: a keyId already live
-      // (or ever issued — revoked keys are never re-registrable) is refused.
-      if (
-        isCredentialUsable(
-          ledger,
-          g.actor.orgId,
-          missionId,
-          body.keyId,
-          Date.parse(ledger.clock.iso()),
-        ).usable ||
-        credentialEverIssued(ledger, g.actor.orgId, missionId, body.keyId)
-      ) {
+      // A keyId already issued in THIS mission — live, revoked, expired or
+      // quarantined — is never re-issuable (rotation = a NEW keyId). The check
+      // is scoped to this (org, mission): credentials have no global identity,
+      // so other tenants' keys are neither visible here nor able to collide.
+      if (findIssuedCredential(ledger, g.actor.orgId, missionId, body.keyId) !== undefined) {
         return reply.code(409).send({ error: { code: 'KEY_ID_ALREADY_REGISTERED' } });
       }
       // CSPRNG secret, server-generated: shown to the authorized recipient
@@ -264,13 +229,12 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
       // seal under the deployment KEK plus a SHA-256 audit digest — the
       // journal never contains plaintext key bytes (P0-2).
       const secretKey = randomBytes(32).toString('base64url');
-      const kek = resolveSourceKeyKek(ledger);
       const payload: SourceCredentialRecord = {
         sourceId,
         sourceType: declared.sourceType,
         keyId: body.keyId,
-        keyDigest: sha(secretKey),
-        sealed: sealKey(secretKey, kek),
+        keyDigest: keyDigestOf(secretKey),
+        sealed: ring.current.seal(secretKey),
         assetIds: [...declared.assetIds],
         trustedForRecovery: declared.trustedForRecovery,
         provenance: declared.provenance,
@@ -287,7 +251,7 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
           missionId,
           topic: 'operational',
           type: SOURCE_CREDENTIAL_TYPE,
-          eventKey: `mission-source:v1:${missionId}:${sourceId}:${body.keyId}`,
+          eventKey: credentialEventKey(missionId, sourceId, body.keyId),
           payload: payload as unknown as Record<string, unknown>,
         });
       } catch (error) {
@@ -311,10 +275,13 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
         machineIngest: {
           endpoint: `/api/machine/missions/${missionId}/events`,
           auth: 'HMAC-SHA256 signature over canonicalJson(event); NO cookie, NO CSRF token',
-          tenantBinding: 'the keyId pins org+mission+source — it cannot speak for any other tenant',
+          tenantBinding:
+            'credentials are scoped to org+mission+source — this key authenticates only events for this mission and source',
         },
         custody:
-          'sealed at rest (AES-256-GCM under MOTERVA_SOURCE_KEY_KEK); journal stores digest + ciphertext only',
+          ring.posture === 'configured'
+            ? 'sealed at rest (AES-256-GCM envelope under the deployment key-encryption key); the journal stores a digest + ciphertext only'
+            : 'sealed under the PUBLIC local derivation — loopback development/test only; a production deployment refuses this posture',
         warning:
           'This secret grants NO financial authority: it authenticates operational observations only. FIELD provenance = a credential-authenticated source CLAIMED a reading, not independently verified sensor truth.',
       };
@@ -344,13 +311,13 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
       try {
         ledger.organizations.getMission(g.actor.orgId, missionId);
         // The key must have been issued in THIS mission for THIS source.
-        if (!credentialEverIssued(ledger, g.actor.orgId, missionId, keyId)) {
+        const issued = findIssuedCredential(ledger, g.actor.orgId, missionId, keyId);
+        if (issued === undefined || issued.sourceId !== sourceId) {
           return reply.code(404).send({ error: { code: 'KEY_NOT_FOUND' } });
         }
         if (isKeyRevoked(ledger, g.actor.orgId, missionId, keyId)) {
           return reply.code(409).send({ error: { code: 'KEY_ALREADY_REVOKED' } });
         }
-        void sourceId;
         const payload: SourceRevocationRecord = {
           sourceId,
           keyId,
@@ -364,7 +331,7 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
             missionId,
             topic: 'operational',
             type: SOURCE_REVOCATION_TYPE,
-            eventKey: `mission-source-revoked:v1:${missionId}:${sourceId}:${keyId}`,
+            eventKey: revocationEventKey(missionId, sourceId, keyId),
             payload: payload as unknown as Record<string, unknown>,
           });
         } catch (error) {
@@ -517,10 +484,7 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
       // The journaled, validated interpretation feeds the NEXT evaluation
       // automatically (evaluateMission reads journaled interpretations);
       // nothing here grants authority of any kind.
-      const timeline = productionServiceFor(ledger, g.actor.orgId, missionId).replay(
-        g.actor.orgId,
-        missionId,
-      );
+      const timeline = replayServiceFor(ledger).replay(g.actor.orgId, missionId);
       return {
         missionId,
         interpretation: {
@@ -557,10 +521,7 @@ export function registerMissionOperationsRoutes(app: FastifyInstance, ledger: Le
       return reply.code(404).send({ error: { code: 'NOT_FOUND_OR_UNAVAILABLE' } });
     }
     try {
-      const timeline = productionServiceFor(ledger, g.actor.orgId, missionId).replay(
-        g.actor.orgId,
-        missionId,
-      );
+      const timeline = replayServiceFor(ledger).replay(g.actor.orgId, missionId);
       const view = decisionViewFor(ledger, timeline);
       return {
         missionId,
@@ -627,7 +588,7 @@ export function recordProductionSnapshot(
       missionId,
       'baseline',
       { ...timeline, events: [ordered[0]!] },
-      productionServiceFor,
+      replayServiceFor,
     );
   }
   // Incident: ALL evidence up to and including the latest event.
@@ -640,6 +601,6 @@ export function recordProductionSnapshot(
     missionId,
     'incident',
     timeline,
-    productionServiceFor,
+    replayServiceFor,
   );
 }
