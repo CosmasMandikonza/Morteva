@@ -10,6 +10,7 @@
  *  - production + devAuth: refused at startup (pre-existing invariant,
  *    re-proven here so the identity feature cannot regress it).
  */
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
@@ -17,6 +18,12 @@ import { loadConfig } from '../../src/config.js';
 import { openLedger, type Ledger } from '@moterva/ledger';
 import { tempDbPath } from '../../../../packages/ledger/test/helpers.js';
 import type { OidcClient } from '../../src/identity/oidc-client.js';
+
+/**
+ * Production + identity REQUIRES a real 32-byte source-key KEK (CTO review
+ * PR #64). Derived at runtime — never a literal key in the repository.
+ */
+const PRODUCTION_KEK = createHash('sha256').update('production-startup-test-kek').digest('hex');
 
 const REDIRECT_URI = 'https://app.example.com/api/auth/oidc/callback';
 const COMPLETE_IDENTITY = {
@@ -77,7 +84,11 @@ describe('production startup with identity', () => {
       subject: 'owner-prod-sub',
     });
     app = buildApp(
-      loadConfig({ NODE_ENV: 'production', ...COMPLETE_IDENTITY }),
+      loadConfig({
+        NODE_ENV: 'production',
+        ...COMPLETE_IDENTITY,
+        MOTERVA_SOURCE_KEY_KEK: PRODUCTION_KEK,
+      }),
       undefined,
       ledger,
       undefined,

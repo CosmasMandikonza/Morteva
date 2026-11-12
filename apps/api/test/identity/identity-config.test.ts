@@ -3,9 +3,17 @@
  * A partially configured OIDC deployment must never boot; every rule here is
  * a startup guarantee, not a runtime check.
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { loadConfig, StartupConfigError } from '../../src/config.js';
 import { DEFAULT_FLOW_TTL_MS, parseIdentityConfig } from '../../src/identity/config.js';
+
+/**
+ * Production + identity now REQUIRES a real 32-byte source-key KEK (CTO review
+ * PR #64): a production fixture must supply one. Derived at runtime — never a
+ * literal key in the repository.
+ */
+const PRODUCTION_KEK = createHash('sha256').update('identity-config-test-kek').digest('hex');
 
 function captureIssues(
   env: Record<string, string | undefined>,
@@ -153,7 +161,12 @@ describe('flow and scope validation', () => {
 
 describe('loadConfig integration', () => {
   it('complete config produces a working identity block + flow default', () => {
-    const config = loadConfig({ ...COMPLETE, NODE_ENV: 'production', MOTERVA_TRUST_PROXY: '1' });
+    const config = loadConfig({
+      ...COMPLETE,
+      NODE_ENV: 'production',
+      MOTERVA_TRUST_PROXY: '1',
+      MOTERVA_SOURCE_KEY_KEK: PRODUCTION_KEK,
+    });
     expect(config.identity).not.toBeNull();
     expect(config.identity!.issuer).toBe('https://idp.example.com');
     expect(config.identity!.flowTtlMs).toBe(DEFAULT_FLOW_TTL_MS);

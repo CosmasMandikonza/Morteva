@@ -30,6 +30,7 @@ import { registerPhysicalViewRoute } from './integration/physical-view.js';
 import { registerMissionSpecRoutes } from './integration/mission-spec.js';
 import { registerMissionOperationsRoutes } from './integration/mission-operations.js';
 import { registerMachineIngestRoutes } from './integration/source-credentials.js';
+import { establishSourceKeyCustody } from './integration/source-credential-store.js';
 import { resolveMissionSpec } from './integration/decision-snapshots.js';
 import {
   registerDecisionAuthorityRoutes,
@@ -76,6 +77,19 @@ export function buildApp(
   registerAuthCapabilitiesRoute(app, config);
 
   if (ledger !== undefined && (config.devAuth || config.identity !== null)) {
+    // SOURCE-KEY CUSTODY GATE (CTO review PR #64, P0). Resolve the KEK ring
+    // under the fail-closed policy — production requires a real 32-byte KEK and
+    // refuses the public local derivation; a network-reachable non-production
+    // host does too — then verify (and, for a rotation, re-seal) every sealed
+    // machine-source credential against it. Runs BEFORE any credential route
+    // can mount and throws synchronously: an unrecoverable custody state means
+    // the process does not start, rather than orphaning ciphertext or falling
+    // back to a predictable key.
+    const keyRing = establishSourceKeyCustody(
+      ledger,
+      { custody: config.sourceKeyCustody, nodeEnv: config.nodeEnv, host: config.host },
+      app.log,
+    );
     // Authenticated scope: mounted for DEMO_AUTH (loopback-only development,
     // unchanged) OR for a fully configured production identity provider —
     // never for an anonymous deployment. One encapsulated scope: cookie
@@ -105,13 +119,14 @@ export function buildApp(
       // model assistance. RBAC + CSRF protected; mounted OUTSIDE the
       // DEMO_AUTH gate (disclosed to Agent E; no identity/config/deploy
       // file touched).
-      registerMissionOperationsRoutes(scope, ledger);
+      registerMissionOperationsRoutes(scope, ledger, keyRing);
       // P0-1 machine-to-machine ingestion: headless telemetry integrations
       // authenticate with the EVENT'S OWN HMAC credential — no cookie, no
-      // CSRF token. Tenant is pinned by the credential journal; the route
+      // CSRF token. The tenant is the mission the URL names and credentials
+      // are resolved inside that scope (no global keyId lookup); the route
       // REFUSES cookie-bearing requests. Human administrative surfaces keep
-      // their gates (CTO review PR #64 P0-1).
-      registerMachineIngestRoutes(scope, ledger);
+      // their gates (CTO review PR #64 P0-1, P1 keyId/enumeration).
+      registerMachineIngestRoutes(scope, ledger, keyRing);
       if (config.identity !== null) {
         // Production identity: OIDC (code flow + PKCE), invitation accept,
         // invitation management. Registered ONLY with complete config.

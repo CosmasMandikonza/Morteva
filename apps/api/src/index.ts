@@ -13,6 +13,7 @@ import { buildSandboxDispatcher, HttpTransport, loadAirwallexConfig } from '@mot
 import { loadMetalConfig } from '@moterva/metal/status';
 import { buildApp } from './app.js';
 import { StartupConfigError, loadConfig, loadDotEnvForDev } from './config.js';
+import { SourceKeyCustodyError } from './integration/source-key-custody.js';
 
 loadDotEnvForDev();
 
@@ -202,6 +203,13 @@ process.on('unhandledRejection', (reason) => {
 });
 
 main().catch((error) => {
+  // Source-key custody gate (CTO review PR #64): buildApp refuses to boot on an
+  // unrecoverable custody state — never a fallback to a predictable key. The
+  // message names env vars and KEK fingerprints only, never key material.
+  if (error instanceof SourceKeyCustodyError) {
+    console.error(`moterva-api: refusing to start — ${error.message}`);
+    process.exit(1);
+  }
   console.error('moterva-api: fatal startup error', error);
   process.exit(1);
 });
