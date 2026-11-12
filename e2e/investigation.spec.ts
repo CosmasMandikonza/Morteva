@@ -29,7 +29,7 @@ test('mission → position → operation → required action → evidence, one i
   const position = page.getByTestId('position-panel');
   await expect(position).toContainText('USD');
   await expect(position).toContainText('fresh snapshot');
-  await expect(position).toContainText('Spendable now');
+  await expect(position).toContainText('Spendable');
   await expect(position).toContainText('source manual-seed');
   await expect(position).toContainText('not provider-verified');
 
@@ -88,9 +88,9 @@ test('position spendable math matches the engine across the seeded scenario', as
   // Positive assertions auto-retry (D-2 fix): the panel mounts with static
   // copy while /api/financial/overview is in flight; a one-shot textContent
   // read raced the fetch and failed even on CI retries.
-  await expect(position).toContainText('Spendable now');
+  await expect(position).toContainText('Spendable');
   await expect(position).toContainText('Protected floor');
-  await expect(position).toContainText('unknown/held');
+  await expect(position).toContainText('Pending / unknown');
   const text = await position.textContent();
   expect(text).not.toContain('NaN');
   expect(text).not.toContain('Infinity');

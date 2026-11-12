@@ -2674,3 +2674,36 @@ a.mv-btn {
 .mv-wrap {
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------ Treasury UX polish (R-final founder gate) */
+/* Compact, on-demand calculation + mandate history disclosures */
+.mv-position__calc,
+.mv-mandates__history {
+  min-width: 0;
+  margin: 10px 0 0;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.mv-position__calc summary,
+.mv-mandates__history summary {
+  cursor: pointer;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+}
+.mv-position__calc summary:hover,
+.mv-mandates__history summary:hover {
+  color: var(--mv-ink-1);
+}
+.mv-position__calc[open] summary,
+.mv-mandates__history[open] summary {
+  margin-bottom: 8px;
+}
+.mv-position__calc .mv-position__commitments {
+  margin: 0;
+}
+.mv-mandates__history .mv-mandate {
+  padding-block: 8px;
+}

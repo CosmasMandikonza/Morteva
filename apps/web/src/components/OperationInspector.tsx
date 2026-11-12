@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { OperationReadView } from '@moterva/domain';
 import { StatusChip } from './StatusChip';
-import { operationPresentation } from '../status/statusMap';
+import { operationPresentationFor } from '../status/statusMap';
 import { formatDate, shortId } from '../lib/format';
 
 /**
@@ -18,7 +18,12 @@ export function OperationInspector({
   operation: OperationReadView;
   onInspectEvidence: (operationId: string) => void;
 }): JSX.Element {
-  const presentation = operationPresentation(operation.state);
+  // Rail-aware presentation: an internal hold that reconciled must never
+  // borrow the provider-verified green of a readback-attested settlement.
+  const presentation = operationPresentationFor(operation.state, {
+    kind: operation.kind,
+    dispatch: operation.dispatch,
+  });
   const needsAction = operation.attention !== 'none';
 
   return (
