@@ -1,30 +1,41 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
- * Negative UX case: backend offline / config missing. The shell must show an
- * explicit error state with a retry affordance — never a fake success badge.
+ * Negative UX case: backend reads failing. Business surfaces must show
+ * explicit error states — never a fake success badge or fabricated data.
+ * (The System Status card was removed: technical metadata is not customer
+ * work. Failures surface in the panel that owns the read.)
  */
-test('shows an explicit API-offline error state when the backend is unreachable', async ({
+
+const PASSWORD = 'moterva-e2e-demo';
+
+async function signIn(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.getByLabel('Username').fill('founder');
+  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByTestId('actor-chip')).toBeVisible();
+}
+
+test('shows an explicit error state when a business read fails, with no fabricated data', async ({
   page,
 }) => {
-  await page.route('**/api/system/status', (route) => route.abort('connectionrefused'));
+  await page.route('**/api/missions', (route) => route.abort('connectionrefused'));
 
-  await page.goto('/');
+  await signIn(page);
 
+  // The failing read announces itself in its own panel …
   const alert = page.getByRole('alert');
-  await expect(alert).toBeVisible();
-  await expect(alert).toContainText('API offline');
-  await expect(alert).toContainText('/api/system/status');
-  await expect(alert.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expect(alert.first()).toBeVisible();
 
-  // No OFFLINE badges may render from fabricated data in the error state.
-  await expect(page.locator('.mv-badge--offline')).toHaveCount(0);
+  // … and no fabricated provider data renders anywhere.
   await expect(page.getByText(/connected/i)).toHaveCount(0);
+  await expect(page.locator('.mv-badge--offline')).toHaveCount(0);
 });
 
-test('recovers from the error state once the API answers again', async ({ page }) => {
+test('recovers once the read succeeds again', async ({ page }) => {
   let offline = true;
-  await page.route('**/api/system/status', async (route) => {
+  await page.route('**/api/missions', async (route) => {
     if (offline) {
       await route.abort('connectionrefused');
     } else {
@@ -33,11 +44,11 @@ test('recovers from the error state once the API answers again', async ({ page }
     }
   });
 
-  await page.goto('/');
-  await expect(page.getByRole('alert')).toContainText('API offline');
+  await signIn(page);
+  await expect(page.getByRole('alert').first()).toBeVisible();
+  await expect(page.getByText('Harbor turbine inspection')).toHaveCount(0);
 
   offline = false;
-  await page.getByRole('button', { name: 'Retry' }).click();
-  await expect(page.locator('.mv-badge--offline')).toHaveCount(2);
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('missions-panel')).toContainText('Harbor turbine inspection');
 });

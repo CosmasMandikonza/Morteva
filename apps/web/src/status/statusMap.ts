@@ -176,3 +176,35 @@ export function operationPresentation(state: string): PresentationEntry {
     }
   );
 }
+
+/** What the presentation needs to tell INTERNAL completion from provider settlement. */
+export interface OperationRailContext {
+  readonly kind: string;
+  /** Outbox truth; null before a dispatch row exists (never dispatched). */
+  readonly dispatch: { rail: string | null; attempts: number; status: string } | null;
+}
+
+/**
+ * Context-aware presentation: a RECONCILED/SETTLED state on an operation that
+ * never left MOTERVA (internal hold, no provider dispatch) is a legitimate
+ * completed lifecycle — but it must NOT borrow the provider-verified green
+ * reserved for readback-attested settlement on a provider rail. Same ledger
+ * truth, rail-appropriate words and tone.
+ */
+export function operationPresentationFor(
+  state: string,
+  rail: OperationRailContext,
+): PresentationEntry {
+  const base = operationPresentation(state);
+  const providerRail = rail.dispatch !== null && rail.dispatch.rail !== null;
+  if (providerRail || (state !== 'RECONCILED' && state !== 'SETTLED')) return base;
+  return {
+    tone: 'info',
+    glyph: '◎',
+    label: state === 'SETTLED' ? 'Completed internally' : 'Reconciled internally',
+    meaning:
+      'internal ' +
+      (rail.kind === 'internal_hold' ? 'hold' : 'ledger step') +
+      ' completed inside MOTERVA — no provider dispatch occurred; this is not an externally verified settlement',
+  };
+}

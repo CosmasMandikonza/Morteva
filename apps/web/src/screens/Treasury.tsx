@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { FinancialOverviewView, OperationListView, OperationReadView } from '@moterva/domain';
 import { StatusChip } from '../components/StatusChip';
-import { HaloBadge, HaloProgress } from '../components/ui';
+import { HaloBadge } from '../components/ui';
 import { Panel, SkeletonRows } from '../components/Panel';
 import { SignInPanel } from '../components/SignInPanel';
 import {
@@ -26,7 +26,7 @@ import {
 } from '../lib/api';
 import { MandateCreateSheet, MissionCreateSheet } from '../components/OnboardingDialog';
 import { formatDate, money, moneyAmount, parseJsonArray, percent, shortId } from '../lib/format';
-import { mandatePresentation, operationPresentation } from '../status/statusMap';
+import { mandatePresentation, operationPresentationFor } from '../status/statusMap';
 
 type Load<T> =
   | { kind: 'loading' }
@@ -482,17 +482,7 @@ export function Treasury({
                     </div>
                     <dl className="mv-position__figures">
                       <div>
-                        <dt>Balance</dt>
-                        <dd className="mv-num">
-                          {c.balance === null ? '—' : `${c.currency} ${c.balance.major}`}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Protected floor</dt>
-                        <dd className="mv-num">{`${c.currency} ${c.protectedFloor.major}`}</dd>
-                      </div>
-                      <div>
-                        <dt>Spendable now</dt>
+                        <dt>Spendable</dt>
                         <dd className="mv-num mv-position__spendable">
                           {c.spendable === null ? (
                             <span className="mv-position__unavailable">
@@ -510,11 +500,22 @@ export function Treasury({
                           )}
                         </dd>
                       </div>
+                      <div>
+                        <dt>Balance</dt>
+                        <dd className="mv-num">
+                          {c.balance === null ? '—' : `${c.currency} ${c.balance.major}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Protected floor</dt>
+                        <dd className="mv-num">{`${c.currency} ${c.protectedFloor.major}`}</dd>
+                      </div>
                     </dl>
-                    {/* MTV-20: the four monetary concepts, explicitly differentiated. */}
+                    {/* The monetary concepts, explicitly differentiated. Spendable
+                        appears ONCE (focal, above); the breakdown explains it. */}
                     <dl className="mv-position__concepts">
                       <div>
-                        <dt>Available</dt>
+                        <dt>Available after floor</dt>
                         <dd className="mv-num">
                           {c.balance === null
                             ? `${c.currency} —`
@@ -533,53 +534,43 @@ export function Treasury({
                           {`${c.currency} ${moneyAmount(c.currency, c.commitments.unknownMinor ?? 0)}`}
                         </dd>
                       </div>
-                      <div>
-                        <dt>Spendable</dt>
-                        <dd className="mv-num mv-position__spendable">
-                          {c.spendable === null
-                            ? `${c.currency} —`
-                            : `${c.currency} ${c.spendable.major}`}
-                        </dd>
-                      </div>
                     </dl>
-                    <HaloProgress
-                      label={`Protected floor share · ${c.currency}`}
-                      usedMinor={c.protectedFloor.minorUnits}
-                      totalMinor={c.balance === null ? 0 : c.balance.minorUnits}
-                      currency={c.currency}
-                      warn={
-                        c.balance !== null &&
-                        c.protectedFloor.minorUnits > c.balance.minorUnits * 0.8
-                      }
-                    />
-                    <p className="mv-position__commitments">
-                      Commitments — reserved{' '}
-                      <span className="mv-num">
-                        {moneyAmount(c.currency, c.commitments.reservedMinor)}
-                      </span>{' '}
-                      · unknown/held{' '}
-                      <span className="mv-num">
-                        {moneyAmount(c.currency, c.commitments.unknownMinor)}
-                      </span>
-                      {c.commitments.settledPendingObservationMinor !== null && (
-                        <>
-                          {' '}
-                          · settled pending observation{' '}
-                          <span className="mv-num">
-                            {moneyAmount(c.currency, c.commitments.settledPendingObservationMinor)}
-                          </span>
-                        </>
-                      )}
-                      {c.commitments.totalOutstandingMinor !== null && (
-                        <>
-                          {' '}
-                          · total outstanding{' '}
-                          <span className="mv-num">
-                            {moneyAmount(c.currency, c.commitments.totalOutstandingMinor)}
-                          </span>
-                        </>
-                      )}
-                    </p>
+                    <details className="mv-position__calc">
+                      <summary>How spendable is calculated</summary>
+                      <p className="mv-position__commitments">
+                        Spendable = freshest internal balance snapshot − protected floor −
+                        outstanding commitments. Reserved{' '}
+                        <span className="mv-num">
+                          {moneyAmount(c.currency, c.commitments.reservedMinor)}
+                        </span>{' '}
+                        · pending/unknown{' '}
+                        <span className="mv-num">
+                          {moneyAmount(c.currency, c.commitments.unknownMinor)}
+                        </span>
+                        {c.commitments.settledPendingObservationMinor !== null && (
+                          <>
+                            {' '}
+                            · settled pending observation{' '}
+                            <span className="mv-num">
+                              {moneyAmount(
+                                c.currency,
+                                c.commitments.settledPendingObservationMinor,
+                              )}
+                            </span>
+                          </>
+                        )}
+                        {c.commitments.totalOutstandingMinor !== null && (
+                          <>
+                            {' '}
+                            · total outstanding{' '}
+                            <span className="mv-num">
+                              {moneyAmount(c.currency, c.commitments.totalOutstandingMinor)}
+                            </span>
+                          </>
+                        )}
+                        . Unknown and escalated exposure both retain capacity until resolved.
+                      </p>
+                    </details>
                     {c.provenance !== null && (
                       <p className="mv-position__provenance">
                         source <span className="mv-num">{c.provenance.source}</span> · observed{' '}
@@ -601,12 +592,8 @@ export function Treasury({
                 <p className="mv-empty">No treasury accounts configured for this organization.</p>
               )}
               <p className="mv-panel__note">
-                Engine-computed spendable = the freshest internal ledger balance snapshot −
-                protected floor − outstanding commitments (unknown and escalated exposure both
-                retain capacity). Snapshots are internal observations with recorded source and
-                expiry — provider verification only when a verified provider observation exists
-                (none does today). Provider observation: none — adapter disabled until sandbox
-                credentials (#5); see System status.
+                Balances are internal ledger observations; provider verification appears here only
+                once a verified provider observation exists.
               </p>
             </Panel>
 
@@ -653,7 +640,10 @@ export function Treasury({
               {operations.kind === 'ok' && operations.data.operations.length > 0 && (
                 <ul className="mv-ops">
                   {operations.data.operations.map((op) => {
-                    const presentation = operationPresentation(op.state);
+                    const presentation = operationPresentationFor(op.state, {
+                      kind: op.kind,
+                      dispatch: op.dispatch,
+                    });
                     return (
                       <li key={op.id}>
                         <button
@@ -723,11 +713,9 @@ export function Treasury({
                   )}
                 </div>
                 <p className="mv-hero__meta">
-                  {selectedMission.status} mission · created{' '}
-                  {formatDate(selectedMission.created_at)}. Mission-scoped envelopes from mandates
-                  that are effective now (active and unexpired) — not an account balance. Source:
-                  internal ledger
-                  {isDemoLedger ? ' (locally seeded demonstration data)' : ''}.
+                  {selectedMission.status} mission · spending envelopes from mandates effective now
+                  — not an account balance.
+                  {isDemoLedger ? ' Sample data.' : ''}
                 </p>
               </section>
             )}
@@ -834,15 +822,13 @@ export function Treasury({
                 </ul>
               )}
               {mandates.kind === 'ok' && lapsedMandates.length > 0 && (
-                <>
-                  <p className="mv-subhead">Expired by clock — not spendable now</p>
+                <details className="mv-mandates__history" data-testid="lapsed-mandates">
+                  <summary>
+                    Expired authority — {String(lapsedMandates.length)} mandate
+                    {lapsedMandates.length === 1 ? '' : 's'} no longer spendable
+                  </summary>
                   <ul className="mv-mandates">
                     {lapsedMandates.map((mandate) => {
-                      const total =
-                        mandate.total_budget_minor !== -1
-                          ? mandate.total_budget_minor
-                          : mandate.max_amount_minor;
-                      const used = percent(mandate.consumed_minor, total);
                       return (
                         <li
                           className="mv-mandate mv-mandate--lapsed"
@@ -859,57 +845,38 @@ export function Treasury({
                             </span>
                             <span className="mv-mandate__version">v{mandate.version}</span>
                             <span className="mv-mandate__currency">{mandate.currency}</span>
-                            <span className="mv-mandate__recorded mv-num">
-                              recorded status: {mandate.status}
-                            </span>
                           </div>
                           <div className="mv-mandate__envelope">
-                            <div className="mv-mandate__figures">
-                              <span className="mv-num mv-mandate__remaining mv-mandate__remaining--muted">
-                                {money(mandate.currency, mandate.remaining_minor)}
-                              </span>
-                              <span className="mv-num mv-mandate__total">
-                                historical envelope {moneyAmount(mandate.currency, total)} · {used}%
-                                committed
-                              </span>
-                            </div>
-                            <div
-                              className="mv-meter mv-meter--muted"
-                              role="img"
-                              aria-label={`historical: ${used} percent of the ${money(mandate.currency, total)} envelope was committed before expiry`}
-                            >
-                              <span style={{ width: `${used}%` }} />
-                            </div>
                             <dl className="mv-mandate__meta">
-                              <div>
-                                <dt>Committed (historical)</dt>
-                                <dd className="mv-num">
-                                  {money(mandate.currency, mandate.consumed_minor)}
-                                </dd>
-                              </div>
                               <div>
                                 <dt>Expired</dt>
                                 <dd className="mv-mandate__lapsed">
                                   {formatDate(mandate.expires_at)}
                                 </dd>
                               </div>
+                              <div>
+                                <dt>Was committed (historical)</dt>
+                                <dd className="mv-num">
+                                  {money(mandate.currency, mandate.consumed_minor)}
+                                </dd>
+                              </div>
                             </dl>
                             <p className="mv-mandate__meaning">
-                              Expiry passed by wall clock — this authority cannot authorize new
-                              spending now. The remaining envelope is a historical figure, not
-                              available authority; the ledger still records status “{mandate.status}
-                              ” until it applies its own transition.
+                              This authority can no longer authorize new spending. Grant a new
+                              mandate to restore spending power for this mission.
                             </p>
                           </div>
                         </li>
                       );
                     })}
                   </ul>
-                </>
+                </details>
               )}
               {mandates.kind === 'ok' && historyMandates.length > 0 && (
-                <>
-                  <p className="mv-subhead">Superseded &amp; historical versions</p>
+                <details className="mv-mandates__history" data-testid="history-mandates">
+                  <summary>
+                    Superseded &amp; historical versions — {String(historyMandates.length)}
+                  </summary>
                   <ul className="mv-mandates">
                     {historyMandates.map((mandate) => {
                       const presentation = mandatePresentation(mandate.status);
@@ -927,7 +894,7 @@ export function Treasury({
                       );
                     })}
                   </ul>
-                </>
+                </details>
               )}
             </Panel>
 

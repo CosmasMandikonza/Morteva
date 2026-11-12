@@ -30,7 +30,7 @@ test.describe('authenticated treasury journey', () => {
 
     // Provenance is explicit, compact and accurate for a seeded demo.
     await expect(page.getByTestId('provenance-chip')).toContainText(
-      'DEMO_AUTH · seeded internal ledger — not Airwallex funds',
+      'Demo workspace · Sample financial data',
     );
 
     // Real missions from the ledger.
@@ -54,14 +54,19 @@ test.describe('authenticated treasury journey', () => {
     // The lapsed mandate stays inspectable but is NEVER spendable: its own
     // section, a not-spendable chip (no "Mandate active" claim), historical
     // framing, and the recorded status shown for audit.
+    // Expired authority moved into a compact disclosure (founder UX gate):
+    // open it, then the lapsed mandate is still inspectable and NEVER spendable.
+    const expired = page.getByTestId('lapsed-mandates');
+    await expired.locator('summary').click();
     const lapsed = page.getByTestId('lapsed-mandate');
     await expect(lapsed).toContainText('Lapsed — not spendable');
-    await expect(lapsed).toContainText('historical envelope 20,000.00');
-    await expect(lapsed).toContainText('recorded status: active');
+    await expect(lapsed).toContainText('can no longer authorize new spending');
     await expect(lapsed.locator('.mv-chip--info')).toHaveCount(0);
     await expect(page.locator('.mv-chip--info', { hasText: 'Mandate active' })).toHaveCount(2);
 
-    // Superseded history remains.
+    // Superseded history remains, on demand under its own disclosure.
+    const history = page.getByTestId('history-mandates');
+    await history.locator('summary').click();
     await expect(mandates.locator('.mv-chip--neutral', { hasText: 'Superseded' })).toBeVisible();
 
     // Provenance (position panel replaced the old capabilities panel): the
@@ -75,14 +80,14 @@ test.describe('authenticated treasury journey', () => {
     // engine-computed spendable and honest commitment pressure.
     await expect(position).toContainText('USD');
     await expect(position).toContainText('fresh snapshot');
-    await expect(position).toContainText('Spendable now');
-    await expect(position).toContainText('unknown/held');
+    await expect(position).toContainText('Spendable');
+    await expect(position).toContainText('Pending / unknown');
 
     // Operations list from the real #35 API: deterministic lifecycle states.
     const ops = page.getByTestId('operations-panel');
     await expect(ops).toContainText('Unknown');
     await expect(ops).toContainText('Needs decision');
-    await expect(ops).toContainText('Reconciled');
+    await expect(ops).toContainText('Reconciled internally');
     await expect(ops.locator('[data-attention="human"]')).toHaveCount(1);
 
     // Inspector auto-selects the needs-human operation with exact terms.
@@ -203,7 +208,7 @@ test.describe('authenticated treasury journey', () => {
     // Exactly one provenance instance: banner visible, cramped chip hidden.
     const banner = page.getByTestId('provenance-banner');
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('DEMO_AUTH · seeded internal ledger — not Airwallex funds');
+    await expect(banner).toContainText('Demo workspace · Sample financial data');
     await expect(page.getByTestId('provenance-chip')).toBeHidden();
 
     // The banner must not crowd the controls: it lives below the top bar and
@@ -216,14 +221,13 @@ test.describe('authenticated treasury journey', () => {
     const scrollWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
     expect(scrollWidth).toBeLessThanOrEqual(391);
 
-    // Provider truth stays visible as badges; prose sits behind a keyboard
-    // operable disclosure that opens on click.
-    const status = page.getByTestId('system-status');
-    await expect(status.locator('.mv-badge--offline, .mv-badge--sandbox')).toHaveCount(2);
-    const disclosure = status.locator('.mv-provider__details').first();
-    await expect(disclosure.locator('summary')).toBeVisible();
-    await disclosure.locator('summary').click();
-    await expect(disclosure.locator('p')).toBeVisible();
+    // No engineering status card anymore: provider truth lives in the
+    // business surface (position provenance) and no developer-only text leaks.
+    await expect(page.getByTestId('system-status')).toHaveCount(0);
+    await expect(page.getByTestId('position-panel')).toContainText(
+      'internal record, not provider-verified',
+    );
+    await expect(page.getByText(/hackathon|npm run dev|STATE.md/)).toHaveCount(0);
   });
 
   test('at 320px the breadcrumb and provenance banner are vertically visible, not overlapped', async ({
