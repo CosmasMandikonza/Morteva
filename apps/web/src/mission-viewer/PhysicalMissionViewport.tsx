@@ -45,8 +45,15 @@ export function PhysicalMissionViewport(props: {
    * are shown only then; a physical restriction alone stays S2.
    */
   decisionVerified?: boolean;
+  /**
+   * Chrome composition passed through to the viewer ('below' = the Decision
+   * Room composition: unobstructed scene, HUD beneath, evidence timeline).
+   */
+  chrome?: 'overlay' | 'below';
+  /** chrome='below' only: omit the evidence disclosure (host renders its own list). */
+  hideDisclosure?: boolean;
 }): JSX.Element {
-  const { missionId, incidentEventId, decisionVerified = false } = props;
+  const { missionId, incidentEventId, decisionVerified = false, chrome, hideDisclosure } = props;
   const [state, setState] = useState<ViewportState>({ kind: 'loading' });
   const [selectedEventId, setSelectedEventId] = useState<string | null>(incidentEventId);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -111,6 +118,8 @@ export function PhysicalMissionViewport(props: {
       decisionAvailable={decisionVerified}
       decisionHref="#decisions"
       decisionLabel="Inspect the financial decision below"
+      chrome={chrome}
+      hideDisclosure={hideDisclosure}
     />
   );
 }

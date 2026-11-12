@@ -24,6 +24,13 @@ export function EvidenceHud(props: {
   onRetry3d: () => void;
   onSwitch2d: () => void;
   onResetCamera: () => void;
+  /**
+   * 'overlay' (default) floats the HUD over the scene — the standalone
+   * harness composition. 'below' is the Decision Room composition: the SAME
+   * content and testids, but rendered as a static block BENEATH the stage so
+   * nothing covers the world at any width (CTO visual gate, PR #65).
+   */
+  placement?: 'overlay' | 'below';
 }): JSX.Element {
   const {
     state,
@@ -40,19 +47,19 @@ export function EvidenceHud(props: {
     onRetry3d,
     onSwitch2d,
     onResetCamera,
+    placement = 'overlay',
   } = props;
 
   const uav = state.constraints.find((c) => c.assetId === state.policy.uavAssetId);
   const phaseLabel = PHASE_LABEL[state.phase];
-  const phaseTone =
-    state.phase === 'S2-restricted' || state.phase === 'S3-restricted-escalated'
-      ? 'restricted'
-      : state.phase === 'S5-uncertain' || state.phase === 'S0-initial'
-        ? 'uncertain'
-        : 'nominal';
+  const phaseTone = phaseToneOf(state.phase);
 
   return (
-    <div className="mpv-hud" data-testid="mpv-hud">
+    <div
+      className={placement === 'below' ? 'mpv-hud mpv-hud--below' : 'mpv-hud'}
+      data-testid="mpv-hud"
+      data-placement={placement}
+    >
       <div className="mpv-hud__row">
         <span className="mpv-chip mpv-chip--truth" data-testid="mpv-truth-chip">
           {snapshot.truthLabel}
@@ -223,3 +230,37 @@ const PHASE_LABEL: Record<SceneState['phase'], string> = {
   'S4-historical': 'Historical evidence replay',
   'S5-uncertain': 'Evidence stale or insufficient — status unknown',
 };
+
+export function phaseToneOf(phase: SceneState['phase']): 'restricted' | 'uncertain' | 'nominal' {
+  return phase === 'S2-restricted' || phase === 'S3-restricted-escalated'
+    ? 'restricted'
+    : phase === 'S5-uncertain' || phase === 'S0-initial'
+      ? 'uncertain'
+      : 'nominal';
+}
+
+const PHASE_SHORT: Record<SceneState['phase'], string> = {
+  'S0-initial': 'status unknown',
+  'S1-nominal': 'nominal',
+  'S2-restricted': 'restricted',
+  'S3-restricted-escalated': 'restricted',
+  'S4-historical': 'replay',
+  'S5-uncertain': 'uncertain',
+};
+
+/**
+ * The ONLY in-scene UI allowed in the Decision Room composition: one tiny,
+ * non-interactive status pill. Visual duplicate of the accessible phase chip
+ * in the strip below (aria-hidden here); on a desktop canvas it occupies
+ * well under 10% of the scene area — the rest of the world stays unobstructed.
+ */
+export function SceneBadge(props: { state: SceneState; effectiveMode: '3d' | '2d' }): JSX.Element {
+  const tone = phaseToneOf(props.state.phase);
+  return (
+    <div className="mpv-scene-badge" data-testid="mpv-scene-badge" aria-hidden="true">
+      <span className={`mpv-scene-badge__dot mpv-scene-badge__dot--${tone}`} />
+      <span className="mpv-scene-badge__label">{PHASE_SHORT[props.state.phase]}</span>
+      <span className="mpv-scene-badge__mode">{props.effectiveMode.toUpperCase()}</span>
+    </div>
+  );
+}

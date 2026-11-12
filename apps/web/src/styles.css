@@ -1859,8 +1859,14 @@ a {
 
 /* ---- Decision Room: signature 12-column composition (CP2) ---- */
 /* Desktop: physical mission column ~7 cols, financial decisions ~5 cols.
-   Below 1024px the columns stack (financial column first on mobile so the
-   decision is never pushed below the fold by the physical context). */
+   The stack decision is CONTAINER-based: the scope measures the width the
+   Decision Room actually has (not the viewport), so 200% zoom, split views
+   and narrow windows all take the right path (financial column first on
+   small containers so the decision is never pushed below the fold). */
+.mv-droom-scope {
+  container: mv-droom / inline-size;
+  min-width: 0;
+}
 .mv-droom {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1880,7 +1886,7 @@ a {
   gap: 14px;
   min-width: 0;
 }
-@media (max-width: 1023px) {
+@container mv-droom (max-width: 1023px) {
   .mv-droom {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1891,7 +1897,7 @@ a {
   .mv-droom__financial {
     grid-column: auto;
   }
-  /* decision first on small screens: the physical context follows */
+  /* decision first on small containers: the physical context follows */
   .mv-droom__financial {
     order: -1;
   }
@@ -2319,36 +2325,30 @@ a {
 }
 
 /* ------------------------------------------------ viewer composition
-   The 320px overflow was a REAL layout defect, not something to hide:
-     1. grid tracks sized `1fr` (= minmax(auto, 1fr)) take their items'
-        min-content, so one long unbreakable token (an event id) forced the
-        whole module to ~362px;
-     2. those tokens (event ids, digests, chips, card values) had no wrap rule;
-     3. at phone widths the HUD overlaid and covered the small scene.
-   Fix at the source — nothing is clipped, hidden or removed: tracks may
-   shrink, long tokens wrap, and at <=640px the HUD leaves the scene overlay
-   and stacks BELOW it so both stay fully usable (200% zoom of a 1280px
-   window is a 640px viewport and takes the same path). */
+   CTO visual gate (PR #65): the Decision Room physical column hosts ONE
+   dominant, unobstructed scene. The old inner fixed 250px evidence rail and
+   the scene-plane HUD are GONE from this composition — the viewer's
+   chrome="below" mode renders the telemetry strip and the compact evidence
+   timeline BENEATH the stage at every width (mission-viewer.css owns that
+   layout). What remains here is the anti-overflow hygiene: tracks may
+   shrink and long tokens (event ids, digests, chips) wrap — nothing is
+   clipped, hidden or removed. */
 .mv-droom__viewport-host {
   min-width: 0;
 }
 .mv-droom__physical .mpv {
-  grid-template-columns: minmax(0, 1fr) 250px;
   min-width: 0;
 }
-@media (max-width: 900px) {
-  .mv-droom__physical .mpv {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 .mv-droom__physical .mpv-stage,
-.mv-droom__physical .mpv-events {
+.mv-droom__physical .mpv-evidence,
+.mv-droom__physical .mpv-evidence__empty {
   min-width: 0;
 }
 .mv-droom__physical .mpv-events__id,
 .mv-droom__physical .mpv-events__meta,
 .mv-droom__physical .mpv-events__credits,
 .mv-droom__physical .mpv-chip,
+.mv-droom__physical .mpv-scene-badge,
 .mv-droom__physical .mpv-card__k,
 .mv-droom__physical .mpv-card__v,
 .mv-droom__physical .mpv-card__sub,
@@ -2366,34 +2366,25 @@ a {
   min-width: 0;
   flex: 1 1 140px;
 }
-@media (max-width: 640px) {
-  .mv-droom__physical .mpv-stage {
-    aspect-ratio: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  /* the scene keeps a usable 4:3 box of its own … */
-  .mv-droom__physical .mpv-canvas-host {
-    position: relative;
-    inset: auto;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 4 / 3;
-  }
-  .mv-droom__physical .mpv-marker-layer {
-    inset: 0 0 auto 0;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 4 / 3;
-  }
-  /* … and the HUD sits beneath it instead of covering it */
-  .mv-droom__physical .mpv-hud {
-    position: static;
-    inset: auto;
-    max-width: none;
-    border-radius: 0;
-    border-width: 1px 0 0;
-  }
+
+/* Non-spatial overview for missions whose registered domain has no 3D world
+   (ground-only, multi-aerial): real assets, zero fabricated geography. */
+.mv-droom__nonspatial {
+  border: 1px dashed var(--mv-line-strong);
+}
+.mv-droom__onboarding {
+  border: 1px dashed var(--mv-line-strong);
+}
+.mv-droom__assets {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.mv-droom__assets li {
+  min-width: 0;
 }
 
 /* ------------------------------------------------ Mission Setup (R-final) */
