@@ -111,6 +111,44 @@ migration gate).
 - Optional provider credentials (e.g. Airwallex sandbox) enter ONLY via the
   secret: add them to `moterva/production`, then `bootstrap.sh --refresh-env`.
 
+## Source-key KEK custody (CTO PR#62 comment 6808567133; PR #64 contract)
+
+Machine-source signing credentials are sealed at rest under a
+Key-Encryption-Key. The deployment owns exactly one, `MOTERVA_SOURCE_KEY_KEK`:
+
+- **Created once, cryptographically**: bootstrap runs `deploy/aws/ensure-kek.sh`
+  (hash-pinned companion) right after the secret exists — 32 CSPRNG bytes
+  (`openssl rand -base64 32`, canonical 44-char base64), stored ONLY in the
+  Secrets Manager `moterva/production` JSON, read-back verified. Never
+  printed; terminal output carries only the non-secret fingerprint
+  (sha256(base64url(key))[0:12] — the same id the app's boot log prints).
+- **Never rotated by tooling**: reruns and `--refresh-env` leave it
+  byte-identical (tested: zero secret writes on rerun). The OIDC/env merge
+  (`merge_secret`) strips the three custody variables from its input, so no
+  bootstrap code path can create, rotate or drop them. Rotation is the
+  operator's `MOTERVA_SOURCE_KEY_KEK_PREVIOUS`/`_RETIRED` protocol (see C's
+  source-key-custody.ts) — a present-but-empty or foreign-format KEK makes
+  bootstrap REFUSE rather than guess.
+- **Delivered only to the api process**: the whole secret (KEK included)
+  becomes `/opt/moterva/production.env` (mode 600) via the on-instance
+  `refresh-env.sh`; compose loads that file ONLY into the api service
+  (`env_file`). The web edge never sees it; nothing echoes it.
+- **Survives redeploy/rollback by construction**: `update.sh` deploys older
+  immutable SHAs without touching the secret — the KEK and the sealed
+  credentials in the ledger stay consistent (the API refuses a boot where
+  the sealed records' fingerprints are unknown, so a lost KEK fails loudly,
+  never silently).
+- **Verified**: `deploy/aws/test/kek-provision.test.sh` (19 cases: create-once,
+  byte-identical rerun with zero writes, empty/foreign/non-JSON refusals,
+  merge never touches custody, fingerprint formula == app `Kek.id`, no value
+  in output) + `deploy/aws/test/kek-boot-probe.mjs` (production `loadConfig`
+  gate: missing KEK REFUSES, the bootstrap's exact base64 form BOOTS,
+  malformed REFUSES — runs against any built checkout; skips with a notice
+  on branches without PR #64's custody module). Cross-PR evidence at the
+  PR #62 handoff comment: probe 4/4 and the custody suite 32/32 on C's
+  branch (`1e6b8db`), including seal → decrypt-after-restart → rotate →
+  rollback recovery.
+
 ## Health checks & resilience (E5)
 
 | Layer | Mechanism |

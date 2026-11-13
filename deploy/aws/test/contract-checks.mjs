@@ -19,6 +19,7 @@ const compose = read('deploy/aws/compose.production.yml');
 const bootstrap = read('deploy/aws/bootstrap.sh');
 const workflow = read('.github/workflows/deploy-aws.yml');
 const linkOwner = read('deploy/aws/link-owner.sh');
+const ensureKek = read('deploy/aws/ensure-kek.sh');
 
 const results = [];
 function check(id, name, ok, detail) {
@@ -167,7 +168,8 @@ check(
     /EXPECTED_SHA256_reviewer_smoke_sh=/.test(bootstrap) &&
     /EXPECTED_SHA256_compose_production_yml=/.test(bootstrap) &&
     /EXPECTED_SHA256_cloudformation_yaml=/.test(bootstrap) &&
-    /EXPECTED_SHA256_link_owner_sh=/.test(bootstrap),
+    /EXPECTED_SHA256_link_owner_sh=/.test(bootstrap) &&
+    /EXPECTED_SHA256_ensure_kek_sh=/.test(bootstrap),
   'companion hash map incomplete',
 );
 check(
@@ -377,6 +379,94 @@ check(
   'stale $12/hard-cap budget language is gone from bootstrap and CFN (alert-only $18/~$13.5)',
   !/hard budget alarm|BudgetLimit=12|Default: 12/.test(bootstrap + cfn) && /alert only/i.test(cfn),
   'stale budget wording remains',
+);
+
+// ---- SOURCE-KEY KEK custody (CTO PR#62 comment 6808567133, consuming C's
+// PR #64 contract): one-time 32-byte KEK in Secrets Manager, never rotated
+// by tooling, delivered ONLY to the api process, retained across reruns /
+// env refresh / redeploys / rollback.
+check(
+  'KEK-1',
+  'bootstrap fetches ensure-kek.sh (hash-pinned companion) and invokes it BEFORE any other secret write',
+  /fetch_companion ensure-kek\.sh/.test(bootstrap) &&
+    /SECRET_NAME="\$SECRET_NAME" bash "\$TMP\/ensure-kek\.sh"/.test(bootstrap) &&
+    bootstrap.indexOf('ensure-kek.sh') < bootstrap.indexOf('merge_secret "$ISSUER"'),
+  'ensure-kek missing or ordered after the OIDC merge',
+);
+check(
+  'KEK-2',
+  'merge_secret STRIPS the three custody variables from the incoming object (cannot create/rotate/drop them)',
+  /\.\[0\] \* \(\$next \| del\(\.MOTERVA_SOURCE_KEY_KEK, \.MOTERVA_SOURCE_KEY_KEK_PREVIOUS, \.MOTERVA_SOURCE_KEY_KEK_RETIRED\)\)/.test(
+    bootstrap,
+  ),
+  'custody del-guard missing from merge_secret',
+);
+check(
+  'KEK-3',
+  'ensure-kek generates ONLY when the key is absent, via the CSPRNG, in a canonical 32-byte encoding',
+  /openssl rand -base64 32/.test(ensureKek) &&
+    /has\("MOTERVA_SOURCE_KEY_KEK"\)/.test(ensureKek) &&
+    /grep -Eq '\^\[A-Za-z0-9\+\/\]\{43\}=\$'/.test(ensureKek),
+  'generation is not CSPRNG/canonical/conditional',
+);
+check(
+  'KEK-4',
+  'ensure-kek REFUSES a present-but-empty key and a foreign (non-canonical) existing key — never auto-overwrites',
+  /present but EMPTY/.test(ensureKek) && /refusing to touch it/.test(ensureKek),
+  'empty/foreign refusal guards missing',
+);
+check(
+  'KEK-5',
+  'ensure-kek verifies the persisted value by read-back before declaring success',
+  /read-back mismatch/.test(ensureKek),
+  'no read-back verification',
+);
+check(
+  'KEK-6',
+  'ensure-kek NEVER prints the value: log lines carry only fingerprints; every echo/printf is piped or discarded',
+  (() => {
+    const lines = ensureKek.split('\n');
+    const logLines = lines.filter((l) => /^\s*log\b/.test(l));
+    const pipeLines = lines.filter((l) => /^\s*(echo|printf)\b/.test(l));
+    const stripSubs = (l) => {
+      let prev;
+      do {
+        prev = l;
+        l = l.replace(/\$\([^()]*\)/g, 'SUB');
+      } while (l !== prev);
+      return l;
+    };
+    const logOk =
+      logLines.length > 0 &&
+      logLines.every((l) => !/\$(KEK|MERGED|PERSISTED|EXISTING)\b/.test(stripSubs(l)));
+    const pipesOk = pipeLines.every((l) => /\|/.test(l) || /\/dev\/null/.test(l));
+    return logOk && pipesOk;
+  })(),
+  'a terminal-output line carries key material',
+);
+check(
+  'KEK-7',
+  'the api service alone loads production.env (env_file); the web edge does NOT receive it',
+  /env_file: production\.env/.test(compose) &&
+    !/env_file:/.test((compose.match(/^ {2}web:[\s\S]*?(?=^ {2}[a-z]|^volumes:)/m) ?? [''])[0]),
+  'env_file not api-exclusive',
+);
+check(
+  'KEK-8',
+  'refresh-env (on-instance) writes the ENTIRE secret — KEK included — to a 600 env file and never echoes values',
+  cfn.includes(`to_entries[] | "\\(.key)=\\(.value)"`) &&
+    /chmod 600 \/opt\/moterva\/production\.env/.test(cfn) &&
+    !/cat \/opt\/moterva\/production\.env/.test(cfn),
+  'refresh-env leaks or drops custody values',
+);
+check(
+  'KEK-9',
+  'the deploy/rollback helper (update.sh) NEVER writes the secret — the KEK and sealed credentials stay consistent across rollback',
+  (() => {
+    const m = cfn.match(/cat > \/opt\/moterva\/update\.sh <<'EOS'[\s\S]*?EOS/);
+    return m !== null && !/put-secret-value|secretsmanager/.test(m[0]);
+  })(),
+  'update.sh touches the secret',
 );
 
 // ---- summary

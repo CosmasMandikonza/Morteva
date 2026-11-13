@@ -194,8 +194,13 @@ Resources:
 
           # Production env: fetched from Secrets Manager by the instance role,
           # converted to KEY=VALUE lines, never baked into user-data or committed.
+          # This includes MOTERVA_SOURCE_KEY_KEK (source-credential custody,
+          # PR #64 contract): the WHOLE secret flows to /opt/moterva/production.env
+          # (mode 600) and from there ONLY into the api container via compose
+          # env_file — the web edge never loads this file, nothing echoes it.
           # /opt/moterva/refresh-env.sh re-runs this at any time (bootstrap
-          # --refresh-env / founder adds provider credentials later).
+          # --refresh-env / founder adds provider credentials later); it
+          # re-reads but never rewrites the secret, so the KEK is never rotated.
           cat > /opt/moterva/refresh-env.sh <<'EOR'
           #!/bin/bash
           set -euo pipefail

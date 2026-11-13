@@ -57,7 +57,14 @@ jobs:
           bash -n deploy/aws/provision-cognito.sh
           bash -n deploy/aws/link-owner.sh
           bash -n deploy/aws/reviewer-smoke.sh
+          bash -n deploy/aws/ensure-kek.sh
           node deploy/aws/test/contract-checks.mjs
+
+      - name: Source-key KEK provisioning tests (stubbed Secrets Manager)
+        run: bash deploy/aws/test/kek-provision.test.sh
+
+      - name: Source-key KEK production-boot probe (skips until PR #64 merges)
+        run: node deploy/aws/test/kek-boot-probe.mjs .
 
   compose-boot:
     name: Compose boot (build images, HTTPS edge, fail-closed surface)

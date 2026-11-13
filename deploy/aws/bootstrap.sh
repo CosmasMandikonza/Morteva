@@ -65,8 +65,9 @@ done
 EXPECTED_SHA256_provision_cognito_sh="aea27e3b20b451287210ff056205c64009d0577bdd3d550395714f0914fd0443"
 EXPECTED_SHA256_reviewer_smoke_sh="475319311eb7bef4d0b8c03a2f5defa7e4f6962618cd938fc42be8f5d3cd9f2e"
 EXPECTED_SHA256_compose_production_yml="347baf02c64a4a2f0912bf38e434f263367218402cbbd1da02c5d97dd737f4c5"
-EXPECTED_SHA256_cloudformation_yaml="05c52c7a808d447ff87a144b31010c5fc940fae07cc1227b280325da0cc819b4"
+EXPECTED_SHA256_cloudformation_yaml="93ab6c81a92adbbf9cbdff13b6b972700c0c5a4a1021ef03e74528188cb5a4a9"
 EXPECTED_SHA256_link_owner_sh="eade3ab815b520b581ab054afbcb26e51474b424f1253d29496c4a7b7b936feb"
+EXPECTED_SHA256_ensure_kek_sh="2ccbefed3cdd6979a4a2631ddde790aa887119eae6512b935f68ac51aa99d0f3"
 
 log() { printf '\n\033[1;36m[bootstrap]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[bootstrap FAILED]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -130,6 +131,7 @@ fetch_companion reviewer-smoke.sh
 fetch_companion compose.production.yml
 fetch_companion cloudformation.yaml
 fetch_companion link-owner.sh
+fetch_companion ensure-kek.sh
 
 # --------------------------------------------------------------- refresh-env
 if [ "$MODE" = "refresh-env" ]; then
@@ -151,18 +153,34 @@ if [ -z "$SECRET_ARN" ] || [ "$SECRET_ARN" = "None" ]; then
   SECRET_ARN=$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --region "$REGION" --query ARN --output text)
 fi
 
+# SOURCE-KEY KEK (CTO PR#62 comment 6808567133): provision the one-time
+# 32-byte KEK BEFORE anything else writes to the secret — subsequent reruns,
+# --refresh-env and redeploys never rotate it (rotation is operator-only).
+# Runs in CloudShell; the value never leaves Secrets Manager.
+SECRET_NAME="$SECRET_NAME" bash "$TMP/ensure-kek.sh"
+
 merge_secret() { # merge KEY=VALUE pairs into the secret JSON (existing values are overwritten by these)
   # WEB_ORIGIN is what apps/api/src/config.ts actually reads (CORS origin +
   # OIDC landing). The earlier draft wrote a differently-named origin var
   # the API never read — the P0-3 contract check forbids any such key here.
-  aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --region "$REGION" \
-    --query SecretString --output text | jq -s '.[0] * .[1]' - <(jq -n \
-      --arg domain "$DOMAIN" \
-      --arg origin "https://$DOMAIN" \
-      --arg redirect "https://$DOMAIN/api/auth/oidc/callback" \
-      --arg issuer "$1" --arg clientid "$2" --arg secret "$3" \
-      '{WEB_ORIGIN:$origin, MOTERVA_DOMAIN:$domain, MOTERVA_REVIEWER_DEMO:"1", MOTERVA_TRUST_PROXY:"1", MOTERVA_OIDC_ISSUER:$issuer, MOTERVA_OIDC_CLIENT_ID:$clientid, MOTERVA_OIDC_CLIENT_SECRET:$secret, MOTERVA_OIDC_REDIRECT_URI:$redirect}') \
-    | aws secretsmanager put-secret-value --secret-id "$SECRET_NAME" --region "$REGION" --secret-string file:///dev/stdin >/dev/null
+  # SOURCE-KEY CUSTODY (CTO PR#62 comment 6808567133): the three custody
+  # variables are STRIPPED from the incoming object before merging — this
+  # function (and anything that ever extends it) can never create, rotate
+  # or overwrite the KEK. Provisioning is ensure-kek.sh (one-time); rotation
+  # is the operator's PREVIOUS/RETIRED protocol. Existing values persist
+  # through the merge because jq '*' keeps untouched keys from .[0].
+  local incoming merged
+  incoming="$(jq -n \
+    --arg domain "$DOMAIN" \
+    --arg origin "https://$DOMAIN" \
+    --arg redirect "https://$DOMAIN/api/auth/oidc/callback" \
+    --arg issuer "$1" --arg clientid "$2" --arg secret "$3" \
+    '{WEB_ORIGIN:$origin, MOTERVA_DOMAIN:$domain, MOTERVA_REVIEWER_DEMO:"1", MOTERVA_TRUST_PROXY:"1", MOTERVA_OIDC_ISSUER:$issuer, MOTERVA_OIDC_CLIENT_ID:$clientid, MOTERVA_OIDC_CLIENT_SECRET:$secret, MOTERVA_OIDC_REDIRECT_URI:$redirect}')"
+  merged="$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --region "$REGION" \
+    --query SecretString --output text \
+    | jq -s --argjson next "$incoming" '.[0] * ($next | del(.MOTERVA_SOURCE_KEY_KEK, .MOTERVA_SOURCE_KEY_KEK_PREVIOUS, .MOTERVA_SOURCE_KEY_KEK_RETIRED))')"
+  aws secretsmanager put-secret-value --secret-id "$SECRET_NAME" --region "$REGION" \
+    --secret-string "$merged" >/dev/null
 }
 
 # --------------------------------------------------------------- cognito
