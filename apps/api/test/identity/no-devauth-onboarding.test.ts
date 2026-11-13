@@ -118,7 +118,9 @@ beforeAll(async () => {
   // point of this suite — NO MOTERVA_DEV_AUTH anywhere.
   app = buildApp(
     loadConfig({
-      MOTERVA_SOURCE_KEY_KEK: createHash('sha256').update('no-devauth-onboarding-test-kek').digest('hex'),
+      MOTERVA_SOURCE_KEY_KEK: createHash('sha256')
+        .update('no-devauth-onboarding-test-kek')
+        .digest('hex'),
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
       WEB_ORIGIN,
