@@ -115,10 +115,14 @@ export function parseIdentityConfig(
       issues.push(`${OIDC_ENV_VARS.issuer}: "${raw.issuer}" is not a valid URL.`);
     }
     if (issuerUrl !== null) {
-      if (issuerUrl.pathname !== '/' && issuerUrl.pathname !== '') {
-        issues.push(
-          `${OIDC_ENV_VARS.issuer}: must be an origin (or origin + trailing path without query/fragment).`,
-        );
+      // The issuer may be an origin OR origin + path (required for identity
+      // providers whose issuer necessarily carries a path — Amazon Cognito:
+      // https://cognito-idp.<region>.amazonaws.com/<userPoolId>). The exact
+      // string is still enforced against the discovered metadata issuer
+      // downstream, so a wrong path cannot silently pass. Query strings and
+      // fragments remain refused.
+      if (issuerUrl.pathname.includes('//')) {
+        issues.push(`${OIDC_ENV_VARS.issuer}: malformed path "${issuerUrl.pathname}".`);
       }
       if (issuerUrl.search !== '' || issuerUrl.hash !== '') {
         issues.push(`${OIDC_ENV_VARS.issuer}: query strings and fragments are not allowed.`);

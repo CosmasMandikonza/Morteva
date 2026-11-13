@@ -1,47 +1,71 @@
-# MOTERVA judge environment — minimal AWS stack (issues #17/#19).
+# MOTERVA judge environment — single-instance AWS stack (issues #17/#19).
 #
-# One t3.micro EC2 instance (Amazon Linux 2023, Docker preinstalled via
-# user-data), an encrypted 20 GB gp3 data volume for the SQLite ledger, an
-# Elastic IP, and a least-privilege instance role (ECR pull + one Secrets
-# Manager secret + CloudWatch metrics). No RDS, no ALB, no EKS — the app is
-# two containers behind Caddy; the instance IS the deployment target.
+# Provisioned BY deploy/aws/bootstrap.sh (never by hand): it resolves the
+# default-VPC subnets, creates the Secrets Manager secret, provisions
+# Cognito, and runs `aws cloudformation deploy` with these parameters.
 #
-# Deploy (founder, from a machine with AWS credentials):
-#   aws cloudformation deploy \
-#     --template-file deploy/aws/cloudformation.yaml \
-#     --stack-name moterva-judge \
-#     --capabilities CAPABILITY_NAMED_IAM \
-#     --parameter-overrides \
-#         MotervaSecretArn=<arn of the moterva/production secret> \
-#         SshAllowedCidr=<your-ip>/32   # or leave default to disable SSH (SSM only)
-#
-# After creation: point DNS at the Elastic IP output; the Caddy edge obtains
-# a Let's Encrypt certificate for MOTERVA_DOMAIN at first boot.
+# What this stack contains (nothing more):
+#   - one t3.micro EC2 instance, Amazon Linux 2023, SSM-managed (no SSH keys)
+#   - SSM Session Manager for operations (deploy workflow runs commands here)
+#   - dedicated encrypted 20 GB gp3 data volume for the SQLite ledger,
+#     surviving instance replacement (reattach, not data loss)
+#   - least-privilege instance role: ECR pull (2 repos, IMMUTABLE tags),
+#     SecretsManager Get on ONE secret ARN, CloudWatch put metrics (namespace
+#     moterva), SSM core, CloudWatch Agent
+#   - security group: 443 + 80 (ACME HTTP-01) only; no SSH ingress at all
+#   - Elastic IP (stable judge URL)
+#   - ECR repositories (immutable tags) the CI deploy workflow pushes to
+#   - a monthly cost Budget with ALERT emails (an alert is NOT a hard cap;
+#     steady ≈ $13.5/mo incl. public IPv4 $3.60; credits may not cover all fees)
+#   - status-check alarm + SNS alert topic
+#   - user-data: Docker/compose install, ledger volume mount (nofail), swap,
+#     Secrets Manager env fetch, /opt/moterva update helper — cfn-signals
+#     success only after Docker is live (stack CREATE waits)
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MOTERVA single-instance judge environment (compose + Caddy TLS + SQLite on encrypted EBS)
+Description: MOTERVA judge environment — one EC2 + Caddy TLS + SQLite on encrypted EBS + SSM + billing guardrails
 
 Parameters:
   MotervaSecretArn:
     Type: String
-    Description: ARN of the Secrets Manager secret holding the MOTERVA production env (never the value).
-  KeyPairName:
+    Description: ARN of the moterva/production secret (env values live here, never in git).
+  MotervaSecretName:
     Type: String
-    Default: ''
-    Description: Optional EC2 key pair for SSH; empty disables SSH entirely (SSM Session Manager preferred).
-  SshAllowedCidr:
+    Default: moterva/production
+  FounderEmail:
     Type: String
-    Default: ''
-    Description: Optional CIDR to allow SSH from; empty disables the SSH ingress rule.
+    Description: Billing alarm email (budget 80% actual + 100% forecast).
+  MonthlyBudgetLimit:
+    Type: Number
+    Default: 18
+    Description: USD monthly budget ALERT threshold (alert only — not a cap; steady ≈ $13.5 incl. public IPv4).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: One default-VPC subnet for the instance.
   InstanceType:
     Type: String
     Default: t3.micro
     AllowedValues: [t3.micro, t3.small]
 
-Conditions:
-  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
-  HasSsh: !And [!Condition HasKeyPair, !Not [!Equals [!Ref SshAllowedCidr, '']]]
-
 Resources:
+  # ------------------------------------------------------------ ECR
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    Properties:
+      RepositoryName: moterva-api
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+  WebRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    Properties:
+      RepositoryName: moterva-web
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+
+  # ------------------------------------------------------------ IAM
   InstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -52,6 +76,11 @@ Resources:
           - Effect: Allow
             Principal: { Service: ec2.amazonaws.com }
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # SSM Session Manager: the ONLY operational access (no SSH keys, no
+        # SSH ingress) and the channel the deploy workflow uses.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       Policies:
         - PolicyName: moterva-judge-least-privilege
           PolicyDocument:
@@ -60,19 +89,18 @@ Resources:
               - { Effect: Allow, Action: 'ecr:GetAuthorizationToken', Resource: '*' }
               - Effect: Allow
                 Action:
-                  [
-                    'ecr:BatchGetImage',
-                    'ecr:GetDownloadUrlForLayer',
-                    'ecr:BatchCheckLayerAvailability',
-                  ]
+                  - 'ecr:BatchGetImage'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:DescribeRepositories'
                 Resource:
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-api'
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-web'
+                  - !GetAtt ApiRepository.Arn
+                  - !GetAtt WebRepository.Arn
               - Effect: Allow
                 Action: 'secretsmanager:GetSecretValue'
                 Resource: !Ref MotervaSecretArn
               - Effect: Allow
-                Action: ['cloudwatch:PutMetricData']
+                Action: 'cloudwatch:PutMetricData'
                 Resource: '*'
                 Condition:
                   StringEquals: { 'cloudwatch:namespace': 'moterva' }
@@ -82,93 +110,214 @@ Resources:
       InstanceProfileName: moterva-judge-instance-profile
       Roles: [!Ref InstanceRole]
 
+  # ------------------------------------------------------------ Network
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: moterva-judge-sg
-      GroupDescription: MOTERVA judge edge (HTTPS + ACME only; SSH optional)
+      GroupDescription: MOTERVA judge edge — HTTPS + ACME HTTP-01 only; no SSH ingress
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
         - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
-        - !If
-          - HasSsh
-          - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref SshAllowedCidr }
-          - !Ref AWS::NoValue
 
+  # ------------------------------------------------------------ Compute
   JudgeInstance:
     Type: AWS::EC2::Instance
+    # Stack creation WAITS for user-data success: any boot failure signals
+    # -e 1 (ERR trap below) and the stack fails/rolls back visibly — it can
+    # never succeed with a broken runtime.
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
     Properties:
       ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref InstanceProfile
-      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref AWS::NoValue]
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroup]
+      Tags:
+        - { Key: Name, Value: moterva-judge }
+        - { Key: moterva:role, Value: judge }
       BlockDeviceMappings:
-        # Root: small; the ledger gets its OWN encrypted data volume so a
-        # replacement instance can re-attach it (persistence across
-        # container/instance replacement without touching the OS disk).
         - DeviceName: /dev/xvda
           Ebs: { VolumeSize: 8, VolumeType: gp3, Encrypted: true }
         - DeviceName: /dev/xvdf
           Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: false }
-      SecurityGroupIds: [!Ref SecurityGroup]
-      Tags:
-        - { Key: Name, Value: moterva-judge }
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          set -euo pipefail
-          dnf install -y docker
+          set -euxo pipefail
+          dnf install -y docker jq aws-cfn-bootstrap
           systemctl enable --now docker
-          # Compose plugin
           mkdir -p /usr/local/lib/docker/cli-plugins
           curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-          # Ledger home on the dedicated encrypted volume
-          mkfs -t xfs /dev/xvdf || true
-          mkdir -p /var/lib/moterva
-          mount /dev/xvdf /var/lib/moterva
-          echo '/dev/xvdf /var/lib/moterva xfs defaults,nofail 0 2' >> /etc/fstab
-          # 1 GB safety swap (images are CI-built; runtime fits t3.micro)
-          fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-          echo '/swapfile none swap sw 0 0' >> /etc/fstab
-          # Backup timer scaffolding (script ships with the compose checkout)
-          systemctl enable --now amazon-ssm-agent || true
+
+          # CloudFormation signal: the instance carries a CreationPolicy
+          # ResourceSignal — success is signaled ONLY at the very end; the
+          # ERR trap signals failure so a broken boot FAILS THE STACK fast.
+          SIGNAL_BIN=$(command -v cfn-signal || echo /opt/aws/apitools/cfn-init/bin/cfn-signal)
+          SIGNAL_OK() { "$SIGNAL_BIN" -e 0 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
+          SIGNAL_FAIL() { "$SIGNAL_BIN" -e 1 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
+          trap 'echo "user-data FAILED — signaling stack failure"; SIGNAL_FAIL' ERR
+
+          # ---- Ledger volume: dedicated encrypted EBS, discovered durably
+          # (Nitro exposes EBS as nvme, NOT /dev/xvdf). NEVER reformat an
+          # existing filesystem; bind-mounted by compose (see
+          # compose.production.yml) so the journal lives on THIS volume.
+          mkdir -p /var/lib/moterva /opt/moterva
+          ROOT_SRC=$(findmnt -n -o SOURCE /)                 # e.g. /dev/nvme0n1p1
+          ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -n1)
+          [ -n "$ROOT_DISK" ] || ROOT_DISK=$(echo "$ROOT_SRC" | sed -E 's/[0-9]+$//;s#^/dev/##')
+          DATADEVS=$(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v "^/dev/${ROOT_DISK}$")
+          DEV_COUNT=$(echo "$DATADEVS" | grep -c . || true)
+          [ "$DEV_COUNT" = "1" ] || { echo "FATAL: expected exactly one data disk, found $DEV_COUNT ($DATADEVS)"; exit 1; }
+          DATADEV=$(echo "$DATADEVS" | head -n1)
+          FS_TYPE=$(blkid -s TYPE -o value "$DATADEV" || true)
+          if [ -z "$FS_TYPE" ]; then
+            mkfs -t xfs "$DATADEV"      # blank volume only — existing FS is never reformatted
+          fi
+          mount "$DATADEV" /var/lib/moterva
+          DATA_UUID=$(blkid -s UUID -o value "$DATADEV")
+          grep -q '/var/lib/moterva' /etc/fstab || echo "UUID=$DATA_UUID /var/lib/moterva xfs defaults,nofail 0 2" >> /etc/fstab
+          # The api container runs as uid/gid 1000 (node); the ledger dir must
+          # be writable by it on the BIND-MOUNTED volume.
+          chown 1000:1000 /var/lib/moterva
+
+          # 1 GB safety swap (images are CI-built; runtime fits the micro)
+          if ! swapon --show=NAME --noheadings | grep -q swapfile; then
+            fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+
+          # Production env: fetched from Secrets Manager by the instance role,
+          # converted to KEY=VALUE lines, never baked into user-data or committed.
+          # This includes MOTERVA_SOURCE_KEY_KEK (source-credential custody,
+          # PR #64 contract): the WHOLE secret flows to /opt/moterva/production.env
+          # (mode 600) and from there ONLY into the api container via compose
+          # env_file — the web edge never loads this file, nothing echoes it.
+          # /opt/moterva/refresh-env.sh re-runs this at any time (bootstrap
+          # --refresh-env / founder adds provider credentials later); it
+          # re-reads but never rewrites the secret, so the KEK is never rotated.
+          cat > /opt/moterva/refresh-env.sh <<'EOR'
+          #!/bin/bash
+          set -euo pipefail
+          aws secretsmanager get-secret-value --secret-id ${MotervaSecretName} --query SecretString --output text \
+            | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /opt/moterva/production.env
+          chmod 600 /opt/moterva/production.env
+          cd /opt/moterva
+          SHA=$(cat .current-sha 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            MOTERVA_RELEASE_SHA="$SHA" docker compose -f compose.production.yml up -d api
+          fi
+          EOR
+          chmod +x /opt/moterva/refresh-env.sh
+          /opt/moterva/refresh-env.sh
+
+          # Update helper — the deploy workflow and rollback both run exactly
+          # this with one argument: the immutable release-SHA image tag.
+          # Health gate: the compose file publishes the api on host-loopback
+          # 127.0.0.1:18087 (deploy/aws/test/contract-checks.mjs enforces
+          # this exact match — never drift the two files independently).
+          cat > /opt/moterva/update.sh <<'EOS'
+          #!/bin/bash
+          set -euo pipefail
+          SHA="$1"
+          [[ "$SHA" =~ ^[0-9a-f]{7,64}$ ]] || { echo "refusing non-SHA tag: $SHA"; exit 2; }
+          # FAIL CLOSED: the financial journal must live on the dedicated EBS
+          # mount. If /var/lib/moterva is not a real mountpoint, refuse to
+          # start the api (it would silently write to the root disk instead).
+          if ! findmnt -n -o SOURCE /var/lib/moterva >/dev/null 2>&1; then
+            echo "FATAL: /var/lib/moterva is not a mountpoint — refusing to start the api on root-disk storage"; exit 3
+          fi
+          cd /opt/moterva
+          aws ecr get-login-password | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          MOTERVA_RELEASE_SHA="$SHA" docker compose -f compose.production.yml pull
+          MOTERVA_RELEASE_SHA="$SHA" docker compose -f compose.production.yml up -d --remove-orphans
+          echo "$SHA" > /opt/moterva/.current-sha
+          for i in $(seq 1 90); do
+            sleep 2
+            if curl -fsS http://127.0.0.1:18087/healthz >/dev/null 2>&1; then
+              echo "healthy at $SHA"; exit 0
+            fi
+          done
+          echo "health check failed at $SHA"; exit 1
+          EOS
+          chmod +x /opt/moterva/update.sh
+
+          # Provisioned infra only: first deploy runs via the CI workflow
+          # (SSM) once immutable images exist. Signal success LAST.
+          SIGNAL_OK
+          trap - ERR
+
+  ElasticIP:
 
   ElasticIP:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
-      Tags:
-        - { Key: Name, Value: moterva-judge }
-
+      Tags: [{ Key: Name, Value: moterva-judge }]
   EIPAssociation:
     Type: AWS::EC2::EIPAssociation
     Properties:
       InstanceId: !Ref JudgeInstance
       AllocationId: !GetAtt ElasticIP.AllocationId
 
+  # ------------------------------------------------------------ Alarms
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: moterva-judge-alerts
+      Subscription:
+        - { Endpoint: !Ref FounderEmail, Protocol: email }
   StatusCheckAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: moterva-judge-status-check
+      AlarmActions: [!Ref AlertTopic]
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed
-      Dimensions:
-        - { Name: InstanceId, Value: !Ref JudgeInstance }
+      Dimensions: [{ Name: InstanceId, Value: !Ref JudgeInstance }]
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 2
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
-      AlarmDescription: MOTERVA judge instance failing status checks
+
+  # ------------------------------------------------- Billing guardrail
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: moterva-judge-monthly
+        BudgetLimit: { Amount: !Ref MonthlyBudgetLimit, Unit: USD }
+        TimeUnit: MONTHLY
+        BudgetType: COST
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref FounderEmail }
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref FounderEmail }
 
 Outputs:
   ElasticIP:
     Value: !Ref ElasticIP
-    Description: Point the judge DNS A record here.
+    Description: Point the judge DNS A record at this address.
   InstanceId:
     Value: !Ref JudgeInstance
-  RoleArn:
+  ApiRepositoryUri:
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/moterva-api'
+  WebRepositoryUri:
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/moterva-web'
+  InstanceRoleArn:
     Value: !GetAtt InstanceRole.Arn
-    Description: Trust this ARN only for the documented least-privilege policy.

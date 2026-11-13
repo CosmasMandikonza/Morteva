@@ -1,0 +1,135 @@
+name: Deploy AWS
+
+# Issue #17 — immutable-release-SHA deployment to the judge instance.
+#
+# Manual dispatch ONLY (no spend, no deploy without a human choosing the
+# exact reviewed SHA). Builds both release images FROM THE INPUT SHA as
+# checked out here, pushes them to ECR under the immutable tag
+# `sha-<sha>`, then drives the instance update over SSM Session Manager
+# (no SSH keys; the instance role allows SSM). Rollback = dispatch the
+# same workflow with an older SHA — ECR tags are immutable, old images
+# stay pullable.
+#
+# Required repository configuration (created by deploy/aws/bootstrap.sh):
+#   vars.AWS_DEPLOY_ROLE_ARN   – the OIDC-federated deploy role ARN
+#   vars.AWS_REGION            – us-east-1
+# The role's trust policy is scoped to repo CosmasMandikonza/Morteva and
+# its permissions are: ECR push on the two moterva repos + SSM SendCommand
+# on the judge instance. Nothing else. No AWS keys are stored anywhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Exact git SHA to build and deploy (7-40 hex). Rollback = an older reviewed SHA.'
+        required: true
+        type: string
+      confirm_live:
+        description: 'Type DEPLOY to confirm (spend guard: this deploys to the live judge instance).'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC → AWS (short-lived credentials only)
+
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, push (ECR), update instance (SSM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SHA_INPUT: ${{ github.event.inputs.release_sha }}
+    steps:
+      - name: Validate inputs
+        run: |
+          echo "$SHA_INPUT" | grep -Eq '^[0-9a-f]{7,40}$' || { echo "release_sha must be 7-40 hex"; exit 1; }
+          [ "${{ github.event.inputs.confirm_live }}" = "DEPLOY" ] || { echo "confirm_live must be DEPLOY"; exit 1; }
+          SHA_FULL=$(git ls-remote https://github.com/${{ github.repository }} | grep -E "^[0-9a-f]{40}" | grep -m1 -oE "^${SHA_INPUT}[0-9a-f]*" || true)
+          if [ -z "$SHA_FULL" ]; then
+            # The SHA may exist only on a branch/listing variant; verify via the API instead.
+            curl -fsSL "https://api.github.com/repos/${{ github.repository }}/commits/${SHA_INPUT}" \
+              | grep -q '"sha"' || { echo "SHA $SHA_INPUT not found in the repository"; exit 1; }
+            SHA_FULL=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/commits/${SHA_INPUT}" \
+              | grep -m1 -oE '"sha": *"[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}')
+          fi
+          echo "SHA_FULL=$SHA_FULL" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA_FULL }}
+          persist-credentials: false
+
+      - name: Record release provenance
+        run: |
+          echo "Deploying MOTERVA at $SHA_FULL"
+          git rev-parse HEAD | grep -q "$SHA_FULL" || { echo "checkout does not match the input SHA"; exit 1; }
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: moterva-deploy-${{ github.run_id }}
+
+      - name: Build and push immutable release images
+        run: |
+          set -euo pipefail
+          REGISTRY=$(aws sts get-caller-identity --query Account --output text)
+          REGION="${{ vars.AWS_REGION }}"
+          TAG="sha-${SHA_FULL}"
+          echo "REGISTRY=$REGISTRY" >> "$GITHUB_ENV"
+          aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY.dkr.ecr.$REGION.amazonaws.com"
+          docker build -f deploy/Dockerfile    -t "$REGISTRY.dkr.ecr.$REGION.amazonaws.com/moterva-api:$TAG" .
+          docker build -f deploy/web/Dockerfile -t "$REGISTRY.dkr.ecr.$REGION.amazonaws.com/moterva-web:$TAG" .
+          docker push "$REGISTRY.dkr.ecr.$REGION.amazonaws.com/moterva-api:$TAG"
+          docker push "$REGISTRY.dkr.ecr.$REGION.amazonaws.com/moterva-web:$TAG"
+
+      - name: Update the judge instance over SSM
+        run: |
+          set -euo pipefail
+          REGION="${{ vars.AWS_REGION }}"
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=moterva-judge" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)
+          [ "$INSTANCE_ID" != "None" ] || { echo "moterva-judge instance not found (running)"; exit 1; }
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "moterva deploy ${SHA_FULL}" \
+            --parameters "commands=[/opt/moterva/update.sh ${SHA_FULL}]" \
+            --timeout-seconds 600 \
+            --query 'Command.CommandId' --output text)
+          for i in $(seq 1 60); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text)
+            case "$STATUS" in
+              Success) echo "deployed $SHA_FULL"; break ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' --output text || true
+                echo "update failed with status $STATUS"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          [ "$STATUS" = "Success" ] || { echo "SSM command did not finish"; exit 1; }
+
+      - name: Post-deploy health assertions (public HTTPS)
+        run: |
+          set -euo pipefail
+          DOMAIN=$(aws ssm send-command \
+            --instance-ids $(aws ec2 describe-instances --filters "Name=tag:Name,Values=moterva-judge" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text) \
+            --document-name AWS-RunShellScript \
+            --parameters "commands=[grep '^MOTERVA_DOMAIN=' /opt/moterva/.env | cut -d= -f2]" \
+            --query 'Command.CommandId' --output text)
+          sleep 3
+          DOMAIN_VALUE=$(aws ssm get-command-invocation --command-id "$DOMAIN" --instance-id $(aws ec2 describe-instances --filters "Name=tag:Name,Values=moterva-judge" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text) --query 'StandardOutputContent' --output text | tr -d '[:space:]')
+          echo "public origin: https://$DOMAIN_VALUE"
+          curl -fsS "https://$DOMAIN_VALUE/healthz" | grep -q "\"gitSha\":\"${SHA_FULL}\"" \
+            || { echo "healthz provenance mismatch"; exit 1; }
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN_VALUE/api/missions")
+          [ "$CODE" = "401" ] || [ "$CODE" = "404" ] || { echo "/api/missions returned $CODE — expected 401/404 fail-closed"; exit 1; }
+          echo "post-deploy assertions pass"

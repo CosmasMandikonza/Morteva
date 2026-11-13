@@ -113,6 +113,18 @@ describe('transport rules', () => {
     expect(frag.join('\n')).toMatch(/query strings and fragments/);
   });
 
+  it('origin + path issuers are accepted (Amazon Cognito carries a mandatory pool-id path)', () => {
+    const cognitoIssuer = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ExamplePool';
+    const issues = captureIssues({ ...COMPLETE, MOTERVA_OIDC_ISSUER: cognitoIssuer }, 'production');
+    expect(issues).toEqual([]);
+    const config = loadConfig({
+      ...COMPLETE,
+      MOTERVA_OIDC_ISSUER: cognitoIssuer,
+      NODE_ENV: 'production',
+    });
+    expect(config.identity!.issuer).toBe(cognitoIssuer);
+  });
+
   it('redirect URI fragment is refused; production redirect must be https', () => {
     const frag = captureIssues({
       ...COMPLETE,
