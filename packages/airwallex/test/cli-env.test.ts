@@ -199,3 +199,36 @@ describe('smoke CLI env loading (real child processes, hermetic)', () => {
     }
   });
 });
+
+describe('--prepare-only binds to the Transfers-Write identity (CTO decision: strict fingerprint)', () => {
+  it('prepare-only BLOCKS exit 2 with only the read-only pair — the read key never prepares an execution intent', () => {
+    const transferCli = join(REPO_ROOT, 'packages', 'airwallex', 'src', 'smoke', 'transfer.ts');
+    const dir = mkdtempSync(join(tmpdir(), 'awx-env-fixture-'));
+    try {
+      const fixture = join(dir, 'fixture.env');
+      writeFileSync(
+        fixture,
+        [
+          'AIRWALLEX_ENV=sandbox',
+          `AIRWALLEX_CLIENT_ID=${FAKE_ID}`,
+          `AIRWALLEX_API_KEY=${FAKE_KEY}`,
+          'AIRWALLEX_SANDBOX_BENEFICIARY_ID=bene_fixture',
+          '',
+        ].join('\n'),
+      );
+      const r = spawnSync(
+        process.execPath,
+        [`--env-file-if-exists=${fixture}`, TSX, transferCli, '--prepare-only'],
+        { cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000, env: hermeticEnv() },
+      );
+      const run = { status: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('Transfers-Write credential is not configured');
+      // Nothing was prepared and nothing left the machine.
+      expect(run.stdout).not.toContain('PREPARED');
+      assertNoSecrets(run);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
