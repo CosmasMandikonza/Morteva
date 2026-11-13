@@ -385,6 +385,29 @@ export function loadSnapshots(ledger: Ledger, orgId: string, missionId: string):
   return out;
 }
 
+/**
+ * Causality label for the admitted observations, derived from the ACCEPTED
+ * evidence's own source provenance — never hardcoded. FIELD means a
+ * credential-authenticated registered source CLAIMED the reading (not
+ * independently verified sensor truth); SYNTHETIC stays labeled simulated;
+ * a mix says so. Unknown provenance fails to the mixed/unknown wording
+ * rather than impersonating either class.
+ */
+export function physicalObservationCausality(
+  accepted: readonly { source?: { readonly provenance?: string } }[],
+): string {
+  if (accepted.length === 0) return 'NO_PHYSICAL_EVIDENCE';
+  const has = { FIELD: false, SYNTHETIC: false, unknown: false };
+  for (const e of accepted) {
+    const p = e.source?.provenance;
+    if (p === 'FIELD') has.FIELD = true;
+    else if (p === 'SYNTHETIC') has.SYNTHETIC = true;
+    else has.unknown = true;
+  }
+  if (has.FIELD && !has.SYNTHETIC && !has.unknown) return 'FIELD_SOURCE_AUTHENTICATED_CLAIMS';
+  if (has.SYNTHETIC && !has.FIELD && !has.unknown) return 'SYNTHETIC_JOURNAL';
+  return 'MIXED_PROVENANCE_JOURNAL';
+}
 function buildSnapshotPayload(
   ctx: ReturnType<typeof evaluateMission>,
   stage: 'baseline' | 'incident',
@@ -423,7 +446,7 @@ function buildSnapshotPayload(
     causality: {
       // Admitted journal events: SYNTHETIC demo observations (per source
       // provenance; the events block above carries the per-event digest).
-      physicalObservations: 'SYNTHETIC_JOURNAL',
+      physicalObservations: physicalObservationCausality(safety.evidence),
       // Whether a model adapter contributed interpretation to this decision.
       modelInterpretation: decision.trace.modelAdapter ?? 'NONE',
       // The decision itself: deterministic policy evaluation, never model text.

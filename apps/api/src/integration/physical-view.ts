@@ -222,6 +222,28 @@ export function constraintFor(input: {
   };
 }
 
+/**
+ * Truth label derived from the ADMITTED journal provenance — authenticated
+ * FIELD claims are never presented as simulated data, and synthetic data is
+ * never presented as field truth. POLICY-ONLY (decisions propose; they never
+ * execute) applies in every case.
+ */
+export function provenanceTruthLabel(timeline: MissionTimelineView): string {
+  let field = 0;
+  let synthetic = 0;
+  let other = 0;
+  for (const e of timeline.events) {
+    if (e.provenance === 'FIELD') field += 1;
+    else if (e.provenance === 'SYNTHETIC') synthetic += 1;
+    else other += 1;
+  }
+  const total = field + synthetic + other;
+  if (total === 0) return 'AWAITING AUTHENTICATED OBSERVATIONS — POLICY-ONLY';
+  if (field > 0 && synthetic === 0 && other === 0)
+    return 'FIELD CLAIMS (CREDENTIAL-AUTHENTICATED SOURCE) — NOT INDEPENDENTLY VERIFIED · POLICY-ONLY';
+  if (synthetic > 0 && field === 0 && other === 0) return 'SIMULATED_OPERATION — POLICY-ONLY';
+  return 'MIXED PROVENANCE (FIELD CLAIMS + SYNTHETIC) — POLICY-ONLY';
+}
 export function projectPhysicalView(
   timeline: MissionTimelineView,
   truthLabel: string,
@@ -416,7 +438,7 @@ export function registerPhysicalViewRoute(app: FastifyInstance, ledger: Ledger):
       );
       const { payload } = projectPhysicalView(
         timeline,
-        'SIMULATED_OPERATION — POLICY-ONLY',
+        provenanceTruthLabel(timeline),
         domains,
         spec,
       );
