@@ -108,7 +108,7 @@ function DecisionExpandable({
           </span>
           {decision !== null && outcomeBadge(decision)}
           <span className="mv-xcard__meta">
-            {decision.outcome} · POLICY-ONLY ·{' '}
+            {decision.outcome} ·{' '}
             {decision.authorization ===
             'PROPOSED_ONLY — requires separate human approval and ledger recheck'
               ? 'requires human approval'
@@ -1119,6 +1119,9 @@ export function DecisionRoom({
 
   const EVIDENCE_PANEL = (
     <>
+      {/* Simulation / verification provenance lives on the Evidence lens —
+          inspectable on demand, never stacked above the scene as chrome. */}
+      <TruthBoundary modelLabel={modelLabel} modelDetail={modelDetail} />
       <section className="mv-governed" aria-label="Evidence chain">
         <h3 className="mv-droom__secttitle">Evidence chain</h3>
         <p className="mv-governed__note">
@@ -1178,10 +1181,11 @@ export function DecisionRoom({
             // Nothing has been declared for this mission yet — never present
             // the fallback catalog's labels (or thresholds) as its identity.
             <HaloBadge tone="neutral" glyph="◇" label="UNCONFIGURED" />
-          ) : (
+          ) : // Demo missions: the top-bar "Demo workspace" chip is already the
+          // one sample indicator — no second SIMULATED OPERATION badge here.
+          session.session.demoAuth ? null : (
             <HaloBadge tone="hold" glyph="⚑" label="SIMULATED OPERATION" />
           )}
-          <HaloBadge tone="neutral" glyph="◇" label="POLICY-ONLY" />
           {mode !== 'unconfigured' && mode !== 'unknown' && (
             <HaloBadge
               tone={view.hasIncident && mode !== 'customer' ? 'transit' : 'neutral'}
@@ -1217,8 +1221,6 @@ export function DecisionRoom({
         <div className="mv-droom">
           {/* ================= LEFT — physical mission column (≈7 cols) */}
           <section className="mv-droom__physical" aria-label="Physical mission context">
-            <TruthBoundary modelLabel={modelLabel} modelDetail={modelDetail} />
-
             {mode === 'unconfigured' && (
               <section
                 className="mv-governed mv-droom__onboarding"

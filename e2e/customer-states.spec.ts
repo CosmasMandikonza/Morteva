@@ -302,7 +302,9 @@ test.describe('decision states from the real journal', () => {
     await expect(page.getByTestId('evaluate-journal')).toBeDisabled();
     await expect(page.getByTestId('field-unavailable')).toBeVisible();
     // still honest about everything else
+    await page.getByTestId('halotab-evidence').click();
     await expect(page.getByTestId('truth-boundary')).toContainText('AIRWALLEX: OFFLINE');
+    await page.getByTestId('halotab-finance').click();
   });
 });
 

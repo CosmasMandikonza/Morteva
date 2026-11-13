@@ -245,12 +245,15 @@ test('customer journey: unseen mission → authenticated evidence → decision �
   await expect(page.getByTestId('start-synthetic')).toHaveCount(0);
   await expect(page.getByTestId('customer-ops')).toBeVisible();
 
-  // Truth boundary printed honestly.
+  // Truth boundary printed honestly — on the Evidence lens, on demand
+  // (founder UX gate: provenance chrome never stacks above the scene).
+  await page.getByTestId('halotab-evidence').click();
   const truth = page.getByTestId('truth-boundary');
   await expect(truth).toContainText('FIELD EVIDENCE = AUTHENTICATED CLAIMS');
   await expect(truth).toContainText('AIRWALLEX: OFFLINE · UNVERIFIED');
   await expect(truth).toContainText('METAL: NO RECEIPT');
   await expect(page.getByTestId('truth-model')).toContainText('POLICY-ONLY');
+  await page.getByTestId('halotab-finance').click();
 
   // Field observations show the authenticated evidence with honest provenance.
   const events = page.getByTestId('field-events');
@@ -359,7 +362,12 @@ test('customer journey: unseen mission → authenticated evidence → decision �
   await expect(page.getByTestId('plan-approval-recorded')).toBeVisible({ timeout: 15_000 });
   // Provider state stays honest: nothing is settled, paid or verified.
   await expect(room).not.toContainText(/SETTLED|RECONCILED|\bPAID\b/);
-  await expect(room).toContainText('AIRWALLEX: OFFLINE');
+  // provider-uncertainty warning lives at the decision boundary (founder UX gate):
+  await expect(room).toContainText('Provider verification: none');
+  // the full provenance strip stays inspectable on the Evidence lens
+  await page.getByTestId('halotab-evidence').click();
+  await expect(page.getByTestId('truth-boundary')).toContainText('AIRWALLEX: OFFLINE');
+  await page.getByTestId('halotab-finance').click();
 
   // =================================================== 8. Evidence Replay, same identities
   await page.getByRole('link', { name: 'Evidence Replay' }).click();
