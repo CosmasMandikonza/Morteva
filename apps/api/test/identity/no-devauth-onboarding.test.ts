@@ -11,6 +11,7 @@
  * IDENTITY_CONFLICT), and the ledger journals the provisioning evidence.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -117,6 +118,7 @@ beforeAll(async () => {
   // point of this suite — NO MOTERVA_DEV_AUTH anywhere.
   app = buildApp(
     loadConfig({
+      MOTERVA_SOURCE_KEY_KEK: createHash('sha256').update('no-devauth-onboarding-test-kek').digest('hex'),
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
       WEB_ORIGIN,

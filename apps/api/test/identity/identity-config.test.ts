@@ -31,6 +31,9 @@ const COMPLETE = {
   MOTERVA_OIDC_CLIENT_ID: 'moterva-prod',
   MOTERVA_OIDC_CLIENT_SECRET: 'a-real-server-side-secret-value',
   MOTERVA_OIDC_REDIRECT_URI: 'https://app.example.com/api/auth/oidc/callback',
+  // Production + identity requires the source-key KEK (C's custody rule,
+  // PR #64): a valid runtime-derived fixture key — never a repo literal.
+  MOTERVA_SOURCE_KEY_KEK: PRODUCTION_KEK,
 };
 
 describe('identity configuration is all-or-nothing', () => {
