@@ -49,6 +49,9 @@ const EXPONENTS: Readonly<Record<string, number>> = {
   BHD: 3,
 };
 
+/** Codes with a registered exponent (drift-tested against the domain table). */
+export const SUPPORTED_CURRENCIES: readonly string[] = Object.freeze(Object.keys(EXPONENTS));
+
 class CurrencyPrecisionError extends Error {
   constructor(
     readonly code: 'UNSUPPORTED_CURRENCY' | 'NOT_AN_INTEGER' | 'INVALID_EXPONENT',

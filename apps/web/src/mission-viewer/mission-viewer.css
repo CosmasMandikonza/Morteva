@@ -471,3 +471,137 @@
   color: var(--mv-ink-2);
   max-width: 640px;
 }
+
+/* ---- Decision Room chrome ('below') — CTO visual gate, PR #65 -------------
+ * The scene is ONE unobstructed plane: a tiny non-interactive status pill is
+ * the only in-scene UI (well under 10% of a desktop canvas). The full HUD
+ * renders as a static block BENEATH the stage at every width, and the old
+ * fixed 250px evidence aside becomes a compact collapsible timeline below
+ * the strip (or one honest line when nothing has been admitted). Consumes
+ * the same semantic --mv-* tokens; dark and light share every rule. */
+
+.mpv--droom {
+  grid-template-columns: minmax(0, 1fr);
+  /* The viewer responds to ITS OWN width: on a phone-width canvas the scene
+     is too small to also carry an in-scene badge without crowding evidence
+     markers, so the badge yields (container query at the end of this file) —
+     the strip below keeps the full status. */
+  container-type: inline-size;
+}
+
+.mpv-scene-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--mv-surface-overlay);
+  border: 1px solid var(--mv-line);
+  backdrop-filter: blur(4px);
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  pointer-events: none;
+  max-width: calc(100% - 20px);
+}
+
+.mpv-scene-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.mpv-scene-badge__dot--nominal {
+  background: var(--mv-info-text);
+}
+
+.mpv-scene-badge__dot--restricted {
+  background: var(--mv-danger-text);
+}
+
+.mpv-scene-badge__dot--uncertain {
+  background: var(--mv-transit-text);
+}
+
+.mpv-scene-badge__mode {
+  color: var(--mv-ink-3);
+}
+
+/* The HUD block below the stage: same content and testids as the overlay,
+   repositioned by placement only. */
+.mpv-hud--below {
+  position: static;
+  inset: auto;
+  max-width: none;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  backdrop-filter: none;
+}
+
+.mpv-evidence {
+  border-top: 1px solid var(--mv-line);
+  padding: 8px 12px 10px;
+}
+
+.mpv-evidence summary {
+  cursor: pointer;
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  padding: 2px 0;
+}
+
+.mpv-evidence summary:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-focus-ring);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* Compact horizontal timeline inside the disclosure (the rail's vertical
+   list would waste the full-width row below the stage). */
+.mpv-evidence__list {
+  border-left: none;
+  padding: 6px 0 0;
+  max-height: none;
+  overflow: visible;
+}
+
+.mpv-evidence__list .mpv-events__list {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mpv-evidence__list .mpv-events__item {
+  width: auto;
+  grid-template-columns: 10px auto;
+}
+
+.mpv-evidence__list .mpv-events__meta {
+  grid-column: 2;
+}
+
+.mpv-evidence__empty {
+  margin: 0;
+  border-top: 1px solid var(--mv-line);
+  padding: 10px 12px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+
+/* Container query lives at the END of the file and uses a descendant
+   selector so it wins the cascade over the base badge rule regardless of
+   source order. On a phone-width CANVAS (the viewer's own inline size, not
+   the viewport) the in-scene badge yields entirely — the strip below the
+   stage keeps the full status text. */
+@container (max-width: 480px) {
+  .mpv--droom .mpv-scene-badge {
+    display: none;
+  }
+}

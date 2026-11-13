@@ -357,6 +357,424 @@ export function fetchPhysicalDecision(
   );
 }
 
+// ---------------------- C1 mission specification read (typed, read-only)
+
+export interface MissionSpecAsset {
+  readonly assetId: string;
+  readonly domainKind: 'aerial' | 'ground' | 'surface';
+  readonly label: string;
+}
+
+export interface SpecOfferView {
+  readonly id: string;
+  readonly kind: string;
+  readonly currency: string;
+  readonly baseCostMinor: number;
+  readonly feeMinor: number;
+  readonly leadTimeMinutes: number;
+  readonly durationMinutes: number;
+  readonly probabilityOfSuccess: number;
+  readonly availability: string;
+  readonly beneficiary: string;
+  readonly purpose: string;
+  readonly requiresAssetId?: string;
+}
+
+/** Closed industry discriminator (C1): a LABEL for the product surface —
+ *  decisions derive from the spec's own assets/policy/offers, never from it. */
+export type SpecIndustry = 'maritime-uav' | 'warehouse-amr' | 'general-operations';
+
+export interface MissionSpecSourceView {
+  readonly sourceId: string;
+  readonly sourceType: string;
+  readonly assetIds: readonly string[];
+  readonly trustedForRecovery: boolean;
+  readonly provenance: 'SYNTHETIC' | 'FIELD';
+}
+
+/** NON-SECRET credential metadata. Key bytes are never part of any read. */
+export interface SourceCredentialMeta {
+  readonly sourceId: string;
+  readonly keyId: string;
+  readonly status: string;
+  readonly issuedAt?: string;
+  readonly issuedBy?: string;
+  readonly revokedAt?: string | null;
+}
+
+export interface MissionSpecView {
+  readonly missionId: string;
+  readonly registered: boolean;
+  readonly specId: string;
+  readonly specDigest: string;
+  readonly industry: SpecIndustry;
+  readonly objective: string;
+  readonly truthLabel: string;
+  readonly assets: readonly MissionSpecAsset[];
+  /** Declared trusted sources — present once C's contract exposes them
+   *  (requested on #64); absent on older builds, never guessed client-side. */
+  readonly sources?: readonly MissionSpecSourceView[];
+  /** NON-SECRET credential metadata (never key bytes) — requested on #64. */
+  readonly credentials?: readonly SourceCredentialMeta[];
+  readonly safetyPolicy: {
+    readonly version: number;
+    readonly clearanceAuthority: string;
+    readonly uavWindLimitKt?: number;
+    readonly groundInterrupts?: readonly string[];
+  };
+  readonly economics: {
+    readonly currency: string;
+    readonly missionValueMinor: number;
+    readonly failureCostMinor: number;
+    readonly protectedReserveMinor: number;
+    readonly deadlineOffsetMinutes: number;
+  };
+  readonly offers: {
+    readonly incumbent: SpecOfferView;
+    readonly alternatives: readonly SpecOfferView[];
+    readonly diagnostics?: SpecOfferView;
+  };
+  readonly financialMandateShape: {
+    readonly currency: string;
+    readonly allowedBeneficiaries: readonly string[];
+    readonly allowedPurposes: readonly string[];
+  };
+  readonly caseLineage: { readonly caseId: string; readonly evaluationId: string } | null;
+  readonly authorization: string;
+}
+
+/** GET /api/missions/:id/mission-spec — READ-ONLY typed mission configuration
+ *  (C1 contract): industry, objective, assets, safety policy, economics,
+ *  supplier offers and decision-case lineage. Never authority. */
+export function fetchMissionSpec(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<MissionSpecView> {
+  return request<MissionSpecView>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/mission-spec',
+    { signal },
+  );
+}
+
+// ---------------------- warehouse domain journey (C2, spec-driven)
+
+export interface WarehouseJourneyLastEvent {
+  readonly eventId: string;
+  readonly assetId: string;
+  readonly sourceId: string;
+  readonly eventDigest: string;
+  readonly observedAt: string;
+  readonly reading: string;
+  readonly provenance: string;
+}
+
+export interface WarehouseDecisionJourney {
+  readonly missionId: string;
+  readonly specId: string;
+  readonly industry: 'warehouse-amr';
+  readonly stage: string;
+  readonly before: PhysicalDecisionSummary | null;
+  readonly after: PhysicalDecisionSummary | null;
+  readonly admittedEventIds: readonly string[];
+  readonly lastEvent: WarehouseJourneyLastEvent | null;
+  readonly disclaimer: string;
+}
+
+export const WAREHOUSE_STEPS = [
+  'baseline',
+  'aisle-obstruction',
+  'charger-fault',
+  'comms-loss',
+  'comms-restored',
+] as const;
+export type WarehouseStep = (typeof WAREHOUSE_STEPS)[number];
+
+/** GET /api/missions/:id/warehouse-decision — the warehouse journey read
+ *  (same decision-view shape as harbor; spec-driven stage ladder). */
+export function fetchWarehouseDecision(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<WarehouseDecisionJourney> {
+  return request<WarehouseDecisionJourney>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/warehouse-decision',
+    { signal },
+  );
+}
+
+/** POST /api/missions/:id/warehouse-step — DEMO event source: admits the
+ *  signed synthetic events for one warehouse step (idempotent; registers
+ *  the mission spec once) and returns the refreshed journey. */
+export function admitWarehouseStep(
+  missionId: string,
+  step: WarehouseStep,
+  csrfToken: string,
+): Promise<WarehouseDecisionJourney> {
+  return request<WarehouseDecisionJourney>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/warehouse-step',
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      body: JSON.stringify({ step }),
+    },
+  );
+}
+
+/** POST /api/demo/refresh-authority — demo-time authority refresh
+ *  (manageAuthority + CSRF): issues a FRESH mandate version from the
+ *  registered mission spec shape; nothing is silently extended. */
+export function refreshMissionAuthority(missionId: string, csrfToken: string): Promise<unknown> {
+  return request('/api/demo/refresh-authority', {
+    method: 'POST',
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify({ missionId }),
+  });
+}
+// ------------------------------------------------------------------------
+// PRODUCTION mission operations (Agent C, PR #64) — the customer-operated
+// pathway. NONE of these routes is a demo fixture: they accept validated
+// customer input and read the real event journal. Authority is unchanged:
+// every result is PROPOSED_ONLY; money moves only through ledger mandates,
+// separate human approval and provider evidence.
+// ------------------------------------------------------------------------
+
+/** Customer-authored mission specification (wire form). `identity.orgId` and
+ *  `identity.missionId` are NEVER sent — the server re-stamps them. */
+export interface MissionSpecDraftWire {
+  readonly specVersion: 1;
+  readonly specId: string;
+  readonly industry: SpecIndustry;
+  readonly identity: { readonly title: string; readonly objective: string };
+  readonly assets: readonly MissionSpecAsset[];
+  readonly sources: readonly MissionSpecSourceView[];
+  readonly safetyPolicy: {
+    readonly version: number;
+    readonly clearanceAuthority: 'deterministic-domain-policy';
+    readonly uavWindLimitKt?: number;
+    readonly groundInterrupts?: readonly string[];
+  };
+  readonly economics: MissionSpecView['economics'];
+  readonly offers: MissionSpecView['offers'];
+  readonly financialMandateShape: MissionSpecView['financialMandateShape'];
+  readonly truthLabel: string;
+}
+
+export interface MissionSpecRegistration {
+  readonly missionId: string;
+  readonly specId: string;
+  readonly digest: string;
+  readonly replayed: boolean;
+  readonly industry: SpecIndustry;
+  readonly registeredBy: string;
+}
+
+/** POST /api/missions/:id/mission-spec — operate + CSRF; typed 400 `SPEC_*`
+ *  codes surface verbatim; the server re-stamps tenant identity. */
+export function registerMissionSpec(
+  missionId: string,
+  spec: MissionSpecDraftWire,
+  csrfToken: string,
+): Promise<MissionSpecRegistration> {
+  return request<MissionSpecRegistration>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/mission-spec',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ spec }) },
+  );
+}
+
+/** ONE-TIME credential issuance response. `secret` exists ONLY in this
+ *  response: callers must hold it in component memory, never in storage,
+ *  URLs, logs, analytics, caches or evidence views. */
+export interface SourceCredentialIssued {
+  readonly missionId: string;
+  readonly sourceId: string;
+  readonly keyId: string;
+  readonly assetIds: readonly string[];
+  readonly trustedForRecovery: boolean;
+  readonly provenance: 'SYNTHETIC' | 'FIELD';
+  readonly secret: string;
+  readonly signing: string;
+  readonly warning: string;
+}
+
+/** POST /api/missions/:id/sources/:sourceId/secret — spec-bound issuance. The
+ *  request opts out of every cache (`no-store`) because the response carries
+ *  the only copy of the secret the browser will ever see. */
+export function issueSourceCredential(
+  missionId: string,
+  sourceId: string,
+  keyId: string,
+  trustedForRecovery: boolean,
+  csrfToken: string,
+): Promise<SourceCredentialIssued> {
+  return request<SourceCredentialIssued>(
+    '/api/missions/' +
+      encodeURIComponent(missionId) +
+      '/sources/' +
+      encodeURIComponent(sourceId) +
+      '/secret',
+    {
+      method: 'POST',
+      headers: csrfHeaders(csrfToken),
+      cache: 'no-store',
+      body: JSON.stringify({ keyId, trustedForRecovery }),
+    },
+  );
+}
+
+export interface SourceKeyRevoked {
+  readonly missionId: string;
+  readonly sourceId: string;
+  readonly keyId: string;
+  readonly revoked: true;
+  readonly effect: string;
+}
+
+/** POST /api/missions/:id/sources/:sourceId/keys/:keyId/revoke — owner/admin
+ *  (manageAuthority) + CSRF. Immediate and irreversible: the key stops
+ *  authenticating NEW events (also after restart); admitted events stay valid
+ *  history; a revoked key id is never re-issuable. Rotation = issue a NEW key
+ *  id, then revoke the old one. */
+export function revokeSourceKey(
+  missionId: string,
+  sourceId: string,
+  keyId: string,
+  reason: string,
+  csrfToken: string,
+): Promise<SourceKeyRevoked> {
+  return request<SourceKeyRevoked>(
+    '/api/missions/' +
+      encodeURIComponent(missionId) +
+      '/sources/' +
+      encodeURIComponent(sourceId) +
+      '/keys/' +
+      encodeURIComponent(keyId) +
+      '/revoke',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ reason }) },
+  );
+}
+
+export interface OperationsCandidateScore {
+  readonly id: string;
+  readonly kind: string;
+  readonly grossMinor: number;
+  readonly feasible: boolean;
+  readonly rejection: string;
+}
+
+export interface OperationsAcceptedEvent {
+  readonly eventId: string;
+  readonly sourceId: string;
+  readonly digest: string;
+  readonly observedAt: string;
+  readonly sequence: number;
+}
+
+export interface OperationsEvaluation {
+  readonly missionId: string;
+  readonly replayed: boolean;
+  readonly snapshot: {
+    readonly evaluationId: string;
+    readonly caseId: string;
+    readonly stage: 'baseline' | 'incident';
+    readonly recordedAt: string;
+    readonly spec: { readonly specId: string; readonly digest: string };
+    readonly causality: Readonly<Record<string, string>>;
+    readonly decision: RecordedSnapshotDecision;
+    readonly linkage: { readonly baselineEvaluationId: string | null } | null;
+    readonly candidates: readonly OperationsCandidateScore[];
+    readonly acceptedEvents: readonly OperationsAcceptedEvent[];
+    readonly withheldEventIds: readonly string[];
+  };
+  readonly authorization: string;
+  readonly providerVerified: false;
+}
+
+/** POST /api/missions/:id/operations/evaluate — stages derive from THE
+ *  JOURNAL (no demo event ids). Idempotent per economic intent. */
+export function evaluateFromJournal(
+  missionId: string,
+  stage: 'baseline' | 'incident',
+  csrfToken: string,
+): Promise<OperationsEvaluation> {
+  return request<OperationsEvaluation>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/operations/evaluate',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ stage }) },
+  );
+}
+
+/** A sanitized admitted event (same typed allowlist as physical-view). */
+export interface FieldObservationEvent {
+  readonly eventId: string;
+  readonly journalSeq?: number;
+  readonly sequence: number;
+  readonly assetId: string;
+  readonly sourceId: string;
+  readonly sourceType?: string;
+  readonly provenance: 'SYNTHETIC' | 'FIELD' | string;
+  readonly observedAt: string;
+  readonly eventDigest: string;
+  readonly observations: readonly {
+    readonly kind: string;
+    readonly unit: string;
+    readonly value: string | number;
+  }[];
+  readonly freshnessAtSnapshot?: string;
+  readonly planningValidAtSnapshot?: boolean;
+}
+
+export interface OperationsDecision {
+  readonly missionId: string;
+  readonly eventCount: number;
+  readonly stage: 'empty' | 'baseline' | 'incident';
+  readonly decision: PhysicalDecisionSummary;
+  readonly mode: string;
+  readonly authorization: string;
+  readonly providerVerified: false;
+  /** Sanitized admitted events — requested on #64 (item 8); optional until
+   *  the contract lands. The UI falls back to physical-view honestly. */
+  readonly events?: readonly FieldObservationEvent[];
+}
+
+/** GET /api/missions/:id/operations/decision — read-only live evaluation of
+ *  the real journal at "now". Never records, never mutates. */
+export function fetchOperationsDecision(
+  missionId: string,
+  signal?: AbortSignal,
+): Promise<OperationsDecision> {
+  return request<OperationsDecision>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/operations/decision',
+    { signal },
+  );
+}
+
+export interface ModelInterpretationResult {
+  readonly missionId: string;
+  readonly interpretation: {
+    readonly status: string;
+    readonly adapterId: string;
+    readonly modelId: string | null;
+    readonly providerInvoked: boolean;
+    readonly confidenceBps: number | null;
+    readonly errorCode: string | null;
+    readonly evidenceCount: number;
+    readonly causality: string;
+  };
+  readonly admittedEvidence: number;
+  readonly authorization: string;
+}
+
+/** POST /api/missions/:id/model-interpretation — bounded, optional. A 503
+ *  `MODEL_NOT_CONFIGURED` is the labeled POLICY-ONLY fallback. */
+export function interpretIncidentReport(
+  missionId: string,
+  report: string,
+  csrfToken: string,
+): Promise<ModelInterpretationResult> {
+  return request<ModelInterpretationResult>(
+    '/api/missions/' + encodeURIComponent(missionId) + '/model-interpretation',
+    { method: 'POST', headers: csrfHeaders(csrfToken), body: JSON.stringify({ report }) },
+  );
+}
+
 export function submitSyntheticStep(
   missionId: string,
   step: 'baseline' | 'incident',

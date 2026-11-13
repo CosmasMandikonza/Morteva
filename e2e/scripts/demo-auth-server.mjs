@@ -20,6 +20,14 @@ const dbPath = join(stateDir, 'ledger.sqlite');
 const E2E_PASSWORD = ['moterva', 'e2e', 'demo'].join(String.fromCharCode(45));
 
 const { openLedger } = await import(`file://${join(root, 'packages/ledger/dist/index.js')}`);
+// Same-build imports of the integration modules the demo seed needs (kept in
+// lockstep with packages/ledger/dist by `npm run build`).
+const { registerMissionSpec } = await import(
+  `file://${join(root, 'apps/api/dist/integration/mission-spec.js')}`
+);
+const { harborMissionSpec } = await import(
+  `file://${join(root, 'apps/api/dist/integration/mission-catalogs.js')}`
+);
 const ledger = openLedger(dbPath);
 ledger.migrate();
 
@@ -56,6 +64,14 @@ ledger.authority.createHumanActor({
 
 const missionA = ledger.organizations.createMission(org.id, 'Harbor turbine inspection');
 const missionB = ledger.organizations.createMission(org.id, 'Subsea mooring survey');
+
+// The flagship Harbor DEMO ships with its frozen, validated catalog spec
+// REGISTERED (journal-backed, idempotent) — before any plan, approval,
+// operation or evidence row is seeded — so the corrected frontend renders the
+// designed 3D experience for this sample mission. DEMO/SYNTHETIC sample setup
+// ONLY: never applied to customer missions, and production startup has no
+// seed path at all. The Subsea mission stays legitimately unconfigured.
+registerMissionSpec(ledger, harborMissionSpec(org.id, missionA.id));
 
 const now = ledger.clock.now();
 const iso = (hours) => new Date(now.getTime() + hours * 3_600_000).toISOString();

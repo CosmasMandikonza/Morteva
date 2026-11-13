@@ -32,14 +32,10 @@ test.describe('app shell smoke', () => {
       'Mission Treasury',
     );
 
-    // Real visible status from the live API (proxied): providers OFFLINE.
-    await expect(page.getByRole('heading', { name: 'System status' })).toBeVisible();
-    await expect(page.locator('.mv-provider__name', { hasText: 'airwallex' })).toBeVisible();
-    await expect(page.locator('.mv-provider__name', { hasText: 'metal' })).toBeVisible();
-    await expect(page.locator('.mv-badge--offline')).toHaveCount(2);
-    await expect(page.getByText(/provider mode/i)).toContainText(/offline/i);
-
-    // Honesty contract: the shell must never claim a provider is connected.
+    // Honesty contract (founder UX gate): no engineering status card on the
+    // shell, and the shell must never claim a provider is connected. The
+    // offline truth lives in business surfaces (e.g. position provenance).
+    await expect(page.getByTestId('system-status')).toHaveCount(0);
     await expect(page.getByText(/connected/i)).toHaveCount(0);
   });
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
-import { SystemStatusCard } from './components/SystemStatusCard';
 import { Treasury } from './screens/Treasury';
 import { EvidenceReplay } from './screens/Evidence';
 import { PlannedSurface } from './screens/PlannedSurface';
 import { AuthorityExecution } from './screens/AuthorityExecution';
 import { DecisionRoom } from './screens/DecisionRoom';
+import { MissionSetup } from './screens/MissionSetup';
 import { NAV_ITEMS, type SectionId } from './nav';
 import {
   ApiError,
@@ -246,9 +246,9 @@ export function App(): JSX.Element {
             <span
               className="mv-tag mv-tag--demo mv-provenance-chip"
               data-testid="provenance-chip"
-              title="This session authenticates against the server's loopback-only DEMO_AUTH gate. Figures are genuine internal ledger records, but the ledger itself is locally seeded demonstration data — not Airwallex funds."
+              title="This workspace runs on locally seeded sample data. Figures are genuine internal ledger records, not provider funds."
             >
-              DEMO_AUTH · seeded internal ledger — not Airwallex funds
+              Demo workspace · Sample financial data
             </span>
           )}
           {actor !== null && (
@@ -291,7 +291,7 @@ export function App(): JSX.Element {
           <span className="mv-provenance-banner__glyph" aria-hidden="true">
             ▚
           </span>
-          DEMO_AUTH · seeded internal ledger — not Airwallex funds
+          Demo workspace · Sample financial data
         </p>
       )}
 
@@ -321,6 +321,13 @@ export function App(): JSX.Element {
             operationFilter={evidenceOperationFilter}
             onClearOperationFilter={() => setEvidenceOperationFilter(null)}
           />
+        ) : section === 'setup' ? (
+          <MissionSetup
+            session={session}
+            mission={missionsForContext}
+            csrfToken={csrfToken}
+            onSessionExpired={handleSessionExpired}
+          />
         ) : section === 'decisions' ? (
           <DecisionRoom
             session={session}
@@ -342,19 +349,7 @@ export function App(): JSX.Element {
         ) : (
           <PlannedSurface item={active} />
         )}
-        <SystemStatusCard />
       </main>
-
-      <footer className="mv-footer">
-        <p>
-          Read-only operator console · provider integrations are OFFLINE until independently
-          verified · hackathon build, no production money movement. Verified state:{' '}
-          <a href="https://github.com/CosmasMandikonza/Morteva/blob/main/docs/STATE.md">
-            docs/STATE.md
-          </a>
-          .
-        </p>
-      </footer>
     </div>
   );
 }

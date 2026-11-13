@@ -16,7 +16,7 @@ import type { JSX } from 'react';
 import { projectSceneState, type SceneSelection } from './scene-state.js';
 import { MissionViewer3d, WebGLUnavailableError } from './viewer3d.js';
 import { Viewer2d } from './scene2d.jsx';
-import { EvidenceHud } from './hud.jsx';
+import { EvidenceHud, SceneBadge } from './hud.jsx';
 import type { PhysicalViewSnapshot, SceneState } from './contract.js';
 import './mission-viewer.css';
 
@@ -64,6 +64,19 @@ export interface MissionPhysicalViewerProps {
   readonly decisionLabel?: string;
   /** Hide the default aside (host renders its own event list). */
   readonly hideEventList?: boolean;
+  /**
+   * Chrome composition (CTO visual gate, PR #65). 'overlay' (default) keeps
+   * the accepted harness behavior: the full EvidenceHud floats over the scene
+   * and the evidence aside sits beside it. 'below' is the Decision Room
+   * composition — the scene is ONE unobstructed plane (a tiny non-interactive
+   * status badge is the only in-scene UI), the full HUD renders as a static
+   * block BENEATH the stage at every width, and the evidence rail becomes a
+   * compact collapsible timeline below the strip. The host hides the
+   * disclosure when it already renders the same journal list (customer mode).
+   */
+  readonly chrome?: 'overlay' | 'below';
+  /** chrome='below' only: omit the evidence disclosure (host renders its own list). */
+  readonly hideDisclosure?: boolean;
   readonly className?: string;
 }
 
@@ -87,8 +100,11 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
     decisionHref,
     decisionLabel = 'Inspect the financial decision',
     hideEventList = false,
+    chrome = 'overlay',
+    hideDisclosure = false,
     className,
   } = props;
+  const below = chrome === 'below';
 
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const markerLayerRef = useRef<HTMLDivElement | null>(null);
@@ -243,9 +259,58 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
   const readySnapshot = snapshot as PhysicalViewSnapshot;
   const readyState = state as SceneState;
 
+  // The evidence items are the same markup in both compositions; the 'below'
+  // chrome presents them as a compact collapsible timeline UNDER the stage
+  // instead of a fixed aside column beside it.
+  const evidenceItems = [...readyState.markers].reverse().map((marker) => {
+    const event = readySnapshot.events.find((e) => e.eventId === marker.eventId);
+    if (event === undefined) return null;
+    return (
+      <li key={marker.eventId}>
+        <button
+          type="button"
+          className="mpv-events__item"
+          data-event-id={marker.eventId}
+          aria-pressed={marker.selected}
+          onClick={() => onSelectEvent(marker.selected ? null : marker.eventId)}
+        >
+          <span className={`mpv-sev mpv-sev--${marker.severity}`} aria-hidden="true" />
+          <span className="mpv-events__id">{marker.eventId}</span>
+          <span className="mpv-events__meta">
+            {marker.assetId} · {event.provenance} · {event.observedAt.slice(11, 19)}Z
+          </span>
+        </button>
+      </li>
+    );
+  });
+  const evidenceTimeline =
+    readyState.eventCount === 0 ? (
+      // Zero evidence is one honest line — never an empty rail or an empty list.
+      <p className="mpv-evidence__empty" data-testid="mpv-evidence-empty">
+        No admitted evidence yet — operating status unknown by design. A registered source must
+        submit signed events from the field.
+      </p>
+    ) : hideDisclosure ? (
+      // The host (customer Decision Room) already renders the journal list —
+      // no duplicate. Counts and selection stay in the strip above.
+      false
+    ) : (
+      <details className="mpv-evidence" open data-testid="mpv-evidence">
+        <summary>
+          Admitted evidence ({String(readyState.eventCount)}) — select to inspect in the scene
+        </summary>
+        <div className="mpv-events mpv-evidence__list" aria-label="Admitted evidence timeline">
+          <ol className="mpv-events__list">{evidenceItems}</ol>
+          <p className="mpv-events__credits">
+            3D models: NateGazzard, Alex Safayan (CC-BY 3.0) · scene placement illustrative
+          </p>
+        </div>
+      </details>
+    );
+
   return (
     <section
-      className={['mpv', className ?? ''].join(' ')}
+      className={['mpv', below ? 'mpv--droom' : '', className ?? ''].join(' ')}
       data-testid="mission-viewer"
       data-availability="ready"
       data-phase={readyState.phase}
@@ -287,56 +352,69 @@ export function MissionPhysicalViewer(props: MissionPhysicalViewerProps): JSX.El
           />
         )}
 
-        <EvidenceHud
-          state={readyState}
-          snapshot={readySnapshot}
-          selected={readyState.selected}
-          theme={theme}
-          frameInfo={show3d ? frameInfo : null}
-          reducedMotion={reduced}
-          decisionHref={decisionHref}
-          decisionLabel={decisionLabel}
-          fallbackReason={fallbackReason}
-          requested3d={requested3d}
-          onRetry3d={() => {
-            setFallbackReason(null);
-            setEffectiveMode('3d');
-          }}
-          onSwitch2d={() => {
-            setFallbackReason(null);
-            setEffectiveMode('2d');
-          }}
-          effectiveMode={show3d ? '3d' : '2d'}
-          onResetCamera={() => engineRef.current?.resetCamera()}
-        />
+        {below ? (
+          // Decision Room composition: a tiny non-interactive status pill is
+          // the ONLY in-scene UI; the full HUD renders beneath the stage.
+          <SceneBadge state={readyState} effectiveMode={show3d ? '3d' : '2d'} />
+        ) : (
+          <EvidenceHud
+            state={readyState}
+            snapshot={readySnapshot}
+            selected={readyState.selected}
+            theme={theme}
+            frameInfo={show3d ? frameInfo : null}
+            reducedMotion={reduced}
+            decisionHref={decisionHref}
+            decisionLabel={decisionLabel}
+            fallbackReason={fallbackReason}
+            requested3d={requested3d}
+            onRetry3d={() => {
+              setFallbackReason(null);
+              setEffectiveMode('3d');
+            }}
+            onSwitch2d={() => {
+              setFallbackReason(null);
+              setEffectiveMode('2d');
+            }}
+            effectiveMode={show3d ? '3d' : '2d'}
+            onResetCamera={() => engineRef.current?.resetCamera()}
+          />
+        )}
       </div>
 
-      {!hideEventList && (
+      {below && (
+        <>
+          <EvidenceHud
+            placement="below"
+            state={readyState}
+            snapshot={readySnapshot}
+            selected={readyState.selected}
+            theme={theme}
+            frameInfo={show3d ? frameInfo : null}
+            reducedMotion={reduced}
+            decisionHref={decisionHref}
+            decisionLabel={decisionLabel}
+            fallbackReason={fallbackReason}
+            requested3d={requested3d}
+            onRetry3d={() => {
+              setFallbackReason(null);
+              setEffectiveMode('3d');
+            }}
+            onSwitch2d={() => {
+              setFallbackReason(null);
+              setEffectiveMode('2d');
+            }}
+            effectiveMode={show3d ? '3d' : '2d'}
+            onResetCamera={() => engineRef.current?.resetCamera()}
+          />
+          {evidenceTimeline}
+        </>
+      )}
+
+      {!below && !hideEventList && (
         <aside className="mpv-events" aria-label="Admitted evidence timeline">
           <h4 className="mpv-events__title">Admitted evidence ({readyState.eventCount})</h4>
-          <ol className="mpv-events__list">
-            {[...readyState.markers].reverse().map((marker) => {
-              const event = readySnapshot.events.find((e) => e.eventId === marker.eventId);
-              if (event === undefined) return null;
-              return (
-                <li key={marker.eventId}>
-                  <button
-                    type="button"
-                    className="mpv-events__item"
-                    data-event-id={marker.eventId}
-                    aria-pressed={marker.selected}
-                    onClick={() => onSelectEvent(marker.selected ? null : marker.eventId)}
-                  >
-                    <span className={`mpv-sev mpv-sev--${marker.severity}`} aria-hidden="true" />
-                    <span className="mpv-events__id">{marker.eventId}</span>
-                    <span className="mpv-events__meta">
-                      {marker.assetId} · {event.provenance} · {event.observedAt.slice(11, 19)}Z
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+          <ol className="mpv-events__list">{evidenceItems}</ol>
           <p className="mpv-events__credits">
             3D models: NateGazzard, Alex Safayan (CC-BY 3.0) · scene placement illustrative
           </p>

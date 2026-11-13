@@ -71,9 +71,21 @@ a {
   padding: 14px 24px;
   background: var(--mv-surface-card);
   border-bottom: 1px solid var(--mv-line);
-  position: sticky;
-  top: 0;
   z-index: 20;
+}
+/* The header only STICKS where the viewport can spare it. On a phone (or a
+   200%-zoomed window, which is a ~640px viewport) a sticky header that wraps
+   to several rows would permanently cover 40% of the screen and obscure the
+   focused control (WCAG 2.4.11) — there it scrolls away with the page. */
+@media (min-width: 721px) and (min-height: 620px) {
+  .mv-topbar {
+    position: sticky;
+    top: 0;
+  }
+  /* keyboard focus and in-page jumps never land underneath the sticky header */
+  html {
+    scroll-padding-top: 8rem;
+  }
 }
 
 .mv-topbar__brand {
@@ -1537,8 +1549,14 @@ a {
   border: 1px solid var(--mv-line-strong);
   color: var(--mv-ink-2);
   background: var(--mv-surface-raised);
-  white-space: nowrap;
+  /* long labels wrap inside their container (never force it wider) */
+  white-space: normal;
   max-width: 100%;
+  min-width: 0;
+}
+.mv-badge__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .mv-badge__glyph {
   font-size: var(--mv-size-sm);
@@ -1841,8 +1859,14 @@ a {
 
 /* ---- Decision Room: signature 12-column composition (CP2) ---- */
 /* Desktop: physical mission column ~7 cols, financial decisions ~5 cols.
-   Below 1024px the columns stack (financial column first on mobile so the
-   decision is never pushed below the fold by the physical context). */
+   The stack decision is CONTAINER-based: the scope measures the width the
+   Decision Room actually has (not the viewport), so 200% zoom, split views
+   and narrow windows all take the right path (financial column first on
+   small containers so the decision is never pushed below the fold). */
+.mv-droom-scope {
+  container: mv-droom / inline-size;
+  min-width: 0;
+}
 .mv-droom {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1862,15 +1886,18 @@ a {
   gap: 14px;
   min-width: 0;
 }
-@media (max-width: 1023px) {
+@container mv-droom (max-width: 1023px) {
   .mv-droom {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .mv-droom__physical {
+    min-width: 0;
   }
   .mv-droom__physical,
   .mv-droom__financial {
     grid-column: auto;
   }
-  /* decision first on small screens: the physical context follows */
+  /* decision first on small containers: the physical context follows */
   .mv-droom__financial {
     order: -1;
   }
@@ -2295,4 +2322,388 @@ a {
 }
 .mv-stepper__step.is-done .mv-stepper__label {
   color: var(--mv-ink-1);
+}
+
+/* ------------------------------------------------ viewer composition
+   CTO visual gate (PR #65): the Decision Room physical column hosts ONE
+   dominant, unobstructed scene. The old inner fixed 250px evidence rail and
+   the scene-plane HUD are GONE from this composition — the viewer's
+   chrome="below" mode renders the telemetry strip and the compact evidence
+   timeline BENEATH the stage at every width (mission-viewer.css owns that
+   layout). What remains here is the anti-overflow hygiene: tracks may
+   shrink and long tokens (event ids, digests, chips) wrap — nothing is
+   clipped, hidden or removed. */
+.mv-droom__viewport-host {
+  min-width: 0;
+}
+.mv-droom__physical .mpv {
+  min-width: 0;
+}
+.mv-droom__physical .mpv-stage,
+.mv-droom__physical .mpv-evidence,
+.mv-droom__physical .mpv-evidence__empty {
+  min-width: 0;
+}
+.mv-droom__physical .mpv-events__id,
+.mv-droom__physical .mpv-events__meta,
+.mv-droom__physical .mpv-events__credits,
+.mv-droom__physical .mpv-chip,
+.mv-droom__physical .mpv-scene-badge,
+.mv-droom__physical .mpv-card__k,
+.mv-droom__physical .mpv-card__v,
+.mv-droom__physical .mpv-card__sub,
+.mv-droom__physical .mpv-selected dd,
+.mv-droom__physical .mpv-note,
+.mv-droom__physical .mpv-fallback-note,
+.mv-droom__physical .mpv-decision-link {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.mv-droom__physical .mpv-chip {
+  white-space: normal;
+}
+.mv-droom__physical .mpv-card {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+
+/* Non-spatial overview for missions whose registered domain has no 3D world
+   (ground-only, multi-aerial): real assets, zero fabricated geography. */
+.mv-droom__nonspatial {
+  border: 1px dashed var(--mv-line-strong);
+}
+.mv-droom__onboarding {
+  border: 1px dashed var(--mv-line-strong);
+}
+.mv-droom__assets {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.mv-droom__assets li {
+  min-width: 0;
+}
+
+/* ------------------------------------------------ Mission Setup (R-final) */
+.mv-spec {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.mv-spec__section,
+.mv-spec__card {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.mv-spec__section {
+  border: 1px solid var(--mv-line);
+}
+.mv-spec__card {
+  border: 1px dashed var(--mv-line-strong);
+  padding: 12px;
+}
+.mv-spec__legend {
+  font-size: var(--mv-size-sm);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  padding: 0 6px;
+}
+.mv-spec__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.mv-spec__assets {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.mv-spec__hint {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+}
+.mv-spec__error {
+  color: var(--mv-danger-text);
+  font-size: var(--mv-size-sm);
+  overflow-wrap: anywhere;
+}
+.mv-spec__code {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-2xs);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.mv-spec__secret {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  padding: 8px 10px;
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 6px;
+  background: var(--mv-surface-sunken);
+}
+.mv-spec__pre {
+  margin: 8px 0;
+  padding: 12px;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-sunken);
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+  line-height: 1.5;
+  white-space: pre;
+}
+.mv-spec__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mv-size-sm);
+}
+.mv-spec__table th,
+.mv-spec__table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mv-line);
+  overflow-wrap: anywhere;
+}
+.mv-spec__issue {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.mv-input[aria-invalid='true'] {
+  border-color: var(--mv-danger-text);
+}
+@media (max-width: 720px) {
+  .mv-spec__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mv-spec__section {
+    padding: 12px;
+  }
+}
+
+/* ------------------------------------- decision comparison / field journal */
+.mv-cmp {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.mv-cmp__headline {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line-strong);
+  border-radius: 8px;
+  background: var(--mv-surface-raised);
+}
+.mv-cmp__headline p {
+  margin: 0;
+}
+.mv-cmp__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-cmp__item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mv-cmp__item.is-selected {
+  border-color: var(--mv-focus-ring);
+}
+.mv-cmp__item.is-refused {
+  border-style: dashed;
+}
+.mv-cmp__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+.mv-cmp__nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+}
+.mv-cmp__nums dt {
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+}
+.mv-cmp__nums dd {
+  margin: 0;
+}
+.mv-cmp__why {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  overflow-wrap: anywhere;
+}
+.mv-field__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-field__event {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mv-field__event p {
+  margin: 0;
+}
+.mv-field__eventhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.mv-field__constraints {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mv-truth {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.mv-truth__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+/* Links styled as buttons keep button typography (no inherited underline). */
+a.mv-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Definition lists carry identifiers, digests and amounts: long unbreakable
+   tokens wrap instead of widening the page (any width, any zoom). */
+.mv-mandate__meta > div {
+  min-width: 0;
+}
+.mv-mandate__meta dt,
+.mv-mandate__meta dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Column grids never let one wide item (a digest, an id) widen the track and
+   with it every sibling: tracks may shrink, long tokens wrap. */
+.mv-droom__physical,
+.mv-droom__financial {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mv-governed,
+.mv-droom__incident,
+.mv-hud,
+.mv-num {
+  overflow-wrap: break-word;
+}
+.mv-droom__physical > *,
+.mv-droom__financial > * {
+  min-width: 0;
+}
+
+/* Every single-column grid container below may shrink its implicit track:
+   `auto` tracks size to the widest item's min-content (a digest, an id) and
+   overflow their own box. One rule, applied to all of them. */
+.mv-governed,
+.mv-spec,
+.mv-spec__section,
+.mv-spec__card,
+.mv-spec__issue,
+.mv-cmp,
+.mv-cmp__item,
+.mv-field__event,
+.mv-truth {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mv-governed > *,
+.mv-spec > *,
+.mv-spec__section > *,
+.mv-spec__card > *,
+.mv-cmp > *,
+.mv-cmp__item > *,
+.mv-field__event > *,
+.mv-truth > * {
+  min-width: 0;
+}
+
+/* Wrap only where a token would otherwise overflow (unlike .mv-break, which
+   breaks every word mid-letter): labels and ids stay readable. */
+.mv-wrap {
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------ Treasury UX polish (R-final founder gate) */
+/* Compact, on-demand calculation + mandate history disclosures */
+.mv-position__calc,
+.mv-mandates__history {
+  min-width: 0;
+  margin: 10px 0 0;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.mv-position__calc summary,
+.mv-mandates__history summary {
+  cursor: pointer;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+}
+.mv-position__calc summary:hover,
+.mv-mandates__history summary:hover {
+  color: var(--mv-ink-1);
+}
+.mv-position__calc[open] summary,
+.mv-mandates__history[open] summary {
+  margin-bottom: 8px;
+}
+.mv-position__calc .mv-position__commitments {
+  margin: 0;
+}
+.mv-mandates__history .mv-mandate {
+  padding-block: 8px;
 }

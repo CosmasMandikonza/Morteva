@@ -63,13 +63,18 @@ export function Sheet({
       tabIndex={-1}
       ref={ref}
     >
-      <header className="mv-sheet__head">
-        <h2 className="mv-sheet__title">{title}</h2>
-        <button type="button" className="mv-btn mv-btn--ghost" onClick={onClose}>
-          Close ✕
-        </button>
-      </header>
-      <div className="mv-sheet__body">{children}</div>
+      {/* ONE card: the header belongs INSIDE the body (the CSS has always
+          styled it that way; as siblings the title and Close floated beside
+          the card and under the top bar). */}
+      <div className="mv-sheet__body">
+        <header className="mv-sheet__head">
+          <h2 className="mv-sheet__title">{title}</h2>
+          <button type="button" className="mv-btn mv-btn--ghost" onClick={onClose}>
+            Close ✕
+          </button>
+        </header>
+        {children}
+      </div>
     </div>
   );
 }
@@ -159,6 +164,7 @@ export function MandateCreateSheet({
   onClose,
   onCreated,
   csrfToken,
+  prefill,
 }: {
   missionId: string;
   missionTitle: string;
@@ -166,14 +172,22 @@ export function MandateCreateSheet({
   onClose: () => void;
   onCreated: (mandate: MandateRow) => void;
   csrfToken: string | null;
+  /** SUGGESTED constraints (e.g. from the registered mission specification's
+   *  derived mandate shape). A human still reviews every value and submits;
+   *  nothing is granted by prefilling. */
+  prefill?: {
+    currency?: string;
+    beneficiaries?: readonly string[];
+    purposes?: readonly string[];
+  };
 }): JSX.Element {
   const [step, setStep] = useState<'form' | 'review'>('form');
-  const [currency, setCurrency] = useState<string>('USD');
+  const [currency, setCurrency] = useState<string>(prefill?.currency ?? 'USD');
   const [kinds, setKinds] = useState<readonly string[]>(['airwallex_transfer']);
   const [maxMajor, setMaxMajor] = useState('');
   const [budgetMajor, setBudgetMajor] = useState('');
-  const [beneficiaries, setBeneficiaries] = useState('');
-  const [purposes, setPurposes] = useState('');
+  const [beneficiaries, setBeneficiaries] = useState((prefill?.beneficiaries ?? []).join(', '));
+  const [purposes, setPurposes] = useState((prefill?.purposes ?? []).join(', '));
   const [expiryDays, setExpiryDays] = useState('7');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
@@ -275,7 +289,10 @@ export function MandateCreateSheet({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                {CURRENCIES.map((c) => (
+                {(CURRENCIES.includes(currency as (typeof CURRENCIES)[number])
+                  ? [...CURRENCIES]
+                  : [currency, ...CURRENCIES]
+                ).map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>

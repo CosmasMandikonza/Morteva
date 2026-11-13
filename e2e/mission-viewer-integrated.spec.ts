@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { apiLogin } from './support/customer.js';
 
 /**
  * MTV-09/12 — issue #14 INTEGRATED ACCEPTANCE (live path).
@@ -29,22 +30,113 @@ test.setTimeout(180_000);
 // Serial execution is the established pattern for real-server journey specs.
 test.describe.configure({ mode: 'serial' });
 
-async function signIn(page: Page, username: 'founder' | 'operator'): Promise<void> {
-  await page.goto('/');
-  await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByTestId('actor-chip')).toContainText(
-    username === 'founder' ? 'E2E Founder' : 'E2E Operator',
-  );
+// The harbor demo catalog, registered through the REAL mission-spec endpoint
+// (CTO visual gate, PR #65): an unregistered mission is UNCONFIGURED and
+// renders the onboarding state — never the fallback harbor world. The demo
+// journey therefore front-door-registers the catalog's own wire (same spec
+// id and values the backend catalog carries) before any synthetic step.
+async function registerHarborSpec(request: APIRequestContext, missionId: string): Promise<void> {
+  const session = await apiLogin(request, 'founder');
+  const spec = {
+    specVersion: 1,
+    specId: 'harbor-inspection-v1',
+    industry: 'maritime-uav',
+    identity: {
+      orgId: session.orgId,
+      missionId,
+      title: 'Offshore hull inspection',
+      objective:
+        'Complete the scheduled hull inspection of the berthed vessel within the mission deadline using the modeled-authorized inspection UAV or an equivalent qualified service.',
+    },
+    assets: [{ assetId: 'uav-seeker-1', domainKind: 'aerial', label: 'Inspection UAV' }],
+    sources: [
+      {
+        sourceId: 'ops-console',
+        sourceType: 'mission_control',
+        assetIds: ['uav-seeker-1'],
+        trustedForRecovery: false,
+        provenance: 'SYNTHETIC',
+      },
+    ],
+    safetyPolicy: {
+      version: 1,
+      clearanceAuthority: 'deterministic-domain-policy',
+      uavWindLimitKt: 22,
+    },
+    economics: {
+      currency: 'USD',
+      missionValueMinor: 5_000_000,
+      failureCostMinor: 1_500_000,
+      protectedReserveMinor: 50_000,
+      deadlineOffsetMinutes: 720,
+    },
+    offers: {
+      incumbent: {
+        id: 'uav-inspection',
+        kind: 'inspection-service',
+        beneficiary: 'harbor-diagnostics',
+        purpose: 'harbor inspection',
+        currency: 'USD',
+        baseCostMinor: 1_200_000,
+        feeMinor: 0,
+        leadTimeMinutes: 60,
+        durationMinutes: 180,
+        probabilityOfSuccess: 0.9,
+        availability: 'confirmed',
+        requiresAssetId: 'uav-seeker-1',
+      },
+      alternatives: [
+        {
+          id: 'vessel-inspection',
+          kind: 'inspection-service',
+          beneficiary: 'harbor-marine',
+          purpose: 'harbor inspection',
+          currency: 'USD',
+          baseCostMinor: 1_800_000,
+          feeMinor: 50_000,
+          leadTimeMinutes: 30,
+          durationMinutes: 150,
+          probabilityOfSuccess: 0.8,
+          availability: 'confirmed',
+        },
+      ],
+    },
+    financialMandateShape: {
+      currency: 'USD',
+      allowedBeneficiaries: ['harbor-diagnostics', 'harbor-marine'],
+      allowedPurposes: ['harbor inspection'],
+    },
+    truthLabel: 'SIMULATED_OPERATION — POLICY-ONLY',
+  };
+  const res = await request.post(`/api/missions/${missionId}/mission-spec`, {
+    headers: { 'x-csrf-token': session.csrf },
+    data: { spec },
+  });
+  expect(res.status(), await res.text()).toBe(200);
 }
 
-async function createAndGrant(page: Page, title: string): Promise<void> {
+/** Create the mission + mandate via the UI, then register the harbor demo
+ * spec through the production endpoint (founder session). */
+async function createGrantAndRegister(
+  page: Page,
+  request: APIRequestContext,
+  title: string,
+): Promise<string> {
   await page.getByTestId('new-mission-btn').click();
   const sheet = page.getByTestId('mission-create-sheet');
   await sheet.getByLabel('Mission name').fill(title);
   await sheet.getByTestId('create-mission-submit').click();
   await expect(page.getByTestId('missions-panel')).toContainText(title, { timeout: 10_000 });
+  // The mission id is needed for the API registration; the UI selection that
+  // follows uses the title, so read it from the selection request instead of
+  // scraping the DOM: intercept nothing — the missions list exposes ids.
+  const missionId = await page.evaluate(async (t) => {
+    const res = await fetch('/api/missions', { headers: { accept: 'application/json' } });
+    const body = (await res.json()) as { missions: Array<{ id: string; title: string }> };
+    const match = body.missions.find((m) => m.title === t);
+    return match?.id ?? '';
+  }, title);
+  expect(missionId, 'created mission appears in the authenticated list').not.toBe('');
   await page.getByTestId('grant-first-mandate').click();
   const mandate = page.getByTestId('mandate-create-sheet');
   await mandate.getByLabel('Per-operation cap (USD)').fill('25000');
@@ -53,6 +145,18 @@ async function createAndGrant(page: Page, title: string): Promise<void> {
   await mandate.getByTestId('mandate-review-btn').click();
   await mandate.getByTestId('mandate-submit-btn').click();
   await expect(mandate).toHaveCount(0);
+  await registerHarborSpec(request, missionId);
+  return missionId;
+}
+
+async function signIn(page: Page, username: 'founder' | 'operator'): Promise<void> {
+  await page.goto('/');
+  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByTestId('actor-chip')).toContainText(
+    username === 'founder' ? 'E2E Founder' : 'E2E Operator',
+  );
 }
 
 async function selectMission(page: Page, title: string): Promise<void> {
@@ -77,12 +181,13 @@ async function runStage(page: Page, stage: 'baseline' | 'incident'): Promise<voi
 
 test('LIVE: physical incident renders the restricted 3D scene inside the real Decision Room', async ({
   page,
+  request,
 }, testInfo) => {
   mkdirSync(CAPTURE_DIR, { recursive: true });
   const title = `Live viewer acceptance ${testInfo.parallelIndex}${Date.now() % 10000}`;
 
   await signIn(page, 'founder');
-  await createAndGrant(page, title);
+  await createGrantAndRegister(page, request, title);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await signIn(page, 'operator');
   await selectMission(page, title);
@@ -164,10 +269,13 @@ test('LIVE: physical incident renders the restricted 3D scene inside the real De
   await expect(viewer).toHaveAttribute('data-mode', '3d', { timeout: 15_000 });
 });
 
-test('LIVE: reload recreates the same evidence state from server truth', async ({ page }) => {
+test('LIVE: reload recreates the same evidence state from server truth', async ({
+  page,
+  request,
+}) => {
   const title = `Live reload determinism ${Date.now() % 10000}`;
   await signIn(page, 'founder');
-  await createAndGrant(page, title);
+  await createGrantAndRegister(page, request, title);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await signIn(page, 'operator');
   await selectMission(page, title);
@@ -185,11 +293,14 @@ test('LIVE: reload recreates the same evidence state from server truth', async (
   await expect(viewer.locator('.mpv-events__item')).toHaveCount(eventsBefore);
 });
 
-test('LIVE: no financial writes from the viewport mount or selection', async ({ page }) => {
+test('LIVE: no financial writes from the viewport mount or selection', async ({
+  page,
+  request,
+}) => {
   const mutating: string[] = [];
   const title = `Live no-write ${Date.now() % 10000}`;
   await signIn(page, 'founder');
-  await createAndGrant(page, title);
+  await createGrantAndRegister(page, request, title);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await signIn(page, 'operator');
   await selectMission(page, title);
@@ -219,11 +330,14 @@ test('LIVE: no financial writes from the viewport mount or selection', async ({ 
   expect(mutating).toEqual([]);
 });
 
-test('LIVE: scene quality at production widths and reduced motion', async ({ page }, testInfo) => {
+test('LIVE: scene quality at production widths and reduced motion', async ({
+  page,
+  request,
+}, testInfo) => {
   mkdirSync(CAPTURE_DIR, { recursive: true });
   const title = `Live visual pass ${testInfo.parallelIndex}${Date.now() % 10000}`;
   await signIn(page, 'founder');
-  await createAndGrant(page, title);
+  await createGrantAndRegister(page, request, title);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await signIn(page, 'operator');
   await selectMission(page, title);

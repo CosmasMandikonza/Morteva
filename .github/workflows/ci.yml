@@ -73,8 +73,15 @@ jobs:
       - name: Adversarial financial journey (playwright, serial)
         run: npx playwright test e2e/adversarial-financial-journey.spec.ts --workers=1
 
+      # R-final customer-operated workflow: unseen mission → registered spec →
+      # one-time source credential → signed field evidence → journal-derived
+      # decision → separate approver → replay. Real multi-actor journeys on the
+      # shared seeded server, so they run serially for the same D-3 reason.
+      - name: Customer-operated workflow (playwright, serial)
+        run: npx playwright test e2e/customer-journey.spec.ts e2e/customer-states.spec.ts --workers=1
+
       - name: E2E smoke (playwright, real servers)
-        run: npx playwright test --grep-invert "mission-viewer-integrated|adversarial-financial-journey"
+        run: npx playwright test --grep-invert "mission-viewer-integrated|adversarial-financial-journey|customer-journey|customer-states"
 
       - name: Upload Playwright report on failure
         if: failure()
