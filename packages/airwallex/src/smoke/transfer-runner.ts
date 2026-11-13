@@ -95,6 +95,14 @@ export interface SmokeTransferInput {
   readonly amountMinor: number;
   /** Explicit human authorization for this invocation (required every run). */
   readonly confirm: boolean;
+  /**
+   * PREPARE without executing: build the full governed chain (mandate → plan
+   * → separate-role approval → reservation → durable intent persisted) and
+   * STOP before any dispatcher is constructed or any provider write is sent.
+   * The balance gate still runs (a READ). Never requires --confirm — that
+   * remains the execution authorization for a LATER invocation.
+   */
+  readonly prepareOnly: boolean;
   /** Explicit new economic intent; requires every prior smoke operation to be resolved. */
   readonly newIntent: boolean;
   /** State directory holding the ledger DB, state file and lock. */
@@ -118,6 +126,24 @@ export type SmokeTransferResult =
   | {
       readonly outcome: 'blocked';
       readonly reason: string;
+    }
+  | {
+      /** Governed chain fully built and durably persisted; NOTHING dispatched. */
+      readonly outcome: 'prepared';
+      readonly orgId: string;
+      readonly missionId: string;
+      readonly mandateId: string;
+      readonly planId: string;
+      readonly approvalId: string;
+      readonly operationId: string;
+      readonly operationState: string;
+      readonly ledgerRequestId: string;
+      readonly providerRequestId: string;
+      readonly beneficiaryId: string;
+      readonly amountMinor: number;
+      readonly currency: string;
+      /** Provider-read USD available at preparation time (the funding gate input). */
+      readonly verifiedUsdAvailableMinor: number | null;
     }
   | {
       readonly outcome: 'unverified';
@@ -289,10 +315,11 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
   const now = input.now ?? (() => new Date());
   const builder = input.buildDispatcher ?? buildSandboxDispatcher;
 
-  if (!input.confirm) {
+  if (!input.confirm && !input.prepareOnly) {
     return {
       outcome: 'blocked',
-      reason: 'pass --confirm to explicitly authorize this sandbox transfer attempt.',
+      reason:
+        'pass --confirm to explicitly authorize this sandbox transfer attempt (or --prepare-only to stage the governed intent WITHOUT executing).',
     };
   }
   if (input.beneficiaryId.trim() === '') {
@@ -434,7 +461,7 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
 async function readVerifiedUsdBalance(client: AirwallexClient): Promise<number | null> {
   const balances = await client.balancesCurrent();
   const usd = balances.find((balance) => balance.currency === SMOKE_CURRENCY);
-  if (usd === undefined) return null;
+  if (usd === undefined || usd.availableAmount === null) return null;
   return usd.availableAmount.minorUnits;
 }
 
@@ -532,6 +559,7 @@ async function createFreshIntent(
     approverId: approver.id,
     requestId,
     amountMinor: input.amountMinor,
+    verifiedUsdAvailableMinor: verifiedMinor,
   });
 }
 
@@ -554,9 +582,10 @@ async function finishIntentSetup(
     approverId: string;
     requestId: string;
     amountMinor: number;
+    verifiedUsdAvailableMinor: number;
   },
 ): Promise<SmokeTransferResult> {
-  ledger.mandates.issue({
+  const mandate = ledger.mandates.issue({
     orgId: ids.orgId,
     missionId: ids.missionId,
     currency: SMOKE_CURRENCY,
@@ -610,6 +639,28 @@ async function finishIntentSetup(
     accountFingerprint: fingerprint,
     createdAt: now().toISOString(),
   });
+
+  // PREPARE-ONLY: the governed chain is fully built and durably persisted;
+  // the intent stops at RESERVED with NO dispatcher constructed, NO outbox
+  // claim, NO provider write. Execution is a LATER invocation with --confirm.
+  if (input.prepareOnly) {
+    return {
+      outcome: 'prepared',
+      orgId: ids.orgId,
+      missionId: ids.missionId,
+      mandateId: mandate.id,
+      planId: plan.id,
+      approvalId: approval.id,
+      operationId: reservation.operation.id,
+      operationState: reservation.operation.state,
+      ledgerRequestId: ids.requestId,
+      providerRequestId,
+      beneficiaryId: input.beneficiaryId,
+      amountMinor: ids.amountMinor,
+      currency: SMOKE_CURRENCY,
+      verifiedUsdAvailableMinor: ids.verifiedUsdAvailableMinor,
+    };
+  }
 
   return dispatchAndReport(input, ledger, builder, runState, {
     orgId: ids.orgId,
@@ -675,6 +726,34 @@ async function continueExistingIntent(
 
   const blocked = await verifyFreshBalanceGate(client, state.amountMinor);
   if (blocked !== null) return { outcome: 'blocked', reason: blocked };
+
+  // PREPARE-ONLY on an existing intent: only a never-attempted (RESERVED)
+  // intent can be prepared — anything beyond RESERVED means an attempt
+  // happened and the normal execution/reconciliation mode must be used.
+  if (input.prepareOnly) {
+    if (operation.state !== 'RESERVED') {
+      return {
+        outcome: 'blocked',
+        reason: `prepare-only refused: this intent was already attempted (state ${operation.state}); use the normal execution mode to reconcile or resolve it.`,
+      };
+    }
+    return {
+      outcome: 'prepared',
+      orgId: state.orgId,
+      missionId: state.missionId,
+      mandateId: operation.mandateId,
+      planId: operation.planId,
+      approvalId: operation.approvalId,
+      operationId: state.operationId,
+      operationState: operation.state,
+      ledgerRequestId: state.ledgerRequestId,
+      providerRequestId: state.providerRequestId,
+      beneficiaryId: state.beneficiaryId,
+      amountMinor: state.amountMinor,
+      currency: state.currency,
+      verifiedUsdAvailableMinor: null,
+    };
+  }
 
   // Reopen the SAME durable intent: the worker pass dispatches only if this
   // intent was never attempted (same request id — provider-deduped);

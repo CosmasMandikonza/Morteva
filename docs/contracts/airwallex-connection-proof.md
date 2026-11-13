@@ -1,10 +1,10 @@
 # Airwallex read-only connection proof (issue #5, A1)
 
-**Status:** implemented, ready to execute the moment founder-provisioned
-sandbox credentials exist in the server environment. Nothing in this document
-claims a live provider interaction has occurred — the real-provider gate
-stays BLOCKED until then, and no credential is requested through public
-channels (never commit, log or print one).
+**Status: EXECUTED — the genuine proof succeeded on 2026-11-11** with the
+founder-provisioned read-only sandbox key (login fixed, real balances and
+beneficiaries read, durable receipts persisted; see docs/STATE.md for the
+redacted record). This document remains the procedure and law reference.
+No credential is committed, logged or printed anywhere.
 
 ## What it proves (once run with credentials)
 
@@ -91,3 +91,142 @@ no write is executed and none is claimed. Never use a real-money account.
 The stored receipt `payload_json` is never disclosed here; the journal's
 disclosure projection remains the replayable record. This is additive —
 `OperationReadView` is unchanged.
+
+## Credential provisioning (founder action — exact procedure)
+
+The adapter reads the SERVER environment only. The smoke scripts load the
+gitignored root `.env` themselves (Node 24 `--env-file-if-exists=../../.env`
+in the workspace scripts; real process env always wins; production injects
+real environment variables and never reads local files) — NO shell exports
+are needed:
+
+1. Create `.env` in the repo root (already `.gitignore`d — verify with
+   `git check-ignore .env`) containing exactly:
+
+   ```
+   AIRWALLEX_ENV=sandbox
+   AIRWALLEX_CLIENT_ID=<paste client id>
+   AIRWALLEX_API_KEY=<paste API key>
+   # optional single-read targets for the connection proof:
+   AIRWALLEX_SANDBOX_BENEFICIARY_ID=<paste one beneficiary id from the UI>
+   AIRWALLEX_SANDBOX_TRANSFER_ID=<optional, only if a transfer id should be read>
+   # the DISTINCT least-privilege Transfers-Write pair — ONLY when the founder
+   # has provisioned that separate key AND approved the exact transfer:
+   #AIRWALLEX_WRITE_CLIENT_ID=<paste write client id>
+   #AIRWALLEX_WRITE_API_KEY=<paste write api key>
+   ```
+
+   The smoke scripts then run with a single command each
+   (`npm run smoke:connection -w @moterva/airwallex`,
+   `npm run smoke:transfer -w @moterva/airwallex` — the latter BLOCKS exit 2
+   unless the WRITE pair above exists AND is provably distinct from the read
+   pair; a write pair identical to the read pair is refused as a
+   least-privilege violation).
+
+2. IP allowlist: the sandbox key only answers from allowlisted public egress
+   IPs. Add THIS machine's current public egress IP before running; an AWS
+   host's EIP is a different public source IP and must be allowlisted
+   separately when the proof runs there. CONFIRMED DIAGNOSTIC (2026-11-11
+   live attempt): a non-allowlisted source IP gets an HTML `403 Forbidden`
+   page from the edge even on UNAUTHENTICATED requests — while an
+   allowlisted IP without credentials gets a JSON 401 (missing credentials).
+   The connection proof classifies the authenticated 403 explicitly
+   (`scope-or-ip`) instead of misreporting an empty account or an error.
+3. Key separation (never weakened, now ENFORCED in code): the founder's
+   initial key is READ-ONLY and stays read-only. A sandbox WRITE requires a
+   DISTINCT least-privilege Transfers-Write sandbox key
+   (`AIRWALLEX_WRITE_CLIENT_ID`/`AIRWALLEX_WRITE_API_KEY`); `smoke:transfer`
+   refuses to run without it and refuses a write pair identical to the read
+   pair. The read-only connection proof never sends a write.
+
+4. Run and capture redacted evidence (values above are never printed; the
+   bearer token is held in memory only):
+
+   ```
+   npm run build -w @moterva/airwallex
+   npm run smoke:connection -w @moterva/airwallex
+   ```
+
+   The output classifies honestly: authentication + USD balance + bounded
+   beneficiary list + payout readiness (which beneficiaries are LOCAL/SWIFT
+   payable, USD available in minor units) — distinguishing EMPTY resources
+   (a real empty sandbox account) from scope/IP blocks (403) from plain
+   failures, and one durable `balance-read` receipt
+   (`environment='sandbox'`) per run in
+   `%TEMP%/moterva-awx-connection-proof/ledger.sqlite`.
+
+## Sandbox transfer — founder authorization proposal (STOP gate)
+
+A transfer is proposed ONLY in this exact shape; execution happens exclusively
+after the founder's explicit approval of THIS proposal (and requires the
+separate Transfers-Write key above):
+
+- **Beneficiary:** one beneficiary chosen from the connection proof's
+  payout-ready list (LOCAL-transferable), named by the founder — never any
+  real-world owner banking details; the sandbox beneficiary factory objects
+  the sandbox UI creates are the only valid targets.
+- **Currency / amount:** USD, 500 minor units (= USD 5.00, the smoke default
+  `DEFAULT_SMOKE_AMOUNT_MINOR`), well under the runner's hard cap
+  (`MAX_SMOKE_AMOUNT_MINOR` = 2000 minor = USD 20.00) and checked against a
+  10× funding-safety factor (`FUNDING_SAFETY_FACTOR`) on a VERIFIED
+  provider-read balance.
+- **Request identity:** `awx-smoke-<YYYY-MM-DD>-<8 hex>` — the ledger
+  request id is namespaced (`org:` prefix) as `provider_request_id`, persisted
+  in the durable intent state BEFORE dispatch, and is the ONLY id used for
+  reconciliation (Airwallex dedupes `request_id` for 7 days). The exact id
+  materializes at intent creation and is printed for the founder's record.
+- **Known fees:** LOCAL USD payouts in sandbox cost 0 (per D's Nov-8 audit of
+  the official guide; EUR SWIFT would be a flat EUR 12.85 — not used here), so
+  the authorized amount equals the settled amount for this shape.
+- **Path (already implemented, immutable):** mandate (admin) → plan binding
+  the exact terms → separate-role approval (a DIFFERENT actor — the approver
+  role; the plan proposer can never approve) → reservation → outbox →
+  `AirwallexDispatcher` → independent readback.
+
+## `--prepare-only` — stage the intent WITHOUT executing (founder review gate)
+
+`npm run smoke:transfer -w @moterva/airwallex -- --prepare-only` (with
+`AIRWALLEX_SANDBOX_BENEFICIARY_ID` set to the founder-named LOCAL beneficiary):
+
+1. Reads the live USD balance with the CURRENT (read-only) credential and
+   enforces the 10× funding gate — a genuine funding check, not a fixture.
+2. Builds the complete governed chain and persists the durable intent
+   (mandate, plan with exact terms, separate-role approval, RESERVED
+   operation, `state.json` + sqlite state) — then STOPS. No dispatcher is
+   constructed, no outbox claim, no provider write, no `--confirm` needed.
+3. Prints the full intent identity (org/mission/mandate/plan/approval/
+   operation/request ids + exact terms + verified funding) for the founder's
+   authorization record.
+4. Execution later = `npm run smoke:transfer -w @moterva/airwallex --
+   --confirm` with the Transfers-Write key: it RESUMES this same intent
+   (identical operation/request ids; provider request-id dedupe applies) —
+   never a second identity. `--prepare-only` on an ALREADY-ATTEMPTED intent
+   refuses (blocked); confirm remains the sole execution authorization.
+
+Live demonstration (2026-11-13): with the egress IP changed
+(`143.110.8.7` → `97.64.79.158`) and the key's allowlist not yet updated, the
+live prepare run FAILED CLOSED exactly as designed — BLOCKED at the funding
+gate's balance read (login 403), exit 2, zero submission. Four new tests
+(`test/prepare-only.test.ts`) prove the staged chain against a real sqlite
+ledger: RESERVED operation, outbox row present-but-never-claimed
+(attempts=0, pending), zero provider receipts, no `/transfers` call, approver
+≠ plan proposer, and the later `--confirm` resuming the SAME operation with
+exactly one provider create.
+
+## After an authorized transfer — evidence demonstration
+
+The smoke's durable ledger is a real ledger: serving the API against it
+exposes the full product read path for the SAME org/mission/plan/operation
+identity (no rebuild, no fixture):
+
+```
+MOTERVA_LEDGER_PATH=%TEMP%/moterva-awx-transfer-smoke/ledger.sqlite \
+  npm run dev -w @moterva/api        # then, authenticated:
+# GET /api/operations                       (Treasury list: the operation)
+# GET /api/operations/:id/provider-evidence (redacted receipt chain, environment=sandbox)
+# GET /api/missions/:missionId/evidence     (Evidence Replay: journal events)
+```
+
+Status-unknown outcomes stay STATUS_UNKNOWN with exposure retained; only a
+verified readback settles; nothing is ever reported successful because an
+internal fixture, an API submission or an approval succeeded.

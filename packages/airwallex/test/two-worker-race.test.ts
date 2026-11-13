@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,6 @@ import { FixtureTransport, created, ok } from '../src/fixture-transport.js';
 import type { FixtureScript } from '../src/fixture-transport.js';
 import { buildOfflineFixtureDispatcher } from '../src/dispatcher.js';
 import { providerRequestIdFor } from '../src/provider-request-id.js';
-import { loadAirwallexConfig } from '../src/config.js';
 
 /**
  * TWO-WORKER DISPATCH RACE (issue #5 adversarial set): two worker processes
@@ -26,7 +26,7 @@ import { loadAirwallexConfig } from '../src/config.js';
  *    without re-transitioning or re-submitting.
  */
 
-const CONFIG = loadAirwallexConfig({});
+const CONFIG = fixtureClientConfig();
 
 function seedWorld(): { path: string; clock: TunableClock; requestId: string; orgId: string } {
   const path = join(mkdtempSync(join(tmpdir(), 'awx-race-')), 'ledger.sqlite');

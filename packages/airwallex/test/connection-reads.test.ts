@@ -24,6 +24,7 @@ import {
 import { SANDBOX_BASE_URL } from '../src/config.js';
 import type { AirwallexAdapterConfig } from '../src/config.js';
 import { runConnectionProof } from '../src/smoke/connection-proof.js';
+import { classifyConnectionFailure, payoutReadiness } from '../src/smoke/connection-proof.js';
 
 const CONFIG: AirwallexAdapterConfig = {
   enabled: true,
@@ -265,6 +266,228 @@ describe('A1 — connection proof orchestration (offline fixture; still zero wri
       } finally {
         ledger.close();
       }
+    } finally {
+      rmSync(join(dir, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('A1 — empty-resource vs scope/IP-block vs failure classification', () => {
+  it('classifies 403 as scope-or-ip with an actionable, honest diagnostic', async () => {
+    const client = new AirwallexClient(
+      CONFIG,
+      new FixtureTransport(baseScript({ balances: [httpError(403, 'unauthorized', 'denied')] })),
+      { now: () => new Date() },
+    );
+    try {
+      await client.balancesCurrent();
+      expect.unreachable('403 must throw');
+    } catch (error) {
+      const c = classifyConnectionFailure(error);
+      expect(c.kind).toBe('scope-or-ip');
+      expect(c.detail).toContain('scope');
+      expect(c.detail).toContain('IP');
+      // Honest: not an empty-resource claim, not a success claim.
+      expect(c.detail).not.toMatch(/no beneficiaries|zero beneficiaries|empty account/i);
+    }
+  });
+
+  it('classifies 404 as a wrong-id configuration error and 429 as ambiguous', () => {
+    const nf = classifyConnectionFailure(
+      new AirwallexDefinitiveRejectionError(404, 'not_found', 'x', null),
+    );
+    expect(nf.kind).toBe('not-found');
+    expect(nf.detail).toContain('does not exist');
+    const amb = classifyConnectionFailure(new TransportUnavailableError('connection lost'));
+    expect(amb.kind).toBe('ambiguous');
+    expect(amb.detail).toContain('AMBIGUOUS');
+    const other = classifyConnectionFailure(new Error('boom'));
+    expect(other.kind).toBe('other');
+  });
+
+  it('payout readiness: USD balance + transfer-method split; empty page is empty, not an error', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'awx-conn-')), 'state');
+    try {
+      const result = await runConnectionProof({
+        config: CONFIG,
+        transport: new FixtureTransport(
+          baseScript({
+            login: LOGIN_OK,
+            beneficiaries: [
+              ok({
+                has_more: false,
+                items: [
+                  { id: 'bene_ok', nickname: 'ready', transfer_methods: ['LOCAL'] },
+                  { id: 'bene_stuck', nickname: 'incomplete', transfer_methods: [] },
+                ],
+              }),
+            ],
+          }),
+        ),
+        stateDir: dir,
+      });
+      const readiness = payoutReadiness(result);
+      expect(readiness.usdAvailableMinor).toBe(500000);
+      expect(readiness.payoutReadyBeneficiaries).toEqual(['bene_ok']);
+      expect(readiness.nonPayoutReadyBeneficiaries).toEqual(['bene_stuck']);
+
+      const empty = await runConnectionProof({
+        config: CONFIG,
+        transport: new FixtureTransport(
+          baseScript({ login: LOGIN_OK, beneficiaries: [ok({ has_more: false, items: [] })] }),
+        ),
+        stateDir: join(dir, 'b'),
+      });
+      const emptyReadiness = payoutReadiness(empty);
+      expect(emptyReadiness.payoutReadyBeneficiaries).toEqual([]);
+      expect(emptyReadiness.nonPayoutReadyBeneficiaries).toEqual([]);
+      expect(emptyReadiness.usdAvailableMinor).toBe(500000); // a real read, not a guess
+    } finally {
+      rmSync(join(dir, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('credential header boundary (live 2026-11-11 proof: header-less POST is edge-rejected)', () => {
+  it('login carries x-client-id/x-api-key; every OTHER request carries the bearer token ONLY', async () => {
+    const transport = new FixtureTransport(
+      baseScript({
+        beneficiaries: [ok(BENEFICIARY_PAGE_OK)],
+        beneficiary: [ok(BENEFICIARY_GET_OK)],
+      }),
+    );
+    const client = new AirwallexClient(CONFIG, transport, { now: () => new Date() });
+    await client.balancesCurrent();
+    await client.listBeneficiaries();
+    await client.getBeneficiary('bene_1');
+
+    const login = transport.performedRequests.find((r) => r.path.endsWith('/authentication/login'));
+    expect(login).toBeDefined();
+    expect(login!.headers['x-client-id']).toBe('client-id-test');
+    expect(login!.headers['x-api-key']).toBe('api-key-test');
+    expect(login!.headers['content-type']).toBe('application/json');
+    // The login request carries NO bearer token; resource calls carry NO raw credentials.
+    expect(login!.headers['authorization']).toBeUndefined();
+    const resourceCalls = transport.performedRequests.filter(
+      (r) => !r.path.endsWith('/authentication/login'),
+    );
+    expect(resourceCalls.length).toBeGreaterThan(0);
+    for (const call of resourceCalls) {
+      expect(call.headers['x-client-id']).toBeUndefined();
+      expect(call.headers['x-api-key']).toBeUndefined();
+      expect(call.headers['authorization']).toBe('Bearer t');
+    }
+  });
+
+  it('login refuses to fire without configured credentials (fail-closed, no header-less POST)', async () => {
+    const brokenConfig = { ...CONFIG, clientId: null, apiKey: null };
+    const transport = new FixtureTransport(baseScript({ balances: [ok({ items: [] })] }));
+    const client = new AirwallexClient(brokenConfig, transport, { now: () => new Date() });
+    await expect(client.balancesCurrent()).rejects.toThrow(/without configured client id/);
+    // No request of any kind left the client.
+    expect(transport.performedRequests).toHaveLength(0);
+  });
+});
+
+describe('balance honesty for unsupported currencies (live 2026-11-11: real account holds ARS et al.)', () => {
+  it('reports unsupported-currency rows with raw provider amounts, never guesses or fails the read', async () => {
+    const transport = new FixtureTransport(
+      baseScript({
+        login: LOGIN_OK,
+        balances: [
+          ok({
+            items: [
+              {
+                currency: 'USD',
+                available_amount: 5000,
+                pending_amount: 0,
+                reserved_amount: 0,
+                total_amount: 5000,
+                account_type: 'cash',
+              },
+              {
+                currency: 'ARS',
+                available_amount: 12345.67,
+                pending_amount: 0,
+                reserved_amount: 0,
+                total_amount: 12345.67,
+                account_type: 'cash',
+              },
+              {
+                currency: 'BDT',
+                available_amount: 999,
+                pending_amount: 0,
+                reserved_amount: 0,
+                total_amount: 999,
+                account_type: 'cash',
+              },
+            ],
+          }),
+        ],
+        beneficiaries: [ok({ has_more: false, items: [] })],
+      }),
+    );
+    const client = new AirwallexClient(CONFIG, transport, { now: () => new Date() });
+    const balances = await client.balancesCurrent();
+    expect(balances).toHaveLength(3);
+    // USD converts into internal Money.
+    expect(balances[0]!.availableAmount!.minorUnits).toBe(500000);
+    // ARS/BDT are NOT in the internal money table: Money is null (NOT a zero),
+    // the RAW provider amount is preserved, and the read does NOT fail.
+    expect(balances[1]!.availableAmount).toBeNull();
+    expect(balances[1]!.providerAvailableMajor).toBe(12345.67);
+    expect(balances[2]!.availableAmount).toBeNull();
+    expect(balances[2]!.providerAvailableMajor).toBe(999);
+    // The JSON projection carries no fabricated minor-unit figure for them.
+    const json = JSON.stringify(balances);
+    expect(json).not.toContain('"ARS":');
+  });
+
+  it('the durable receipt lists unsupported currencies by name with raw amounts', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'awx-conn-')), 'state');
+    try {
+      const result = await runConnectionProof({
+        config: CONFIG,
+        transport: new FixtureTransport(
+          baseScript({
+            login: LOGIN_OK,
+            balances: [
+              ok({
+                items: [
+                  {
+                    currency: 'USD',
+                    available_amount: 10000000,
+                    pending_amount: 0,
+                    reserved_amount: 0,
+                    total_amount: 10000000,
+                    account_type: 'cash',
+                  },
+                  {
+                    currency: 'ARS',
+                    available_amount: 42.5,
+                    pending_amount: 0,
+                    reserved_amount: 0,
+                    total_amount: 42.5,
+                    account_type: 'cash',
+                  },
+                ],
+              }),
+            ],
+            beneficiaries: [ok({ has_more: false, items: [] })],
+          }),
+        ),
+        stateDir: dir,
+      });
+      const payload = JSON.parse(result.persistedReceiptPayload!) as {
+        supported: { currency: string; available: number }[];
+        unsupported: { currency: string; providerAvailableMajor: number }[];
+      };
+      expect(payload.supported).toEqual([
+        { currency: 'USD', available: 1000000000, pending: 0, reserved: 0 },
+      ]);
+      expect(payload.unsupported).toEqual([{ currency: 'ARS', providerAvailableMajor: 42.5 }]);
+      // Payout readiness: USD present, ARS never fabricated into the USD figure.
+      expect(payoutReadiness(result).usdAvailableMinor).toBe(1000000000);
     } finally {
       rmSync(join(dir, '..'), { recursive: true, force: true });
     }

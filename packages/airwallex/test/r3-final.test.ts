@@ -132,6 +132,7 @@ async function smoke(input: {
     beneficiaryId: input.beneficiaryId ?? 'ben-smoke',
     amountMinor: input.amountMinor ?? 500,
     confirm: true,
+    prepareOnly: false,
     newIntent: input.newIntent ?? false,
     stateDir: input.stateDir,
     buildDispatcher: buildOfflineFixtureDispatcher,

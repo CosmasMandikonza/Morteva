@@ -24,7 +24,9 @@ import { mkdirSync } from 'node:fs';
 import type { AirwallexAdapterConfig } from '../config.js';
 import type { AirwallexTransport } from '../transport.js';
 import { AirwallexClient, type AirwallexBeneficiary, type AirwallexBalance } from '../client.js';
+import { AirwallexDefinitiveRejectionError } from '../client.js';
 import { minimizeTransfer, type MinimizedTransfer } from '../minimize.js';
+import { TransportUnavailableError } from '../transport.js';
 import { minorToMajorUnits } from '../money.js';
 
 export interface ConnectionProofInput {
@@ -80,14 +82,22 @@ export async function runConnectionProof(
   // Durable balance-read receipt in a REAL sqlite ledger under the state dir.
   // The payload is computed up front: this function either persists it and
   // returns, or throws — the success flag below is only reachable on success.
-  const payload = JSON.stringify(
-    balances.map((b) => ({
-      currency: b.currency,
-      available: b.availableAmount.minorUnits,
-      pending: b.pendingAmount.minorUnits,
-      reserved: b.reservedAmount.minorUnits,
-    })),
-  );
+  // Only SUPPORTED-currency aggregates enter the receipt (minor units are the
+  // internal representation); unsupported currencies are listed by name with
+  // their RAW provider amount — never silently dropped, never guessed.
+  const payload = JSON.stringify({
+    supported: balances
+      .filter((b) => b.availableAmount !== null)
+      .map((b) => ({
+        currency: b.currency,
+        available: b.availableAmount!.minorUnits,
+        pending: b.pendingAmount!.minorUnits,
+        reserved: b.reservedAmount!.minorUnits,
+      })),
+    unsupported: balances
+      .filter((b) => b.availableAmount === null)
+      .map((b) => ({ currency: b.currency, providerAvailableMajor: b.providerAvailableMajor })),
+  });
   mkdirSync(input.stateDir, { recursive: true });
   const ledger = (input.openLedgerAt ?? openLedgerAtDefault)(join(input.stateDir, 'ledger.sqlite'));
   try {
@@ -129,15 +139,82 @@ function openLedgerAtDefault(dbPath: string): Ledger {
   return openLedger(dbPath);
 }
 
+/**
+ * Payout-readiness summary from a connection proof: which beneficiary ids are
+ * LOCAL/SWIFT-payable (a beneficiary with NO transfer methods is NOT payout
+ * ready — an empty resource is reported as such, never an error and never a
+ * success), plus the USD available balance the founder's funding check uses.
+ */
+export function payoutReadiness(result: ConnectionProofResult): {
+  usdAvailableMinor: number | null;
+  payoutReadyBeneficiaries: string[];
+  nonPayoutReadyBeneficiaries: string[];
+} {
+  const usd = result.balances.find((b) => b.currency === 'USD');
+  const ids = result.beneficiaryPage?.items ?? [];
+  return {
+    usdAvailableMinor:
+      usd !== undefined && usd.availableAmount !== null ? usd.availableAmount.minorUnits : null,
+    payoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length > 0).map((b) => b.id),
+    nonPayoutReadyBeneficiaries: ids.filter((b) => b.transferMethods.length === 0).map((b) => b.id),
+  };
+}
+
+/**
+ * Distinguishes an EMPTY sandbox resource from a scope/IP block from a plain
+ * failure (founder step 2): a 403 from a least-privilege read key is a
+ * permissions/IP-allowlist diagnostic, not an empty account and not a bug;
+ * an empty beneficiary page is a real (valid) empty resource.
+ */
+export function classifyConnectionFailure(error: unknown): {
+  kind: 'scope-or-ip' | 'not-found' | 'ambiguous' | 'other';
+  detail: string;
+} {
+  if (error instanceof AirwallexDefinitiveRejectionError) {
+    if (error.httpStatus === 403) {
+      return {
+        kind: 'scope-or-ip',
+        detail: `403 ${error.providerCode}: the credential's scope does not cover this resource OR the source IP is not on the sandbox IP allowlist. This is a permissions/network configuration diagnostic — not an empty resource and not a fabricated failure. Provider said: "${error.message}". Check: (1) the key's scopes in the Airwallex sandbox UI, (2) the allowlisted public egress IP of THIS machine (an AWS host's EIP differs from a local IP).`,
+      };
+    }
+    if (error.httpStatus === 404) {
+      return {
+        kind: 'not-found',
+        detail: `404 ${error.providerCode}: the requested resource id does not exist in this sandbox account (a wrong id is a configuration error, not an empty list). Provider said: "${error.message}".`,
+      };
+    }
+    return {
+      kind: 'other',
+      detail: `${String(error.httpStatus)} ${error.providerCode}: definitive provider rejection. Provider said: "${error.message}".`,
+    };
+  }
+  if (error instanceof TransportUnavailableError) {
+    return {
+      kind: 'ambiguous',
+      detail: `${error.message} — AMBIGUOUS: the provider may or may not have processed anything; reads can be retried safely, but this is never reported as success.`,
+    };
+  }
+  return {
+    kind: 'other',
+    detail: error instanceof Error ? error.message : String(error),
+  };
+}
+
 /** Redacted console lines for the CLI (never the token, never bank details). */
 export function printConnectionProof(result: ConnectionProofResult): void {
   console.info('airwallex sandbox connection proof — READ ONLY (no transfer attempted):');
   console.info('  authentication: OK (bearer token issued; held in memory only, never printed)');
   const usd = result.balances.find((b) => b.currency === 'USD');
   for (const b of result.balances) {
-    console.info(
-      `  balance ${b.currency}: available ${b.availableAmount.minorUnits} minor (major ${minorToMajorUnits(b.currency, b.availableAmount.minorUnits)}) account_type=${b.accountType}`,
-    );
+    if (b.availableAmount !== null) {
+      console.info(
+        `  balance ${b.currency}: available ${b.availableAmount.minorUnits} minor (major ${minorToMajorUnits(b.currency, b.availableAmount.minorUnits)}) account_type=${b.accountType}`,
+      );
+    } else {
+      console.info(
+        `  balance ${b.currency}: available ${String(b.providerAvailableMajor)} (provider major units) — currency NOT in the internal money table; reported honestly, not converted, not a zero`,
+      );
+    }
   }
   if (usd === undefined) {
     console.info('  balance USD: NOT PRESENT in this sandbox account (report honestly)');

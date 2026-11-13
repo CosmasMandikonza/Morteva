@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -144,7 +145,7 @@ function seedAndAttach() {
     balances: [],
   } as never);
   const dispatcher = buildOfflineFixtureDispatcher(
-    loadAirwallexConfig({}),
+    fixtureClientConfig(),
     fixture,
     ledger.providerReceipts,
     clock,
@@ -159,7 +160,8 @@ describe('provider boundary — one end-to-end verification journey', () => {
   it('walks auth-refresh, exact-amount dispatch, readback settlement, reversal and webhook refusal end-to-end', async () => {
     const w = seedAndAttach();
 
-    // (1) Config gate: the adapter is sandbox-locked by construction.
+    // (1) Config gate: the adapter is sandbox-locked by construction — an
+    // empty environment yields a DISABLED config (never half-configured).
     const config = loadAirwallexConfig({});
     expect(config.enabled).toBe(false);
     expect(SANDBOX_BASE_URL).toBe('https://api.sandbox.airwallex.com');

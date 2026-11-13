@@ -27,12 +27,23 @@ import { TransportUnavailableError } from './transport.js';
 import { majorUnitsToMoney, transferAmountMinorToMajor } from './money.js';
 import type { Money } from '@moterva/domain';
 
+/**
+ * One provider balance row. Money fields are NULL when the account holds a
+ * currency outside the internal money table (a REAL account may hold any
+ * provider currency — e.g. ARS on a demo sandbox account): the row is
+ * reported honestly with the raw provider amount instead of being dropped or
+ * guessed. Null Money is NOT a zero and NEVER convertible — MOTERVA simply
+ * cannot reason internally about that currency until it is deliberately
+ * added to the domain table with its exact exponent.
+ */
 export interface AirwallexBalance {
   readonly currency: string;
-  readonly availableAmount: Money;
-  readonly pendingAmount: Money;
-  readonly reservedAmount: Money;
-  readonly totalAmount: Money;
+  readonly availableAmount: Money | null;
+  readonly pendingAmount: Money | null;
+  readonly reservedAmount: Money | null;
+  readonly totalAmount: Money | null;
+  /** Provider major-unit available amount (always present, unconverted). */
+  readonly providerAvailableMajor: number | null;
   readonly accountType: string;
 }
 
@@ -117,8 +128,25 @@ export class AirwallexClient {
   ) {}
 
   private async login(): Promise<void> {
+    // The official guide: login authenticates with `x-client-id` +
+    // `x-api-key` HEADERS (no body). These credentials go ONLY here — every
+    // other request carries the bearer token alone. A header-less POST is
+    // rejected at the provider edge (WAF HTML 403), which is exactly what the
+    // live connection proof surfaced on 2026-11-11.
+    if (this.config.clientId === null || this.config.apiKey === null) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'missing_login_credentials',
+        'airwallex login attempted without configured client id/api key (config enabled-state violated)',
+        null,
+      );
+    }
     const response = await this.transport.request(
-      {},
+      {
+        'x-client-id': this.config.clientId,
+        'x-api-key': this.config.apiKey,
+        'content-type': 'application/json',
+      },
       { method: 'POST', path: '/api/v1/authentication/login' },
     );
     if (response.httpStatus !== 200 && response.httpStatus !== 201) {
@@ -214,14 +242,28 @@ export class AirwallexClient {
         (item): item is Record<string, unknown> =>
           item !== null && typeof item.currency === 'string',
       )
-      .map((item) => ({
-        currency: String(item.currency).toUpperCase(),
-        availableAmount: majorUnitsToMoney(String(item.currency), item.available_amount ?? 0),
-        pendingAmount: majorUnitsToMoney(String(item.currency), item.pending_amount ?? 0),
-        reservedAmount: majorUnitsToMoney(String(item.currency), item.reserved_amount ?? 0),
-        totalAmount: majorUnitsToMoney(String(item.currency), item.total_amount ?? 0),
-        accountType: typeof item.account_type === 'string' ? item.account_type : 'unknown',
-      }));
+      .map((item) => {
+        const currency = String(item.currency).toUpperCase();
+        // Per-currency conversion: an unknown currency is reported honestly
+        // (null Money + raw provider amount), never guessed and never fatal.
+        const convert = (value: unknown): Money | null => {
+          try {
+            return majorUnitsToMoney(currency, value ?? 0);
+          } catch {
+            return null;
+          }
+        };
+        return {
+          currency,
+          availableAmount: convert(item.available_amount),
+          pendingAmount: convert(item.pending_amount),
+          reservedAmount: convert(item.reserved_amount),
+          totalAmount: convert(item.total_amount),
+          providerAvailableMajor:
+            typeof item.available_amount === 'number' ? item.available_amount : null,
+          accountType: typeof item.account_type === 'string' ? item.account_type : 'unknown',
+        };
+      });
   }
 
   /**
