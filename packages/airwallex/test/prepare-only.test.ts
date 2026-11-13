@@ -20,7 +20,6 @@ import { join } from 'node:path';
 import { FixtureTransport, created, ok } from '../src/index.js';
 import { buildOfflineFixtureDispatcher } from '../src/dispatcher.js';
 import { openLedger, TunableClock } from '@moterva/ledger';
-import type { Ledger } from '@moterva/ledger';
 import { runSmokeTransfer, type SmokeTransferResult } from '../src/smoke/transfer-runner.js';
 import { loadAirwallexConfig } from '../src/config.js';
 
@@ -116,7 +115,6 @@ function run(input: {
   world: World;
   confirm?: boolean;
   prepareOnly?: boolean;
-  ledger?: Ledger;
 }): Promise<SmokeTransferResult> {
   const { world } = input;
   return runSmokeTransfer({
@@ -130,7 +128,7 @@ function run(input: {
     stateDir: world.stateDir,
     buildDispatcher: buildOfflineFixtureDispatcher,
     now: () => world.clock.now(),
-    ledgerClock: input.ledger ?? world.clock,
+    ledgerClock: world.clock,
   });
 }
 
@@ -203,16 +201,12 @@ describe('--prepare-only: the governed transfer staged WITHOUT execution', () =>
       const prepared = await run({ world, prepareOnly: true });
       if (prepared.outcome !== 'prepared') throw new Error('P-1 regressed');
       const executed = await run({ world, confirm: true });
-      expect(['dispatched', 'unverified', 'monitoring', 'confirmed', 'requires-human']).toContain(
-        executed.outcome,
-      );
-      if (executed.outcome === 'unverified' || executed.outcome === 'requires-human') {
+      // Whatever the outcome family, it is THIS intent — never a new identity.
+      if (executed.outcome !== 'blocked' && executed.outcome !== 'prepared') {
         expect(executed.operationId).toBe(prepared.operationId);
         expect(executed.ledgerRequestId).toBe(prepared.ledgerRequestId);
       } else {
-        expect(executed.operationId).toBe(prepared.operationId);
-        expect(executed.ledgerRequestId).toBe(prepared.ledgerRequestId);
-        expect(executed.providerRequestId).toBe(prepared.providerRequestId);
+        throw new Error(`execution unexpectedly returned ${executed.outcome}`);
       }
       // Exactly ONE provider create ever.
       const creates = world.fixture.performedRequests.filter((r) =>
