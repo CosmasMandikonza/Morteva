@@ -5,8 +5,18 @@
  * (a missing state file never authorizes another payment in any state; a
  * separate intent needs --new-intent after every prior intent is resolved).
  *
+ * Two operating modes:
+ *   --prepare-only  build the full governed chain (mandate → plan →
+ *                   separate-role approval → reservation → durable intent
+ *                   persisted) and STOP. No dispatcher, no provider write,
+ *                   no --confirm needed. Prints the exact intent identity
+ *                   for founder review.
+ *   --confirm       EXECUTE (or resume/reconcile) the intent. Requires the
+ *                   DISTINCT least-privilege Transfers-Write credential.
+ *
  * Outcome reporting is unambiguous:
  *   BLOCKED        nothing was submitted (strictly pre-attempt)     exit 2
+ *   PREPARED       governed intent persisted; NOT dispatched        exit 0
  *   STATUS_UNKNOWN a provider attempt may have occurred; funds      exit 0
  *                  remain committed; recover ONLY by reconciling
  *                  this same intent — never a new identity
@@ -17,18 +27,33 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAirwallexWriteConfig, HttpTransport } from '../index.js';
+import { loadAirwallexConfig, loadAirwallexWriteConfig, HttpTransport } from '../index.js';
 import { DEFAULT_SMOKE_AMOUNT_MINOR, runSmokeTransfer } from './transfer-runner.js';
+
+const prepareOnly = process.argv.includes('--prepare-only');
 
 let config;
 try {
-  // LEAST-PRIVILEGE SEPARATION: a transfer run requires the DISTINCT
-  // Transfers-Write credential pair — the read-only key is never reused for
-  // write authority, and a write pair identical to the read pair is refused.
-  config = loadAirwallexWriteConfig();
+  if (prepareOnly) {
+    // PREPARE mode: a READ-level operation (fresh balance gate only). The
+    // read-only credential is sufficient — the intent is persisted RESERVED
+    // and execution still requires the Transfers-Write key + --confirm later.
+    config = loadAirwallexConfig();
+    if (!config.enabled) {
+      console.error(
+        'BLOCKED: sandbox credentials not configured (AIRWALLEX_ENV=sandbox + AIRWALLEX_CLIENT_ID + AIRWALLEX_API_KEY) — the read-only pair is required to verify the funding gate for preparation. Nothing was fabricated.',
+      );
+      process.exit(2);
+    }
+  } else {
+    // LEAST-PRIVILEGE SEPARATION: an EXECUTION run requires the DISTINCT
+    // Transfers-Write credential pair — the read-only key is never reused for
+    // write authority, and a write pair identical to the read pair is refused.
+    config = loadAirwallexWriteConfig();
+  }
 } catch (error) {
   console.error(
-    `BLOCKED: ${error instanceof Error ? error.message : String(error)} The real sandbox transfer acceptance of issue #5 remains BLOCKED on the founder's distinct Transfers-Write key and explicit authorization of the exact beneficiary/amount/currency/fees. Nothing was fabricated and no provider call was made.`,
+    `BLOCKED: ${error instanceof Error ? error.message : String(error)} Nothing was fabricated and no provider call was made.`,
   );
   process.exit(2);
 }
@@ -44,6 +69,7 @@ const result = await runSmokeTransfer({
   beneficiaryId: process.env.AIRWALLEX_SANDBOX_BENEFICIARY_ID ?? '',
   amountMinor: Number(process.env.AIRWALLEX_SMOKE_AMOUNT_MINOR ?? DEFAULT_SMOKE_AMOUNT_MINOR),
   confirm: process.argv.includes('--confirm'),
+  prepareOnly,
   newIntent: process.argv.includes('--new-intent'),
   stateDir: join(tmpdir(), 'moterva-awx-transfer-smoke'),
 });
@@ -51,6 +77,25 @@ const result = await runSmokeTransfer({
 if (result.outcome === 'blocked') {
   console.error(`BLOCKED: ${result.reason} (no submission occurred)`);
   process.exit(2);
+}
+if (result.outcome === 'prepared') {
+  console.info('PREPARED — governed intent persisted; NOTHING was dispatched (no provider write):');
+  console.info(`  org=${result.orgId}`);
+  console.info(`  mission=${result.missionId}`);
+  console.info(`  mandate=${result.mandateId}`);
+  console.info(
+    `  plan=${result.planId} (exact terms: ${String(result.amountMinor)} minor ${result.currency} → beneficiary ${result.beneficiaryId})`,
+  );
+  console.info(`  approval=${result.approvalId} (separate approver role)`);
+  console.info(`  operation=${result.operationId} state=${result.operationState}`);
+  console.info(`  request=${result.ledgerRequestId} provider_request=${result.providerRequestId}`);
+  console.info(
+    `  funding gate: verified USD available ${String(result.verifiedUsdAvailableMinor)} minor ≥ 10× the amount`,
+  );
+  console.info(
+    '  EXECUTION requires BOTH: (1) the founder explicitly approving THIS intent (beneficiary/amount/currency/fees), and (2) the distinct least-privilege Transfers-Write key. Then rerun with --confirm (no other flags) — it resumes THIS intent; never a new identity.',
+  );
+  process.exit(0);
 }
 if (result.outcome === 'unverified') {
   console.error(`STATUS_UNKNOWN: ${result.reason}`);

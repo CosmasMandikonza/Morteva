@@ -166,20 +166,52 @@ separate Transfers-Write key above):
   real-world owner banking details; the sandbox beneficiary factory objects
   the sandbox UI creates are the only valid targets.
 - **Currency / amount:** USD, 500 minor units (= USD 5.00, the smoke default
-  `DEFAULT_SMOKE_AMOUNT_MINOR`), well under the runner's hard cap and checked
-  against a 3× funding-safety factor on a VERIFIED provider-read balance.
-- **Request identity:** `moterva-smoke-<YYYY-MM-DD>-<8 hex>` — the ledger
+  `DEFAULT_SMOKE_AMOUNT_MINOR`), well under the runner's hard cap
+  (`MAX_SMOKE_AMOUNT_MINOR` = 2000 minor = USD 20.00) and checked against a
+  10× funding-safety factor (`FUNDING_SAFETY_FACTOR`) on a VERIFIED
+  provider-read balance.
+- **Request identity:** `awx-smoke-<YYYY-MM-DD>-<8 hex>` — the ledger
   request id is namespaced (`org:` prefix) as `provider_request_id`, persisted
   in the durable intent state BEFORE dispatch, and is the ONLY id used for
-  reconciliation (Airwallex dedupes `request_id` for 7 days).
+  reconciliation (Airwallex dedupes `request_id` for 7 days). The exact id
+  materializes at intent creation and is printed for the founder's record.
 - **Known fees:** LOCAL USD payouts in sandbox cost 0 (per D's Nov-8 audit of
   the official guide; EUR SWIFT would be a flat EUR 12.85 — not used here), so
   the authorized amount equals the settled amount for this shape.
 - **Path (already implemented, immutable):** mandate (admin) → plan binding
-  the exact terms → separate-role approval → reservation → outbox →
-  `AirwallexDispatcher` → independent readback; the read-only key can prepare
-  everything but the create call itself fails 403 fail-closed with a receipt
-  rather than fabricating anything.
+  the exact terms → separate-role approval (a DIFFERENT actor — the approver
+  role; the plan proposer can never approve) → reservation → outbox →
+  `AirwallexDispatcher` → independent readback.
+
+## `--prepare-only` — stage the intent WITHOUT executing (founder review gate)
+
+`npm run smoke:transfer -w @moterva/airwallex -- --prepare-only` (with
+`AIRWALLEX_SANDBOX_BENEFICIARY_ID` set to the founder-named LOCAL beneficiary):
+
+1. Reads the live USD balance with the CURRENT (read-only) credential and
+   enforces the 10× funding gate — a genuine funding check, not a fixture.
+2. Builds the complete governed chain and persists the durable intent
+   (mandate, plan with exact terms, separate-role approval, RESERVED
+   operation, `state.json` + sqlite state) — then STOPS. No dispatcher is
+   constructed, no outbox claim, no provider write, no `--confirm` needed.
+3. Prints the full intent identity (org/mission/mandate/plan/approval/
+   operation/request ids + exact terms + verified funding) for the founder's
+   authorization record.
+4. Execution later = `npm run smoke:transfer -w @moterva/airwallex --
+   --confirm` with the Transfers-Write key: it RESUMES this same intent
+   (identical operation/request ids; provider request-id dedupe applies) —
+   never a second identity. `--prepare-only` on an ALREADY-ATTEMPTED intent
+   refuses (blocked); confirm remains the sole execution authorization.
+
+Live demonstration (2026-11-13): with the egress IP changed
+(`143.110.8.7` → `97.64.79.158`) and the key's allowlist not yet updated, the
+live prepare run FAILED CLOSED exactly as designed — BLOCKED at the funding
+gate's balance read (login 403), exit 2, zero submission. Four new tests
+(`test/prepare-only.test.ts`) prove the staged chain against a real sqlite
+ledger: RESERVED operation, outbox row present-but-never-claimed
+(attempts=0, pending), zero provider receipts, no `/transfers` call, approver
+≠ plan proposer, and the later `--confirm` resuming the SAME operation with
+exactly one provider create.
 
 ## After an authorized transfer — evidence demonstration
 
