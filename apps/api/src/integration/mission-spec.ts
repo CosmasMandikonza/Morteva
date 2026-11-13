@@ -56,8 +56,14 @@ export interface MissionSpecification {
   readonly specVersion: 1;
   /** Immutable spec identity — evolution means a NEW specId, never a rewrite. */
   readonly specId: string;
-  /** Industry discriminator for the product surface (Agent B), NOT a code branch. */
-  readonly industry: 'maritime-uav' | 'warehouse-amr';
+  /**
+   * Industry discriminator for the product surface (Agent B) — a CLOSED,
+   * validated label, never a code branch. Customer-authored missions declare
+   * one of the admitted industries (the two shipped catalogs plus the
+   * general operator pilot class); decisions derive from the spec's OWN
+   * assets/policy/offers, so `industry` never selects behavior.
+   */
+  readonly industry: 'maritime-uav' | 'warehouse-amr' | 'general-operations';
   readonly identity: {
     readonly orgId: string;
     readonly missionId: string;
@@ -87,8 +93,10 @@ export interface MissionSpecification {
     /** AERIAL-only modeled limit. MUST be absent unless an aerial asset exists. */
     readonly uavWindLimitKt?: number;
     /** Ground interrupting conditions this spec admits. Ground rules NEVER
-     *  inherit wind/hold semantics; comms stays domain-neutral. */
-    readonly groundInterrupts?: readonly ('aisle-obstructed' | 'charger-fault')[];
+     *  inherit wind/hold semantics; comms stays domain-neutral and
+     *  comms-offline is ALWAYS a ground interrupt (declared here explicitly
+     *  so the operator's domain policy names every interrupt it admits). */
+    readonly groundInterrupts?: readonly ('comms-offline' | 'aisle-obstructed' | 'charger-fault')[];
   };
   readonly economics: {
     readonly currency: string;
@@ -201,7 +209,7 @@ export function validateMissionSpec(raw: unknown): MissionSpecification {
   if (typeof s.specId !== 'string' || !SPEC_ID_RE.test(s.specId)) {
     fail('SPEC_ID_INVALID', 'specId must be kebab-case (3-64 chars)');
   }
-  if (s.industry !== 'maritime-uav' && s.industry !== 'warehouse-amr') {
+  if (!['maritime-uav', 'warehouse-amr', 'general-operations'].includes(s.industry)) {
     fail('SPEC_INDUSTRY_UNKNOWN', `industry "${String(s.industry)}"`);
   }
   const { identity, assets, sources, safetyPolicy, economics, offers, financialMandateShape } = s;
@@ -311,6 +319,20 @@ export function validateMissionSpec(raw: unknown): MissionSpecification {
       'SPEC_GROUND_INTERRUPTS_FORBIDDEN',
       'no ground asset registered — ground interrupts must not exist',
     );
+  }
+  if (safetyPolicy.groundInterrupts !== undefined) {
+    const admitted = new Set(['comms-offline', 'aisle-obstructed', 'charger-fault']);
+    for (const interrupt of safetyPolicy.groundInterrupts) {
+      if (!admitted.has(interrupt)) {
+        fail('SPEC_GROUND_INTERRUPT_UNKNOWN', `interrupt "${String(interrupt)}"`);
+      }
+    }
+    // comms-offline is the domain-neutral interrupt every ground policy
+    // carries (the bridge enforces it regardless); requiring it declared
+    // keeps the operator's policy document complete.
+    if (hasGround && !safetyPolicy.groundInterrupts.includes('comms-offline')) {
+      fail('SPEC_GROUND_COMMS_INTERRUPT_REQUIRED', 'comms-offline must be declared');
+    }
   }
   if (
     typeof economics?.currency !== 'string' ||

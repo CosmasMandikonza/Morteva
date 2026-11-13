@@ -8,6 +8,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { parseIdentityConfig, type IdentityConfig } from './identity/config.js';
+import {
+  SourceKeyCustodyError,
+  parseSourceKeyCustodyEnv,
+  resolveKekRing,
+  type SourceKeyCustodyConfig,
+} from './integration/source-key-custody.js';
 
 /**
  * Minimal .env loader for local development only (development convenience;
@@ -46,6 +52,10 @@ const configSchema = z.object({
     .default(8 * 3_600_000),
   GIT_SHA: z.string().min(1).optional(),
   MOTERVA_TRUST_PROXY: z.enum(['0', '1']).default('0'),
+  // MOTERVA_SOURCE_KEY_KEK / _PREVIOUS / _RETIRED are deliberately NOT part of
+  // this schema: a zod string check cannot validate the key encoding and must
+  // never echo a key value in a message. They are parsed strictly (exactly 32
+  // decoded bytes) by parseSourceKeyCustodyEnv() in loadConfig below.
 });
 
 /**
@@ -108,6 +118,14 @@ export interface AppConfig {
    */
   readonly trustProxy: boolean;
   readonly gitSha?: string;
+  /**
+   * Validated key custody for machine-source signing credentials (CTO review
+   * PR #64): the Key-Encryption-Key ring parsed from MOTERVA_SOURCE_KEY_KEK /
+   * _PREVIOUS / _RETIRED. Opaque by construction — serializing or inspecting
+   * it shows key fingerprints only. Absent on hand-built test configs, where
+   * buildApp applies the same fail-closed policy (production refuses).
+   */
+  readonly sourceKeyCustody?: SourceKeyCustodyConfig;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
 }
@@ -186,6 +204,35 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
       );
     }
   }
+  // SOURCE-KEY CUSTODY (CTO review PR #64, P0). Parse the KEK variables
+  // strictly (exactly 32 decoded bytes, no value ever echoed) and hand the
+  // validated material to the runtime on AppConfig — nothing downstream reads
+  // process.env. A KEK is REQUIRED whenever the credential surface can mount
+  // (production identity configured, or loopback demo auth); in production the
+  // predictable local derivation is refused outright, and outside loopback it
+  // is refused too. A malformed value fails startup in EVERY environment.
+  let sourceKeyCustody: SourceKeyCustodyConfig | undefined;
+  try {
+    sourceKeyCustody = parseSourceKeyCustodyEnv(env);
+  } catch (error) {
+    if (error instanceof SourceKeyCustodyError) issues.push(error.message);
+    else throw error;
+  }
+  let custodyPosture: 'configured' | 'local-derived' | undefined;
+  if (sourceKeyCustody !== undefined && parsed.success) {
+    const credentialSurface = identity !== null || devAuthRequested;
+    if (credentialSurface || sourceKeyCustody.current !== null) {
+      try {
+        custodyPosture = resolveKekRing(sourceKeyCustody, {
+          nodeEnv: parsed.data.NODE_ENV,
+          host: parsed.data.HOST,
+        }).posture;
+      } catch (error) {
+        if (error instanceof SourceKeyCustodyError) issues.push(error.message);
+        else throw error;
+      }
+    }
+  }
   if (providerMode === undefined || !parsed.success || issues.length > 0) {
     throw new StartupConfigError(issues);
   }
@@ -205,6 +252,11 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
   if (devAuth) {
     warnings.push(
       'DEMO_AUTH is ACTIVE (MOTERVA_DEV_AUTH=1 in non-production): username/password login and one-time dev bootstrap are enabled for local development only. Never use this mode in a deployed configuration.',
+    );
+  }
+  if (custodyPosture === 'local-derived') {
+    warnings.push(
+      'SOURCE KEY CUSTODY: no MOTERVA_SOURCE_KEY_KEK is configured, so machine-source signing credentials are sealed under the PUBLIC deterministic local derivation (identical in every deployment). This is permitted only for loopback non-production use; production refuses to start this way.',
     );
   }
   const providerCredentialVars = [
@@ -231,6 +283,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     identity,
     trustProxy: parsed.data.MOTERVA_TRUST_PROXY === '1',
     gitSha: parsed.data.GIT_SHA,
+    sourceKeyCustody,
     warnings,
   };
 }

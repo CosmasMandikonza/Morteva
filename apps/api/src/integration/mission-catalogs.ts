@@ -200,7 +200,7 @@ export function warehouseMissionSpec(orgId: string, missionId: string): MissionS
       version: 1,
       clearanceAuthority: 'deterministic-domain-policy',
       // NO uavWindLimitKt — structurally forbidden without an aerial asset.
-      groundInterrupts: ['aisle-obstructed', 'charger-fault'],
+      groundInterrupts: ['comms-offline', 'aisle-obstructed', 'charger-fault'],
     },
     economics: {
       currency: 'USD',

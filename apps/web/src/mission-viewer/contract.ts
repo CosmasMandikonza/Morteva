@@ -28,6 +28,13 @@ export interface PhysicalViewAsset {
   readonly label?: string;
 }
 
+/**
+ * Provenance classes (P1, CTO review PR #64): SYNTHETIC = demo/simulator
+ * source; FIELD = a CREDENTIAL-AUTHENTICATED registered source CLAIMED a
+ * field observation. FIELD is NOT independently verified sensor truth —
+ * possession of a signing key validates the claim's ORIGIN, never the
+ * external measurement itself.
+ */
 export type PhysicalProvenance = 'SYNTHETIC' | 'FIELD';
 export type PhysicalFreshness = 'fresh' | 'stale' | 'expired';
 
