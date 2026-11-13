@@ -175,6 +175,19 @@ export class AirwallexClient {
       : this.clock.now().getTime() + 25 * 60_000;
   }
 
+  /**
+   * The PROVIDER-VERIFIED account identity of THIS credential (org/account
+   * claims from the bearer token the provider itself issued). Triggers a
+   * login if no fresh token is held. Returns null when the token carries no
+   * decodable claims — callers must treat null as UNVERIFIABLE.
+   */
+  async accountIdentity(): Promise<AirwallexAccountIdentity | null> {
+    if (this.token === null || this.clock.now().getTime() >= this.tokenExpiresAtMs) {
+      await this.login();
+    }
+    return accountIdentityFromToken(this.token);
+  }
+
   private async authorizedRequest(request: TransportRequest): Promise<TransportResponse> {
     if (this.token === null || this.clock.now().getTime() >= this.tokenExpiresAtMs) {
       await this.login();
@@ -584,4 +597,42 @@ export function parseBeneficiaryRecord(raw: unknown): AirwallexBeneficiary {
       typeof record.nickname === 'string' && record.nickname !== '' ? record.nickname : null,
     transferMethods,
   };
+}
+
+/** The account claims readable from the provider-issued JWT (claims only — the signature is not verified here and is never trust-boundary material for writes). */
+export interface AirwallexAccountIdentity {
+  readonly orgId: string;
+  readonly accountId: string | null;
+}
+
+/**
+ * Decodes the account claims from a provider bearer token (JWT). Returns
+ * null when the token is not a decodable HS256 JWT with an org claim — the
+ * caller must treat null as UNVERIFIABLE, never as a match. This is the
+ * verified same-account binding: two credentials belong to the same account
+ * only when PROVIDER-ISSUED tokens carry the same org/account claims —
+ * never assumed from configuration.
+ */
+export function accountIdentityFromToken(token: string | null): AirwallexAccountIdentity | null {
+  if (token === null || token === '') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [headerPart, payloadPart] = parts as [string, string, string];
+  try {
+    const decode = (segment: string): unknown =>
+      JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
+    const header = decode(headerPart) as { alg?: unknown };
+    const payload = decode(payloadPart) as Record<string, unknown>;
+    if (header?.alg !== 'HS256') return null;
+    const orgId =
+      typeof payload.org_id === 'string' && payload.org_id !== '' ? payload.org_id : null;
+    if (orgId === null) return null;
+    const accountId =
+      typeof payload.account_id === 'string' && payload.account_id !== ''
+        ? payload.account_id
+        : null;
+    return { orgId, accountId };
+  } catch {
+    return null;
+  }
 }

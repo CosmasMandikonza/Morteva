@@ -68,7 +68,11 @@ import type { AirwallexAdapterConfig } from '../config.js';
 import type { AirwallexDispatcher } from '../dispatcher.js';
 import { buildSandboxDispatcher } from '../dispatcher.js';
 import type { AirwallexTransport } from '../transport.js';
-import { AirwallexClient } from '../client.js';
+import {
+  AirwallexClient,
+  AirwallexDefinitiveRejectionError,
+  type AirwallexAccountIdentity,
+} from '../client.js';
 import { providerRequestIdFor } from '../provider-request-id.js';
 
 export const SMOKE_CURRENCY = 'USD';
@@ -87,8 +91,23 @@ export const SMOKE_REQUEST_PREFIX = 'awx-smoke-';
  */
 
 export interface SmokeTransferInput {
+  /**
+   * The credential of record for THIS intent: the DISTINCT least-privilege
+   * Transfers-Write pair. Its client id is fingerprinted into the durable
+   * intent at preparation and MUST match at confirmation and recovery — the
+   * strict account-fingerprint law is never relaxed to accept another id.
+   */
   readonly config: AirwallexAdapterConfig;
   readonly transport: AirwallexTransport;
+  /**
+   * OPTIONAL least-privilege read credential, used ONLY for the funding-gate
+   * balance read when the write credential cannot read balances (definitive
+   * 403), and ONLY after the provider-issued tokens of both credentials are
+   * verified to carry the same org/account claims. Two credentials are never
+   * ASSUMED to belong to the same account.
+   */
+  readonly readConfig?: AirwallexAdapterConfig;
+  readonly readTransport?: AirwallexTransport;
   /** Server-side sandbox beneficiary (from the environment, never persisted raw beyond the state file). */
   readonly beneficiaryId: string;
   /** Requested amount for a NEW intent (minor units). Ignored on reruns — the persisted authorized terms govern. */
@@ -411,6 +430,7 @@ export async function runSmokeTransfer(input: SmokeTransferInput): Promise<Smoke
           client,
           builder,
           fingerprint,
+          now,
           persisted.state,
           runState,
         );
@@ -465,22 +485,96 @@ async function readVerifiedUsdBalance(client: AirwallexClient): Promise<number |
   return usd.availableAmount.minorUnits;
 }
 
-async function verifyFreshBalanceGate(
-  client: AirwallexClient,
-  amountMinor: number,
-): Promise<string | null> {
+/**
+ * The funding balance is read with the WRITE credential first (same
+ * credential of record as the intent — no binding question). Only when the
+ * write credential cannot read balances (definitive 403 — e.g. a
+ * Transfers-Write key scoped without read access) does it fall back to the
+ * OPTIONAL read credential, and only after the provider-issued tokens of
+ * BOTH credentials are decoded and verified to carry the same org/account
+ * claims. Two credentials are never assumed to share an account, and an
+ * unreadable token claim fails closed.
+ */
+async function readVerifiedFundingBalance(
+  input: SmokeTransferInput,
+  writeClient: AirwallexClient,
+  now: () => Date,
+): Promise<{ ok: true; minor: number } | { ok: false; reason: string }> {
   let availableMinor: number;
   try {
-    const available = await readVerifiedUsdBalance(client);
+    const available = await readVerifiedUsdBalance(writeClient);
     if (available === null) {
-      return `no ${SMOKE_CURRENCY} balance account exists in this Airwallex sandbox account; fund the sandbox wallet first.`;
+      return {
+        ok: false,
+        reason: `no ${SMOKE_CURRENCY} balance account exists in this Airwallex sandbox account; fund the sandbox wallet first.`,
+      };
     }
     availableMinor = available;
   } catch (error) {
-    return `fresh sandbox balance read failed: ${error instanceof Error ? error.message : String(error)}`;
+    const writeBlockedByScope =
+      error instanceof AirwallexDefinitiveRejectionError && error.httpStatus === 403;
+    const readConfig = input.readConfig;
+    const readTransport = input.readTransport;
+    if (!writeBlockedByScope || readConfig === undefined || readTransport === undefined) {
+      return {
+        ok: false,
+        reason: `fresh sandbox balance read failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    // Same-account verification from PROVIDER-ISSUED tokens — never assumed.
+    let writeIdentity: AirwallexAccountIdentity | null;
+    let readIdentity: AirwallexAccountIdentity | null;
+    try {
+      const readClient = new AirwallexClient(readConfig, readTransport, { now });
+      writeIdentity = await writeClient.accountIdentity();
+      readIdentity = await readClient.accountIdentity();
+      // STRICT: both tokens must carry a readable org AND account claim, and
+      // both must be equal. An org can hold several accounts, so an org-only
+      // match (or a missing account claim on either side) is NOT a verified
+      // same-account binding — it fails closed.
+      const sameAccount =
+        writeIdentity !== null &&
+        readIdentity !== null &&
+        writeIdentity.orgId === readIdentity.orgId &&
+        writeIdentity.accountId !== null &&
+        readIdentity.accountId !== null &&
+        writeIdentity.accountId === readIdentity.accountId;
+      if (!sameAccount) {
+        return {
+          ok: false,
+          reason:
+            'the read-only credential is NOT verified as the same Airwallex account as the Transfers-Write credential (provider token org/account claims differ or are unreadable); refusing to use it for the funding gate — two credentials are never assumed to share an account.',
+        };
+      }
+      const available = await readVerifiedUsdBalance(readClient);
+      if (available === null) {
+        return {
+          ok: false,
+          reason: `no ${SMOKE_CURRENCY} balance account exists in this Airwallex sandbox account; fund the sandbox wallet first.`,
+        };
+      }
+      availableMinor = available;
+    } catch (fallbackError) {
+      return {
+        ok: false,
+        reason: `fresh sandbox balance read (after same-account verification) failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+      };
+    }
   }
-  if (availableMinor < amountMinor * FUNDING_SAFETY_FACTOR) {
-    return `verified ${SMOKE_CURRENCY} available (${String(availableMinor)} minor) is less than ${String(FUNDING_SAFETY_FACTOR)}× the amount (${String(amountMinor)} minor); refusing to spend into an underfunded sandbox.`;
+  return { ok: true, minor: availableMinor };
+}
+
+/** The funding gate: readVerifiedFundingBalance + the 10× safety rule. */
+async function verifyFreshBalanceGate(
+  input: SmokeTransferInput,
+  writeClient: AirwallexClient,
+  now: () => Date,
+  amountMinor: number,
+): Promise<string | null> {
+  const funding = await readVerifiedFundingBalance(input, writeClient, now);
+  if (!funding.ok) return funding.reason;
+  if (funding.minor < amountMinor * FUNDING_SAFETY_FACTOR) {
+    return `verified ${SMOKE_CURRENCY} available (${String(funding.minor)} minor) is less than ${String(FUNDING_SAFETY_FACTOR)}× the amount (${String(amountMinor)} minor); refusing to spend into an underfunded sandbox.`;
   }
   return null;
 }
@@ -495,22 +589,11 @@ async function createFreshIntent(
   stateFile: string,
   runState: { providerAttemptPossible: boolean },
 ): Promise<SmokeTransferResult> {
-  let verifiedMinor: number;
-  try {
-    const available = await readVerifiedUsdBalance(client);
-    if (available === null) {
-      return {
-        outcome: 'blocked',
-        reason: `no ${SMOKE_CURRENCY} balance account exists in this Airwallex sandbox account; fund the sandbox wallet first.`,
-      };
-    }
-    verifiedMinor = available;
-  } catch (error) {
-    return {
-      outcome: 'blocked',
-      reason: `fresh sandbox balance read failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
+  // Same verified funding read as every other path (write credential first;
+  // read credential only after same-account verification).
+  const funding = await readVerifiedFundingBalance(input, client, now);
+  if (!funding.ok) return { outcome: 'blocked', reason: funding.reason };
+  const verifiedMinor = funding.minor;
   if (verifiedMinor < input.amountMinor * FUNDING_SAFETY_FACTOR) {
     return {
       outcome: 'blocked',
@@ -679,6 +762,7 @@ async function continueExistingIntent(
   client: AirwallexClient,
   builder: DispatcherBuilder,
   fingerprint: string,
+  now: () => Date,
   state: SmokeState,
   runState: { providerAttemptPossible: boolean },
 ): Promise<SmokeTransferResult> {
@@ -724,7 +808,7 @@ async function continueExistingIntent(
     };
   }
 
-  const blocked = await verifyFreshBalanceGate(client, state.amountMinor);
+  const blocked = await verifyFreshBalanceGate(input, client, now, state.amountMinor);
   if (blocked !== null) return { outcome: 'blocked', reason: blocked };
 
   // PREPARE-ONLY on an existing intent: only a never-attempted (RESERVED)

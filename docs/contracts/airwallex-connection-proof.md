@@ -185,11 +185,26 @@ separate Transfers-Write key above):
 
 ## `--prepare-only` — stage the intent WITHOUT executing (founder review gate)
 
-`npm run smoke:transfer -w @moterva/airwallex -- --prepare-only` (with
-`AIRWALLEX_SANDBOX_BENEFICIARY_ID` set to the founder-named LOCAL beneficiary):
+**CORRECTED (CTO decision, 2026-11-13): preparation binds the intent to the
+TRANSFERS-WRITE credential.** An earlier revision said preparation ran under
+the read-only key — that made a legitimate prepare → confirm two-phase flow
+fail closed at the strict account-fingerprint check, and was documented here
+as working when it did not. The current, tested law:
 
-1. Reads the live USD balance with the CURRENT (read-only) credential and
-   enforces the 10× funding gate — a genuine funding check, not a fixture.
+`npm run smoke:transfer -w @moterva/airwallex -- --prepare-only` (with
+`AIRWALLEX_SANDBOX_BENEFICIARY_ID` set to the founder-named LOCAL beneficiary)
+REQUIRES the distinct Transfers-Write pair (`AIRWALLEX_WRITE_CLIENT_ID` +
+`AIRWALLEX_WRITE_API_KEY`) — preparation fingerprinted the intent to
+whichever client id builds it, and confirmation/recovery must present the
+SAME identity. The strict fingerprint is never relaxed.
+
+1. Reads the live USD balance with the WRITE credential first; only if the
+   write key cannot read balances (definitive 403) does it fall back to the
+   READ-only credential, and only after the provider-issued tokens of BOTH
+   credentials are decoded and verified to carry the same org/account claims
+   (`accountIdentityFromToken`). Two credentials are never assumed to share
+   an account; an unreadable or different-account token fails closed and the
+   intent is not created.
 2. Builds the complete governed chain and persists the durable intent
    (mandate, plan with exact terms, separate-role approval, RESERVED
    operation, `state.json` + sqlite state) — then STOPS. No dispatcher is
@@ -198,20 +213,30 @@ separate Transfers-Write key above):
    operation/request ids + exact terms + verified funding) for the founder's
    authorization record.
 4. Execution later = `npm run smoke:transfer -w @moterva/airwallex --
-   --confirm` with the Transfers-Write key: it RESUMES this same intent
-   (identical operation/request ids; provider request-id dedupe applies) —
-   never a second identity. `--prepare-only` on an ALREADY-ATTEMPTED intent
+   --confirm` under the SAME Transfers-Write credential: it RESUMES this
+   same intent (identical operation/request ids; provider request-id dedupe
+   applies) — never a second identity. A DIFFERENT credential at confirm is
+   refused (fingerprint mismatch) and the original intent stays resumable by
+   its true credential. `--prepare-only` on an ALREADY-ATTEMPTED intent
    refuses (blocked); confirm remains the sole execution authorization.
 
-Live demonstration (2026-11-13): with the egress IP changed
-(`143.110.8.7` → `97.64.79.158`) and the key's allowlist not yet updated, the
-live prepare run FAILED CLOSED exactly as designed — BLOCKED at the funding
-gate's balance read (login 403), exit 2, zero submission. Four new tests
-(`test/prepare-only.test.ts`) prove the staged chain against a real sqlite
-ledger: RESERVED operation, outbox row present-but-never-claimed
-(attempts=0, pending), zero provider receipts, no `/transfers` call, approver
-≠ plan proposer, and the later `--confirm` resuming the SAME operation with
-exactly one provider create.
+The independent READ-ONLY preflight (`smoke:connection`) is unchanged and
+needs no write key: login → balances → beneficiaries → payout readiness.
+
+Regression proof (`test/prepare-identity.test.ts`, real sqlite ledger +
+offline fixture, TWO DIFFERENT client ids throughout): the write id is
+fingerprinted into the intent (never the read id); prepare → confirm resumes
+the same operation/request/beneficiary/amount with EXACTLY ONE provider
+create carrying the namespaced request id and the bearer token (never raw
+keys); cross-account substitution at confirm is refused pre-attempt and the
+original intent stays resumable; a different-account or unreadable-claims
+read token is never used for the funding gate; no-read-pair + write-403
+fails closed; mismatched beneficiary at confirm is refused with zero
+provider calls; revoked credentials fail closed at prepare AND confirm;
+restart + duplicate execution reconciles the same identity after an
+ambiguous (lost-response) create without ever repeating the create.
+`accountIdentityFromToken` unit tests pin null-is-unverifiable for
+opaque/non-JWT/no-org-claim/non-HS256 tokens.
 
 ## After an authorized transfer — evidence demonstration
 
