@@ -1,102 +1,151 @@
-# MOTERVA · Mission Treasury
+# MOTERVA
 
-**Mission-scoped financial autonomy engine for physical operations (hackathon build).** Repo name is `Morteva` (as created); product name is `MOTERVA`. This is not a production banking service.
+### When the mission changes, the money should know.
 
-> **Truth as of 2026-11-03:** The repository contains engineering documentation, the runnable local skeleton from MTV-01 (issue #3) **and the durable financial ledger foundation from MTV-02 (issue #4)**: org/mission/mandate/plan/approval/operation/commitment records in SQLite with atomic concurrency-safe reservations, a transactional outbox and an append-only evidence journal — all covered by unit, real multi-worker race, and restart/recovery tests. **No financial integration exists yet** — Airwallex and Metal are OFFLINE, no provider credentials are read, and no sandbox/testnet call has been made. Read [STATE](docs/STATE.md) before making claims.
+**Mission Treasury for the physical world.** MOTERVA turns changes in field operations into explainable financial decisions — with the evidence, spending rules, approvals, and resulting provider state linked to the same mission.
 
-## Quickstart (verified commands)
+An inspection drone is grounded by wind. Waiting risks the deadline. Sending a vessel costs money. Spending without authority risks the whole operation. **MOTERVA makes that trade-off explicit:** what is still operationally feasible, what it will cost, what the mission can afford, and who must approve the next move.
 
-Prerequisites: **Node.js ≥ 24** (the ledger uses the built-in `node:sqlite`; see [ADR 0002](docs/adr/0002-ledger-persistence.md)) and **npm ≥ 10**. Nothing else — no database server, no docker, no accounts.
+This is the space between operational software that understands machines and financial software that understands money.
+
+![MOTERVA Decision Room showing a physical mission beside its financial decision](docs/assets/production/mtv-20-final-decision-live-final-state-1440x900.png)
+
+## The product
+
+Most operating teams already have separate ways to monitor assets, coordinate contractors, and manage payments. When the situation changes in the field, the consequential financial decision still has to cross those boundaries.
+
+MOTERVA gives each mission a **financial operating context**: an objective, physical assets, operating limits, supplier alternatives, budgets, protected reserves, and explicit authority. New evidence can change the recommended plan without changing the underlying rules about who is allowed to spend.
+
+| Surface                   | What an operator can do                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Mission Treasury**      | Understand available money separately from reserved commitments and mission exposure.                              |
+| **Mission Setup**         | Define assets, source identities, policy thresholds, supplier economics, and an authorized spending envelope.      |
+| **Decision Room**         | See physical conditions alongside feasible financial alternatives, decisive reasons, and the next governed action. |
+| **Authority & Execution** | Review exact terms, propose a plan, require a different authorized approver, and inspect operation/provider state. |
+| **Evidence Replay**       | Follow the sequence from source observation through evaluation, mandate, approval, reservation, and receipt.       |
+
+### One mission, one change, a different financial answer
+
+In the included **harbor inspection scenario**, the baseline produces a no-new-spend decision. A signed sample wind incident then makes the incumbent aerial inspection infeasible under the configured safety policy. The evaluation changes to an eligible vessel-inspection alternative, with the blocked incumbent and economic reasons visible beside the physical scene.
+
+Those choices are calculated by the mission engine from its cataloged scenario inputs; they are not hardcoded by the React page. The same production mission pathway also accepts **customer-authored specifications and newly signed source observations with unfamiliar asset, supplier, and price values**. The harbor visualization is illustrative, not independently surveyed positioning or real vehicle control.
+
+## Who we are building for
+
+**First wedge: inspection fleets and asset-intensive operators.** Think maritime inspection contractors, industrial drone teams, and the operations/finance leaders who must react to grounded equipment, weather windows, urgent subcontractors, and constrained mission budgets.
+
+The buyer's question is not “Can AI pay an invoice?” It is **“When the physical plan breaks, what can we still do — and what are we actually authorized to fund?”**
+
+The longer-term opportunity is an evidence-to-expenditure layer shared across missions and industries: physical systems contribute observations, policy determines feasible actions, authorized people control exceptions, and financial rails report their independent outcomes. This is a **commercial thesis to validate**, not a claim of established customers, revenue, or quantified savings.
+
+[Read the product narrative, buyer thesis, and submission-ready description](docs/PRODUCT_NARRATIVE.md).
+
+## How MOTERVA works
+
+```mermaid
+flowchart LR
+  S["Registered asset / authenticated source"] --> J["Mission evidence journal"]
+  C["Mission specification & constraints"] --> P["Financial decision engine"]
+  J --> P
+  P --> D["Alternative, reason & exact proposal"]
+  M["Mandate & protected capacity"] --> A["Authority and reservation"]
+  D --> A
+  A --> R["Airwallex / Metal provider adapters"]
+  R --> E["Provider status & evidence replay"]
+  J --> E
+```
+
+**1. Evidence with identity.** A mission registers its assets and accepted sources. Source credentials are issued through a permissioned API, sealed at rest, and used to authenticate submitted FIELD observations. Freshness, provenance, tenancy, sequence, and source ownership are checked; unconfigured customer missions never silently inherit a sample harbor specification.
+
+**2. Decisions from constraints, not unconstrained prompts.** The policy engine evaluates operational feasibility and mission economics, including waiting, declining, escalation, or a supplier alternative. Optional bounded model assistance can interpret an unstructured report into validated typed evidence, but cannot set mandates, clear safety conditions, approve payments, or invent financial authority. The engine still works when no model provider is configured.
+
+**3. Money remains governed.** Proposals bind exact amount, currency, beneficiary, purpose, and decision evidence. Mandates and separate-role approvals constrain what can proceed. Transactional reservations, an outbox, original request identities, and conservative provider status handling guard against duplicate or over-budget commitments.
+
+**4. A case can be reconstructed.** The append-only evidence journal links the operational change to the selected candidate, refusal reasons, authorization, operation, and any independently retrieved provider response. A provider submission is not a settlement; a source-authenticated claim is not independently verified sensor truth.
+
+**5. Physical context stays useful.** The interactive 3D mission viewport supports the registered single-aerial harbor case, including changing constraints and synchronized evidence. Ground-only, unsupported, unconfigured, and WebGL-unavailable contexts use honest non-spatial or 2D presentations rather than invented geography.
+
+## Try the product locally
+
+**Requirements:** Node.js 24+, npm 10+. No cloud account, bank credential, or external database is required to explore the local operating scenario.
 
 ```bash
-npm ci            # cold install from the committed lockfile
-npm run dev       # API on http://127.0.0.1:8787, web on http://127.0.0.1:5173
+npm ci
+npm run build
 ```
 
-The web app is the honest shell: primary navigation to the planned capabilities (each labelled with its tracking issue — no mock data) and a System status card fed by `GET /api/system/status` that reports providers **OFFLINE** until issues #5/#6 ship verified adapters.
+Run these in **two terminals** from the repository root:
 
-### All commands
+**Terminal 1 — authenticated local scenario and API**
 
-| Command                                        | What it does                                                                                 |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `npm ci`                                       | Cold install exactly from `package-lock.json` (fails if lockfile is tampered)                |
-| `npm run dev`                                  | Both servers in watch mode (API + web)                                                       |
-| `npm run lint`                                 | ESLint across all workspaces                                                                 |
-| `npm run format:check`                         | Prettier check                                                                               |
-| `npm run typecheck`                            | `tsc` strict across packages, apps, e2e and tests                                            |
-| `npm run test:unit`                            | Vitest per workspace (domain, API, providers, ledger incl. race/restart tests)               |
-| `npm run build`                                | Compile packages + API (`tsc`), build web (`vite build`)                                     |
-| `npm run test:e2e`                             | Build, then Playwright chromium against the real servers                                     |
-| `npm run check:docs`                           | Markdown link integrity + secret patterns in docs                                            |
-| `npm run check:secrets`                        | Secret-pattern scan over source files                                                        |
-| `npm run seed:demo -w @moterva/ledger`         | Temp-database demo: two missions contend for one pool, honest outcomes                       |
-| `npm run seed:authority -w @moterva/ledger`    | Authority journey: actors → mandate/approval → reserve → revocation denials → restart replay |
-| `npm run smoke:balance -w @moterva/airwallex`  | One real sandbox balance read; BLOCKED (exit ≠ 0) without server-side credentials            |
-| `npm run smoke:transfer -w @moterva/airwallex` | One sandbox transfer + readback; requires credentials + beneficiary + `--confirm`            |
-
-`npm ci` and every script above run on a cold checkout in CI (`.github/workflows/ci.yml`, Linux/Node 24). A red CI check blocks a green claim — see docs/09.
-
-### Optional local configuration
-
-All configuration is optional and safe by default (see [.env.example](.env.example) — **variable names only**). Copy it to `.env` and edit locally; `.env` is gitignored. Invalid values (bad port, malformed origin, unsupported provider mode) make the API **refuse to start** with an actionable message and exit code 1.
-
-## Runbook
-
-- **Start:** `npm run dev` (or `npm run build && npm run start -w @moterva/api` for the compiled server).
-- **Liveness:** `curl http://127.0.0.1:8787/healthz` → `{"status":"ok",...}`. This is process liveness only; it never claims provider state.
-- **Honest status:** `curl http://127.0.0.1:8787/api/system/status` — providers list with `OFFLINE` labels, a simulation notice, and local ledger facts (schema version, integrity, pending dispatches). The UI renders this verbatim and shows a `DEMO_SIMULATED` notice in simulated mode.
-- **Failure states:** backend offline → the web shell shows an explicit "API offline" alert with a Retry button (covered by E2E). Config missing/invalid → API exits 1 before binding a port. Corrupted/failed-migration ledger → API refuses to boot; migrations run transactionally at startup ([schema doc](docs/10_LEDGER_SCHEMA.md)).
-- **Financial endpoints (MTV-05):** authenticated session routes (`POST /api/auth/login|logout`, `GET /api/auth/session`) plus role-guarded, CSRF-protected financial routes (`/api/missions`, `/api/mandates` (+`/:id/revoke`), `/api/plans`, `/api/approvals` (+`/:id/revoke`), `/api/operations/reserve`, `/api/operations/:id`). Identity comes only from the session cookie → persisted actor; cross-tenant resources 404; unauthenticated 401; insufficient role / missing CSRF / missing mission grant 403 with machine-readable codes. Login + one-time dev bootstrap exist ONLY under `MOTERVA_DEV_AUTH=1` with non-production `NODE_ENV` (the config refuses to boot otherwise). Unknown routes still fail closed with 404; no provider write paths exist (issues #5/#6).
-- **Airwallex rail (MTV-03):** the sandbox adapter exists and is adversarially tested, but is **DISABLED without credentials** — the API registers nothing unless `AIRWALLEX_ENV=sandbox` plus `AIRWALLEX_CLIENT_ID`/`AIRWALLEX_API_KEY` are set server-side (half-configured sandbox refuses to boot), and transfers additionally need a server-side `AIRWALLEX_BENEFICIARY_ID`. `/api/system/status` honestly reports the state (OFFLINE + credential blocker, or SANDBOX with receipt/readback counts — submitted is never settled). See [ADR 0005](docs/adr/0005-airwallex-adapter.md). No real sandbox call has been made from this repository yet.
-- **Production identity (MTV-19):** standards-based OIDC sign-in (Authorization Code + PKCE, server-managed sessions), organization membership via expiring single-use invitations (roles capped below admin — no public flow can mint privileged authority), reviewer access to Mission Treasury / admitted events / durable evaluations / exact plan terms / the evidence journal, and a two-person propose→approve workflow with distinct authenticated identities. The identity surface mounts ONLY with complete `MOTERVA_OIDC_*` configuration (partial config refuses startup; production requires https). The loopback `MOTERVA_DEV_AUTH` demo gate is unchanged and still refuses production. See [ADR 0006](docs/adr/0006-production-identity.md), the [frontend contract](docs/identity/FRONTEND_CONTRACT.md) and the [verification index](docs/identity/READINESS.md).
-- **Rollback:** `git revert`; ledger schema changes are forward-only migrations — do not edit applied migration files, append new ones.
-
-## Repository layout
-
-```
-apps/web              Vite + React 19 web shell (honest status UI, primary navigation)
-apps/api              Fastify 5 API: /healthz, /api/system/status, fail-closed routing, ledger boot (migrate+verify)
-packages/domain       Pure typed money, lifecycles, digests and view contracts (integer minor units)
-packages/providers    Provider port contracts, receipt contract, OFFLINE descriptors
-packages/ledger       Durable financial ledger: SQLite (node:sqlite), atomic reservations, outbox, evidence journal, provider receipts
-packages/airwallex    Airwallex sandbox adapter: verified endpoints, conservative finality, offline fixture (tests only), BLOCKED smokes
-e2e/                  Playwright specs (smoke, API-offline error state, screenshot capture)
-docs/                 Engineering documentation, ADRs and evidence assets
+```bash
+node e2e/scripts/demo-auth-server.mjs
 ```
 
-Stack rationale: [ADR 0001](docs/adr/0001-stack-and-runtime.md). Ledger persistence & transaction design: [ADR 0002](docs/adr/0002-ledger-persistence.md), schema reference: [docs/10_LEDGER_SCHEMA.md](docs/10_LEDGER_SCHEMA.md).
+**Terminal 2 — the built product**
 
-| App shell (desktop 1440×900)                                 | App shell (mobile 390×844)                                 |
-| ------------------------------------------------------------ | ---------------------------------------------------------- |
-| ![App shell at 1440x900](docs/assets/app-shell-1440x900.png) | ![App shell at 390x844](docs/assets/app-shell-390x844.png) |
+```bash
+npm run preview -w @moterva/web
+```
 
-## Start here
+Open **http://127.0.0.1:4173**. Use the local test-only credentials printed by the API startup script, select **Harbor turbine inspection**, and follow the baseline → wind incident → changed decision → governed proposal → Evidence Replay sequence.
 
-- [Release epic #2](https://github.com/CosmasMandikonza/Morteva/issues/2): goals and prize-oriented release requirements.
-- [Foundation review PR #1](https://github.com/CosmasMandikonza/Morteva/pull/1): audit history, findings and implementation contract.
-- [Delivery dependencies / decision register](docs/07_DELIVERY_ORDER_AND_DECISIONS.md)
-- [Product charter](docs/00_PRODUCT_AND_COMPETITION.md) and [operator journeys](docs/02_OPERATOR_JOURNEYS.md)
-- [Financial architecture](docs/01_ARCHITECTURE_AND_DOMAIN.md) and [security/provider gates](docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md)
-- [Reference-led UI](docs/03_UI_REFERENCES_AND_DESIGN_GATE.md) and [3D quality](docs/04_3D_ASSET_AND_CAMERA_GATE.md)
-- [Verification / demo criteria](docs/06_TESTING_AND_DEMO_EVIDENCE.md)
-- [CTO risk analysis and first vertical slice](docs/08_CTO_RISK_REVIEW_AND_VERTICAL_SLICE.md)
-- [Risk-weighted PR review and safe-merge protocol](docs/09_PR_REVIEW_AND_MERGE_PROTOCOL.md)
-- [Truthful status](docs/STATE.md)
+This launcher intentionally creates a disposable, seeded SQLite environment. Its sample operating observations and balances are not live financial or sensor measurements; restarting the launcher creates a fresh local scenario. It is **not** a production authentication configuration.
 
-## Recommended issue order
+For ordinary code development, `npm run dev` runs the API at `127.0.0.1:8787` and the Vite development server at `127.0.0.1:5173`. Production identity, secrets, and deployment are configured separately.
 
-**Infrastructure and finance first:** [#3 Stack/CI](https://github.com/CosmasMandikonza/Morteva/issues/3) → [#4 durable financial state](https://github.com/CosmasMandikonza/Morteva/issues/4), [#5 Airwallex sandbox](https://github.com/CosmasMandikonza/Morteva/issues/5), [#6 Metal testnet](https://github.com/CosmasMandikonza/Morteva/issues/6), [#7 exact policy/approval](https://github.com/CosmasMandikonza/Morteva/issues/7), [#8 adaptive planner](https://github.com/CosmasMandikonza/Morteva/issues/8), [#9 mission adapters](https://github.com/CosmasMandikonza/Morteva/issues/9).
+## Verify the engineering
 
-**Reference-led visual work in parallel:** [#10 design approval](https://github.com/CosmasMandikonza/Morteva/issues/10) → [#11 3D asset spike](https://github.com/CosmasMandikonza/Morteva/issues/11) → [#12 Mission Treasury](https://github.com/CosmasMandikonza/Morteva/issues/12), [#13 Decision Room](https://github.com/CosmasMandikonza/Morteva/issues/13), [#14 state-linked 3D](https://github.com/CosmasMandikonza/Morteva/issues/14).
+```bash
+npm run check:secrets
+npm run check:docs
+npm run lint
+npm run format:check
+npm run typecheck
+npm run test:unit
+npm run test:e2e
+```
 
-**Prove and ship:** [#15 adversarial evaluations](https://github.com/CosmasMandikonza/Morteva/issues/15), [#18 buyer/value case](https://github.com/CosmasMandikonza/Morteva/issues/18) → [#19 final release](https://github.com/CosmasMandikonza/Morteva/issues/19). [#16 Visa](https://github.com/CosmasMandikonza/Morteva/issues/16) and [#17 T:0/AWS](https://github.com/CosmasMandikonza/Morteva/issues/17) are _conditional_ and must not derail the core.
+Playwright requires Chromium installed on the test host (`npx playwright install chromium`). The suite exercises real API, ledger, identity and browser processes rather than a static Figma-style walkthrough. Among the covered behaviors are fresh mission configuration, authenticated source ingestion, changed-policy decisions, separate approvals, cross-tenant refusals, credential recovery, unknown provider states, and responsive 3D/2D rendering.
 
-## Contribution contract
+**Code map for technical reviewers:**
 
-One bounded issue per PR with real commands, tests, screenshots and redacted provider evidence where applicable. Review and merge promptly when the appropriate documented risk-tier evidence is complete and the exact head SHA matches; never merge on green labels or summaries alone. No invented financial success, speculative performance claims, placeholder licensed assets or uncontrolled spending. An unknown payment state is not a failed payment and must not be blindly retried. No secrets or personal data in this **public repository**.
+| Area                                                          | Source                                                     |
+| ------------------------------------------------------------- | ---------------------------------------------------------- |
+| Mission specification, signed ingestion, evaluation endpoints | [`apps/api/src/integration/`](apps/api/src/integration/)   |
+| Typed constraints and candidate evaluation                    | [`packages/planner/`](packages/planner/)                   |
+| Financial authority, commitments, outbox, evidence            | [`packages/ledger/`](packages/ledger/)                     |
+| Airwallex sandbox adapter and receipt reconciliation          | [`packages/airwallex/`](packages/airwallex/)               |
+| Metal testnet mandate/commerce integration                    | [`packages/metal/`](packages/metal/)                       |
+| Mission UI and physical viewer                                | [`apps/web/src/`](apps/web/src/)                           |
+| Security tests and unfamiliar-input customer proof            | [`apps/api/test/integration/`](apps/api/test/integration/) |
+| Browser journeys                                              | [`e2e/`](e2e/)                                             |
 
-## Official sources
+The stack is React 19 / Three.js, Fastify, TypeScript, Node.js, SQLite with transactional concurrency controls, and server-side provider adapters. A single-app deployment path uses AWS, Cognito/OIDC, an encrypted EBS ledger volume, TLS and immutable release images, avoiding unnecessary microservices.
 
-- [Airwallex builder guide](https://airwallexdev.com/guide)
-- [Hackathon page](https://airwallex.hackerearth.com/)
-- Participant-provided organizer Slack extended submission to **Nov 15, 2026 11:59 PM PST**. Reconfirm in submission dashboard; public page still lists an earlier date.
+## Integration and operational status
+
+These are distinct claims. A connector implemented in code is not the same thing as an externally completed transfer.
+
+| Boundary                            | Current evidence                                                                                                                                                                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Operational-to-financial engine** | Implemented; unfamiliar-input signed FIELD scenarios, decision changes, authorization refusals, restart recovery and browser journeys tested.                                                                                                |
+| **Airwallex**                       | Sandbox authentication, balance and beneficiary reads have been observed. A guarded transfer adapter and two-credential prepare/confirm workflow are implemented and tested; **no live sandbox transfer is claimed as executed or settled**. |
+| **Metal**                           | A funded testnet wallet, live seller payment offer and refusal/plan-only checks have been observed. **No completed signed purchase is claimed**.                                                                                             |
+| **Model assistance**                | A bounded HTTP model adapter is implemented and optional. No live provider invocation is claimed in the current release evidence; deterministic policy evaluation remains available.                                                         |
+| **Hosted production**               | AWS provisioning, OIDC, key custody, persistence and boot controls have automated test coverage. **Public deployment and live owner-login verification are still pending**.                                                                  |
+| **Market**                          | Intended customers and pilot outcomes are hypotheses; no paying customers or verified ROI are claimed.                                                                                                                                       |
+
+Relevant references: [State and evidence log](docs/STATE.md) · [Financial security boundaries](docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md) · [AWS deployment runbook](docs/release/AWS_DEPLOYMENT.md) · [Airwallex connection proof](docs/contracts/airwallex-connection-proof.md) · [Product positioning and presentation](docs/PRODUCT_NARRATIVE.md).
+
+## Built to become a company
+
+A production buyer will judge MOTERVA on whether it reduces the time from an incident to a defensible decision, keeps commitments within authority, and makes payment exceptions recoverable. Those are the outcomes we intend to validate with design partners, not benefits we claim to have already measured.
+
+The product begins with an inspection mission but is architected around **registered missions, independent sources, typed constraints and governed financial actions**, not a single hardcoded drone scenario. The aim is to let companies extend their existing operations and banking systems without surrendering control of either.
+
+MOTERVA is the product name; the repository retains its original `Morteva` name. Developed during the [Airwallex Agentic Banking Hackathon](https://airwallex.hackerearth.com/); company ambitions, product status and external verification remain separate.
+
+---
+
+**The promise:** a change in the physical world should produce a financial decision people can understand, authorize, and audit.
