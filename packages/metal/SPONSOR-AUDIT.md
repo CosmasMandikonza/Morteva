@@ -108,3 +108,30 @@ security on the primary endpoint, never hardcoding a secret.
 - REAL smoke `--plan` against the LIVE seller: all gates pass, outcome plan-only, no payment
   id/nonce/tx; and the no-purchase gate verifiably declines when no information value is
   configured.
+
+## Resolution (2026-11-14): the credential IS presentable — Basic `<endpoint-id>:<secret>`
+
+Two presentations omitted from the matrix above succeed against the live endpoint
+(`eth_chainId` → `0xf951`, HTTP 200):
+
+| Presentation                                                                    | Result       |
+| ------------------------------------------------------------------------------- | ------------ |
+| URL-embedded Basic `https://<endpoint-id>:<secret>@rpc-testnet…/v1/<id>` (curl) | 200 `0xf951` |
+| Header `Authorization: Basic base64(<endpoint-id>:<secret>)`                    | 200 `0xf951` |
+
+The shipped CLI still cannot present it directly: Node's `fetch` refuses to construct a request
+from a URL containing credentials (WHATWG fetch spec), and 0.3.3 has no header flags. The working
+arrangement keeps the official CLI as the only execution boundary: a **local 127.0.0.1-only
+forwarder shim** (untracked, in the founder's secrets directory, reads the gitignored `.env.metal`,
+logs nothing) injects the Basic header; every chain command runs against
+`METAL_RPC_URL=http://127.0.0.1:<port>/v1/<id>` with the shim forwarding to the credential-bearing
+console endpoint. No secret enters the repo, CI, logs, or this document.
+
+**Setup executed under the founder's directive (testnet, disposable keys only, no payment
+signed):** owner MetalAccount `0x19792e9FFE4A5E261dC0789Ea4888f1414Cf2eEA` created and deployed
+(faucet-funded, 100 \*USDZ); restricted mandate credential `0x79d55cff…3e091` created offline
+(per-payment cap 0.05 \*USDZ, lifetime budget 0.10 \*USDZ, 7-day expiry, payee allowlist exactly
+`0xa1ea44af…8f88`, P-256 mandate key); bound on-chain (tx `0x8886c97e…68ce7`, block 29059996,
+gas 1117313); `mandate verify` passes all four steps **from chain alone**; three live
+pre-send refusals (`mandate_payee_not_listed`; `mandate_cap_exceeded` ×2) with spent still 0;
+real smoke `--plan` reaches the final authorization gate — all gates pass, nothing signed.

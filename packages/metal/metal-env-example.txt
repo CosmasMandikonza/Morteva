@@ -5,7 +5,15 @@
 # --- FOUNDER VALUE 1 (required for on-chain reads: account create, mandate
 # bind/status/verify). Create an endpoint at https://console-testnet.metalntwx.com
 # and paste its URL. The founder has verified eth_chainId returns 0xf951 (63825).
+# With "Require a credential: On", the endpoint authenticates Basic
+# <endpoint-id>:<endpoint-secret>; the official CLI reaches it through the
+# local 127.0.0.1-only shim documented in SPONSOR-AUDIT.md (resolution).
 METAL_RPC_URL=<paste-the-console-endpoint-url-here>
+
+# --- FOUNDER VALUE 2 (only when "Require a credential" is On): the console
+# Endpoint Secret. Read by the local shim at 127.0.0.1 only; never committed,
+# never printed, never passed through the CLI's own arguments.
+METAL_RPC_SECRET=<paste-the-console-endpoint-secret-here>
 
 # --- AGENT KEY (created autonomously by the setup; disposable testnet-only).
 # Path only — key material is never read by MOTERVA code; the official CLI
