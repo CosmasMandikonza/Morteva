@@ -16,13 +16,13 @@ Most operating teams already have separate ways to monitor assets, coordinate co
 
 MOTERVA gives each mission a **financial operating context**: an objective, physical assets, operating limits, supplier alternatives, budgets, protected reserves, and explicit authority. New evidence can change the recommended plan without changing the underlying rules about who is allowed to spend.
 
-| Surface | What an operator can do |
-| --- | --- |
-| **Mission Treasury** | Understand available money separately from reserved commitments and mission exposure. |
-| **Mission Setup** | Define assets, source identities, policy thresholds, supplier economics, and an authorized spending envelope. |
-| **Decision Room** | See physical conditions alongside feasible financial alternatives, decisive reasons, and the next governed action. |
+| Surface                   | What an operator can do                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Mission Treasury**      | Understand available money separately from reserved commitments and mission exposure.                              |
+| **Mission Setup**         | Define assets, source identities, policy thresholds, supplier economics, and an authorized spending envelope.      |
+| **Decision Room**         | See physical conditions alongside feasible financial alternatives, decisive reasons, and the next governed action. |
 | **Authority & Execution** | Review exact terms, propose a plan, require a different authorized approver, and inspect operation/provider state. |
-| **Evidence Replay** | Follow the sequence from source observation through evaluation, mandate, approval, reservation, and receipt. |
+| **Evidence Replay**       | Follow the sequence from source observation through evaluation, mandate, approval, reservation, and receipt.       |
 
 ### One mission, one change, a different financial answer
 
@@ -110,16 +110,16 @@ Playwright requires Chromium installed on the test host (`npx playwright install
 
 **Code map for technical reviewers:**
 
-| Area | Source |
-| --- | --- |
-| Mission specification, signed ingestion, evaluation endpoints | [`apps/api/src/integration/`](apps/api/src/integration/) |
-| Typed constraints and candidate evaluation | [`packages/planner/`](packages/planner/) |
-| Financial authority, commitments, outbox, evidence | [`packages/ledger/`](packages/ledger/) |
-| Airwallex sandbox adapter and receipt reconciliation | [`packages/airwallex/`](packages/airwallex/) |
-| Metal testnet mandate/commerce integration | [`packages/metal/`](packages/metal/) |
-| Mission UI and physical viewer | [`apps/web/src/`](apps/web/src/) |
-| Security tests and unfamiliar-input customer proof | [`apps/api/test/integration/`](apps/api/test/integration/) |
-| Browser journeys | [`e2e/`](e2e/) |
+| Area                                                          | Source                                                     |
+| ------------------------------------------------------------- | ---------------------------------------------------------- |
+| Mission specification, signed ingestion, evaluation endpoints | [`apps/api/src/integration/`](apps/api/src/integration/)   |
+| Typed constraints and candidate evaluation                    | [`packages/planner/`](packages/planner/)                   |
+| Financial authority, commitments, outbox, evidence            | [`packages/ledger/`](packages/ledger/)                     |
+| Airwallex sandbox adapter and receipt reconciliation          | [`packages/airwallex/`](packages/airwallex/)               |
+| Metal testnet mandate/commerce integration                    | [`packages/metal/`](packages/metal/)                       |
+| Mission UI and physical viewer                                | [`apps/web/src/`](apps/web/src/)                           |
+| Security tests and unfamiliar-input customer proof            | [`apps/api/test/integration/`](apps/api/test/integration/) |
+| Browser journeys                                              | [`e2e/`](e2e/)                                             |
 
 The stack is React 19 / Three.js, Fastify, TypeScript, Node.js, SQLite with transactional concurrency controls, and server-side provider adapters. A single-app deployment path uses AWS, Cognito/OIDC, an encrypted EBS ledger volume, TLS and immutable release images, avoiding unnecessary microservices.
 
@@ -127,14 +127,14 @@ The stack is React 19 / Three.js, Fastify, TypeScript, Node.js, SQLite with tran
 
 These are distinct claims. A connector implemented in code is not the same thing as an externally completed transfer.
 
-| Boundary | Current evidence |
-| --- | --- |
-| **Operational-to-financial engine** | Implemented; unfamiliar-input signed FIELD scenarios, decision changes, authorization refusals, restart recovery and browser journeys tested. |
-| **Airwallex** | Sandbox authentication, balance and beneficiary reads have been observed. A guarded transfer adapter and two-credential prepare/confirm workflow are implemented and tested; **no live sandbox transfer is claimed as executed or settled**. |
-| **Metal** | A funded testnet wallet, live seller payment offer and refusal/plan-only checks have been observed. **No completed signed purchase is claimed**. |
-| **Model assistance** | A bounded HTTP model adapter is implemented and optional. No live provider invocation is claimed in the current release evidence; deterministic policy evaluation remains available. |
-| **Hosted production** | AWS provisioning, OIDC, key custody, persistence and boot controls have automated test coverage. **Public deployment and live owner-login verification are still pending**. |
-| **Market** | Intended customers and pilot outcomes are hypotheses; no paying customers or verified ROI are claimed. |
+| Boundary                            | Current evidence                                                                                                                                                                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Operational-to-financial engine** | Implemented; unfamiliar-input signed FIELD scenarios, decision changes, authorization refusals, restart recovery and browser journeys tested.                                                                                                |
+| **Airwallex**                       | Sandbox authentication, balance and beneficiary reads have been observed. A guarded transfer adapter and two-credential prepare/confirm workflow are implemented and tested; **no live sandbox transfer is claimed as executed or settled**. |
+| **Metal**                           | A funded testnet wallet, live seller payment offer and refusal/plan-only checks have been observed. **No completed signed purchase is claimed**.                                                                                             |
+| **Model assistance**                | A bounded HTTP model adapter is implemented and optional. No live provider invocation is claimed in the current release evidence; deterministic policy evaluation remains available.                                                         |
+| **Hosted production**               | AWS provisioning, OIDC, key custody, persistence and boot controls have automated test coverage. **Public deployment and live owner-login verification are still pending**.                                                                  |
+| **Market**                          | Intended customers and pilot outcomes are hypotheses; no paying customers or verified ROI are claimed.                                                                                                                                       |
 
 Relevant references: [State and evidence log](docs/STATE.md) · [Financial security boundaries](docs/05_FINANCIAL_SECURITY_AND_PROVIDER_GATES.md) · [AWS deployment runbook](docs/release/AWS_DEPLOYMENT.md) · [Airwallex connection proof](docs/contracts/airwallex-connection-proof.md) · [Product positioning and presentation](docs/PRODUCT_NARRATIVE.md).
 
