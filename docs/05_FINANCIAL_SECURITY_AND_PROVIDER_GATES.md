@@ -30,6 +30,9 @@
 - AWS: infrastructure only if necessary and cost-managed; never infer cash award eligibility from credits.
 - Coinbase and Base44: use only when they solve an independent product need.
 
+## Production identity (MTV-19)
+Human authentication is separate from financial authority: OIDC (Authorization Code + PKCE, server-managed sessions) resolves to persisted actors via issuer+subject links; invitations can never grant owner/admin (schema-enforced); IdP claims and email domains never confer authority; the loopback DEV_AUTH gate remains production-refused. See [ADR 0006](adr/0006-production-identity.md) and the [verification index](identity/READINESS.md).
+
 ## Tests
 Property tests for money conservation/units and authorization; concurrency tests with two missions and one reserve; integration/fault-injection tests for provider timeout, duplicate/out-of-order webhook, expired quote, changed payee, vendor prompt injection, stale telemetry, service not delivered, AI outage and recovery-after-restart.
 

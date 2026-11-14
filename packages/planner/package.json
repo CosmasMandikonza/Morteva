@@ -1,0 +1,30 @@
+{
+  "name": "@moterva/planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adaptive mission-finance planner (issue #8): typed evidence validation, deterministic candidate generation, pure financial feasibility/evaluation, optional bounded model adapter (POLICY-ONLY without live inference), replayable decision traces. The planner proposes; the ledger disposes.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "demo:harbor": "node dist/demo/harbor.js"
+  },
+  "dependencies": {
+    "@moterva/domain": "0.1.0",
+    "@moterva/ledger": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^5.1.0"
+  }
+}

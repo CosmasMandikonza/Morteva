@@ -28,6 +28,17 @@ export interface AirwallexEnv {
   readonly AIRWALLEX_SANDBOX_BENEFICIARY_ID?: string;
 }
 
+/**
+ * DISTINCT least-privilege Transfers-Write credential (CTO executable-path
+ * review): the read-only key is NEVER upgraded or silently reused for write
+ * authority — a transfer run requires its own explicit credential pair,
+ * provisioned separately and provably different from the read pair.
+ */
+export interface AirwallexWriteEnv {
+  readonly AIRWALLEX_WRITE_CLIENT_ID?: string;
+  readonly AIRWALLEX_WRITE_API_KEY?: string;
+}
+
 export interface AirwallexAdapterConfig {
   readonly enabled: boolean;
   readonly environment: 'sandbox' | 'disabled';
@@ -102,4 +113,59 @@ export function loadAirwallexConfig(env: AirwallexEnv = process.env): AirwallexA
     requestTimeoutMs: 15_000,
     idempotentReadRetries: 3,
   };
+}
+
+/**
+ * Credential config for a WRITE-capable run (the authorized sandbox transfer).
+ *
+ * Fail-closed laws (CTO executable-path review):
+ *  - the Transfers-Write pair (AIRWALLEX_WRITE_CLIENT_ID/AIRWALLEX_WRITE_API_KEY)
+ *    is REQUIRED — absent pair throws, so a transfer run can never silently
+ *    fall back to (i.e. upgrade) the read-only credential;
+ *  - when the read-only pair is also present, the write pair must be provably
+ *    DISTINCT from it (same client id AND same key = the same credential →
+ *    refused: least-privilege separation is enforced, not assumed);
+ *  - the same sandbox-only environment tag and origin-lock rules apply
+ *    (identical AIRWALLEX_BASE_URL restrictions as the read config).
+ */
+export function loadAirwallexWriteConfig(
+  env: AirwallexEnv & AirwallexWriteEnv = process.env,
+): AirwallexAdapterConfig {
+  const writeClientId = (env.AIRWALLEX_WRITE_CLIENT_ID ?? '').trim() || null;
+  const writeApiKey = (env.AIRWALLEX_WRITE_API_KEY ?? '').trim() || null;
+  if (writeClientId === null || writeApiKey === null) {
+    throw new Error(
+      'the Transfers-Write credential is not configured: a sandbox transfer requires the DISTINCT least-privilege pair AIRWALLEX_WRITE_CLIENT_ID + AIRWALLEX_WRITE_API_KEY (provisioned separately by the founder). The read-only credential is never reused for write authority.',
+    );
+  }
+  const readClientId = (env.AIRWALLEX_CLIENT_ID ?? '').trim() || null;
+  const readApiKey = (env.AIRWALLEX_API_KEY ?? '').trim() || null;
+  if (
+    readClientId !== null &&
+    readApiKey !== null &&
+    readClientId === writeClientId &&
+    readApiKey === writeApiKey
+  ) {
+    throw new Error(
+      'the Transfers-Write credential is identical to the read-only credential: least-privilege separation requires a DISTINCT key provisioned for write authority. Refusing to treat the read-only key as write-capable.',
+    );
+  }
+  // The write pair alone does not enable the shared read config path: build
+  // the write config through the same strict sandbox rules with an explicit
+  // synthetic env (the write pair IS the credential of record here).
+  const writeEnv: AirwallexEnv = {
+    AIRWALLEX_ENV: env.AIRWALLEX_ENV,
+    AIRWALLEX_BASE_URL: env.AIRWALLEX_BASE_URL,
+    AIRWALLEX_CLIENT_ID: writeClientId,
+    AIRWALLEX_API_KEY: writeApiKey,
+  };
+  const config = loadAirwallexConfig(writeEnv);
+  if (!config.enabled) {
+    // loadAirwallexConfig only disables when AIRWALLEX_ENV != sandbox; keep
+    // the write path symmetric with the read path (sandbox-only).
+    throw new Error(
+      `AIRWALLEX_ENV must be "sandbox" for the Transfers-Write credential (got "${(env.AIRWALLEX_ENV ?? '').trim()}"); leave it unset only for offline tooling.`,
+    );
+  }
+  return config;
 }

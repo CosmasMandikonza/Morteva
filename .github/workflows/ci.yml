@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -59,8 +60,28 @@ jobs:
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
+      # MTV-14 integrated acceptance + MTV-19 adversarial financial journey:
+      # REAL multi-actor journeys against the shared seeded demo server — run
+      # serially and EXCLUDED from the main smoke step so concurrent journey
+      # specs cannot reorder each other's shared-server state (documented D-3
+      # interference class). The adversarial spec joined the parallel batch via
+      # the 298c5a6 sync and failed there twice at this head while passing
+      # serially and in isolation — same class, same bounded fix.
+      - name: Integrated viewer acceptance (playwright, serial)
+        run: npx playwright test e2e/mission-viewer-integrated.spec.ts --workers=1
+
+      - name: Adversarial financial journey (playwright, serial)
+        run: npx playwright test e2e/adversarial-financial-journey.spec.ts --workers=1
+
+      # R-final customer-operated workflow: unseen mission → registered spec →
+      # one-time source credential → signed field evidence → journal-derived
+      # decision → separate approver → replay. Real multi-actor journeys on the
+      # shared seeded server, so they run serially for the same D-3 reason.
+      - name: Customer-operated workflow (playwright, serial)
+        run: npx playwright test e2e/customer-journey.spec.ts e2e/customer-states.spec.ts --workers=1
+
       - name: E2E smoke (playwright, real servers)
-        run: npx playwright test
+        run: npx playwright test --grep-invert "mission-viewer-integrated|adversarial-financial-journey|customer-journey|customer-states"
 
       - name: Upload Playwright report on failure
         if: failure()
@@ -85,18 +106,22 @@ jobs:
       - name: Install (npm ci)
         run: npm ci
 
-      - name: Build all workspaces with the design-lab entry enabled
+      - name: Build all workspaces with the design-lab and mission-viewer entries enabled
         # Full root build (packages + api + web) because the Playwright
         # webServer starts the compiled API alongside vite preview.
         run: npm run build
         env:
           VITE_DESIGN_LAB: '1'
+          VITE_MISSION_VIEWER: '1'
 
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
       - name: Design-lab interaction tests (lab build)
         run: npx playwright test e2e/design-lab.spec.ts
+
+      - name: Mission-viewer adversarial suite (gated harness build)
+        run: npx playwright test e2e/mission-viewer.spec.ts --workers=2
 
       - name: Upload Playwright report on failure
         if: failure()

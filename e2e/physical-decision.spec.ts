@@ -1,0 +1,84 @@
+import { expect, test } from '@playwright/test';
+
+/**
+ * P0 judge journey: same authenticated local session and existing seed ledger.
+ * Real signed synthetic events → journal replay → planner → displayed result.
+ * Explicitly NOT a provider settlement / live-model / payment-approval test.
+ */
+test('one synthetic physical incident changes a real ledger-bound financial decision', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByLabel('Username').fill('founder');
+  await page.getByLabel('Password').fill('moterva-e2e-demo');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByTestId('actor-chip')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Decision Room' }).click();
+  await expect(page.getByTestId('decision-room')).toContainText('Harbor turbine inspection');
+  // CI retries share the same seeded server. If the first attempt already
+  // journaled the incident, replay it instead of demanding a fresh baseline.
+  await expect(page.getByTestId('decision-room')).not.toContainText(
+    'Loading actual journal and planner results',
+  );
+  if (await page.getByTestId('start-synthetic').isEnabled()) {
+    await page.getByTestId('start-synthetic').click();
+  }
+  // "Before · initial plan" is a static card heading — it cannot prove the
+  // baseline POST resolved. Wait for the journey to settle: either the
+  // baseline landed (introduce becomes enabled) or the incident was already
+  // journaled on a retry (incident section present). Otherwise the
+  // isEnabled() probe below races the baseline request and skips the click.
+  await expect(async () => {
+    const introEnabled = await page.getByTestId('introduce-incident').isEnabled();
+    const incidentPresent = (await page.getByTestId('physical-incident').count()) > 0;
+    expect(introEnabled || incidentPresent, 'journey settled after baseline').toBe(true);
+  }).toPass({ timeout: 15_000 });
+  if (await page.getByTestId('introduce-incident').isEnabled()) {
+    await page.getByTestId('introduce-incident').click();
+  }
+  await expect(page.getByTestId('physical-incident')).toContainText('24.6 kt');
+  await expect(page.getByTestId('physical-incident')).toContainText('SYNTHETIC');
+  // MTV-20 composition: alternatives/reasons live in the expandable After
+  // card — expand it to expose the blocked-alternative verdict.
+  const afterCard = page.getByRole('button', { name: /After · updated constraints/ });
+  await afterCard.click();
+  await expect(page.getByTestId('decision-room')).toContainText('ASSET_SAFETY_BLOCKED');
+  await expect(page.getByTestId('decision-room')).toContainText('Hire vessel-inspection');
+  // Provenance/disclaimer lives on the Evidence lens in the new composition.
+  await page.getByTestId('halotab-evidence').click();
+  await expect(page.getByTestId('decision-provenance')).toContainText('No money sent');
+
+  const mission = await page.evaluate(async () => {
+    const ms = (await fetch('/api/missions', { credentials: 'same-origin' }).then((r) =>
+      r.json(),
+    )) as {
+      missions: { id: string; title: string }[];
+    };
+    const selected = ms.missions.find((m) => m.title === 'Harbor turbine inspection');
+    if (!selected) throw new Error('seeded mission missing');
+    return selected.id;
+  });
+  const response = await page.request.get(
+    '/api/missions/' + encodeURIComponent(mission) + '/physical-decision',
+  );
+  expect(response.status()).toBe(200);
+  const result = await response.json();
+  expect(result.stage).toBe('incident');
+  expect(result.before.selected.candidateId).not.toBe(result.after.selected.candidateId);
+  expect(result.after.evidenceIds).toContain(result.incident.eventId);
+  expect(result.after.providerVerified).toBe(false);
+  expect(result.after.authorization).toContain('PROPOSED_ONLY');
+
+  await page.reload();
+  await page.getByRole('link', { name: 'Decision Room' }).click();
+  await expect(page.getByTestId('physical-incident')).toContainText(result.incident.eventId);
+  // The existing viewer-safe evidence projection must carry the SAME admitted
+  // physical event ID, never a fabricated frontend-only narrative.
+  await page
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('link', { name: 'Evidence Replay', exact: true })
+    .click();
+  await expect(page.getByTestId('evidence-list')).toContainText(result.incident.eventId);
+  await expect(page.getByTestId('evidence-list')).toContainText('mission.event.ingested');
+});

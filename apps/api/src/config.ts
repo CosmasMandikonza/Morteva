@@ -7,6 +7,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { parseIdentityConfig, type IdentityConfig } from './identity/config.js';
+import {
+  SourceKeyCustodyError,
+  parseSourceKeyCustodyEnv,
+  resolveKekRing,
+  type SourceKeyCustodyConfig,
+} from './integration/source-key-custody.js';
 
 /**
  * Minimal .env loader for local development only (development convenience;
@@ -44,6 +51,11 @@ const configSchema = z.object({
     .max(7 * 24 * 3_600_000)
     .default(8 * 3_600_000),
   GIT_SHA: z.string().min(1).optional(),
+  MOTERVA_TRUST_PROXY: z.enum(['0', '1']).default('0'),
+  // MOTERVA_SOURCE_KEY_KEK / _PREVIOUS / _RETIRED are deliberately NOT part of
+  // this schema: a zod string check cannot validate the key encoding and must
+  // never echo a key value in a message. They are parsed strictly (exactly 32
+  // decoded bytes) by parseSourceKeyCustodyEnv() in loadConfig below.
 });
 
 /**
@@ -87,7 +99,33 @@ export interface AppConfig {
    * never be active accidentally in a deployed configuration.
    */
   readonly devAuth: boolean;
+  /**
+   * REVIEWER_DEMO (issues #17/#19): hosted, explicitly-enabled reviewer
+   * capability admitting the FIXED signed synthetic scenario under a real
+   * OIDC session. Requires identity; refuses startup when requested without
+   * it, and the routes are never mounted when disabled (fail-closed 404).
+   */
+  readonly reviewerDemo: boolean;
+  /**
+   * Production identity (MTV-19): OIDC configuration, or null when no
+   * MOTERVA_OIDC_* variable is set (identity simply not deployed — the rest
+   * of the server still boots). Partial configuration fails startup.
+   */
+  readonly identity: IdentityConfig | null;
+  /**
+   * Trust X-Forwarded-* from the TLS termination proxy (Agent E's Caddy edge).
+   * Only enable when the API is NOT directly internet-exposed.
+   */
+  readonly trustProxy: boolean;
   readonly gitSha?: string;
+  /**
+   * Validated key custody for machine-source signing credentials (CTO review
+   * PR #64): the Key-Encryption-Key ring parsed from MOTERVA_SOURCE_KEY_KEK /
+   * _PREVIOUS / _RETIRED. Opaque by construction — serializing or inspecting
+   * it shows key fingerprints only. Absent on hand-built test configs, where
+   * buildApp applies the same fail-closed policy (production refuses).
+   */
+  readonly sourceKeyCustody?: SourceKeyCustodyConfig;
   /** Non-fatal startup warnings (e.g. provider credentials present while offline). */
   readonly warnings: readonly string[];
 }
@@ -102,6 +140,18 @@ export class StartupConfigError extends Error {
 export function loadConfig(env: RawEnv = process.env): AppConfig {
   // Collect every invalid variable so one startup failure lists all problems.
   const issues: string[] = [];
+  let identity: IdentityConfig | null = null;
+  try {
+    identity = parseIdentityConfig(
+      env,
+      (env.NODE_ENV as 'development' | 'test' | 'production') ?? 'development',
+      (newIssues: readonly string[]) => {
+        issues.push(...newIssues);
+      },
+    );
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : String(error));
+  }
   let providerMode: 'offline' | 'simulated' | undefined;
   try {
     providerMode = parseProviderMode(env.MOTERVA_PROVIDER_MODE);
@@ -118,6 +168,7 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     MOTERVA_LEDGER_PATH: env.MOTERVA_LEDGER_PATH,
     MOTERVA_SESSION_TTL_MS: env.MOTERVA_SESSION_TTL_MS,
     GIT_SHA: env.GIT_SHA,
+    MOTERVA_TRUST_PROXY: env.MOTERVA_TRUST_PROXY,
   });
   if (!parsed.success) {
     issues.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'env'}: ${i.message}`));
@@ -125,6 +176,15 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
   // DEMO_AUTH is deliberately local-only, not merely "non-production".
   // NODE_ENV is often left at development in preview/cloud deployments.
   const devAuthRequested = (env.MOTERVA_DEV_AUTH ?? '') === '1';
+  // REVIEWER_DEMO (issues #17/#19): explicitly-enabled hosted reviewer
+  // capability admitting the FIXED signed synthetic scenario. Off by
+  // default; when enabled it requires a configured production identity
+  // (OIDC) — the routes never exist anonymously or under dev auth alone.
+  const reviewerDemoRaw = (env.MOTERVA_REVIEWER_DEMO ?? '').trim();
+  const reviewerDemoRequested = reviewerDemoRaw === '1';
+  if (reviewerDemoRaw !== '' && !reviewerDemoRequested) {
+    issues.push('MOTERVA_REVIEWER_DEMO: only "1" or unset are accepted.');
+  }
   if (devAuthRequested && parsed.success) {
     if (parsed.data.NODE_ENV === 'production') {
       issues.push(
@@ -144,14 +204,59 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
       );
     }
   }
+  // SOURCE-KEY CUSTODY (CTO review PR #64, P0). Parse the KEK variables
+  // strictly (exactly 32 decoded bytes, no value ever echoed) and hand the
+  // validated material to the runtime on AppConfig — nothing downstream reads
+  // process.env. A KEK is REQUIRED whenever the credential surface can mount
+  // (production identity configured, or loopback demo auth); in production the
+  // predictable local derivation is refused outright, and outside loopback it
+  // is refused too. A malformed value fails startup in EVERY environment.
+  let sourceKeyCustody: SourceKeyCustodyConfig | undefined;
+  try {
+    sourceKeyCustody = parseSourceKeyCustodyEnv(env);
+  } catch (error) {
+    if (error instanceof SourceKeyCustodyError) issues.push(error.message);
+    else throw error;
+  }
+  let custodyPosture: 'configured' | 'local-derived' | undefined;
+  if (sourceKeyCustody !== undefined && parsed.success) {
+    const credentialSurface = identity !== null || devAuthRequested;
+    if (credentialSurface || sourceKeyCustody.current !== null) {
+      try {
+        custodyPosture = resolveKekRing(sourceKeyCustody, {
+          nodeEnv: parsed.data.NODE_ENV,
+          host: parsed.data.HOST,
+        }).posture;
+      } catch (error) {
+        if (error instanceof SourceKeyCustodyError) issues.push(error.message);
+        else throw error;
+      }
+    }
+  }
   if (providerMode === undefined || !parsed.success || issues.length > 0) {
     throw new StartupConfigError(issues);
   }
+  const reviewerDemo = reviewerDemoRequested && identity !== null;
+  if (reviewerDemoRequested && identity === null) {
+    throw new StartupConfigError([
+      'MOTERVA_REVIEWER_DEMO: the hosted reviewer demo requires a configured production identity (set the MOTERVA_OIDC_* variables) — the capability must never exist without authenticated OIDC sessions. Remove MOTERVA_REVIEWER_DEMO or configure identity.',
+    ]);
+  }
   const devAuth = devAuthRequested && parsed.data.NODE_ENV !== 'production';
   const warnings: string[] = [];
+  if (reviewerDemo) {
+    warnings.push(
+      'REVIEWER_DEMO is ACTIVE (MOTERVA_REVIEWER_DEMO=1 with a configured identity): the fixed signed synthetic reviewer scenario is enabled for authenticated org members. It admits SYNTHETIC evidence only and moves no money.',
+    );
+  }
   if (devAuth) {
     warnings.push(
       'DEMO_AUTH is ACTIVE (MOTERVA_DEV_AUTH=1 in non-production): username/password login and one-time dev bootstrap are enabled for local development only. Never use this mode in a deployed configuration.',
+    );
+  }
+  if (custodyPosture === 'local-derived') {
+    warnings.push(
+      'SOURCE KEY CUSTODY: no MOTERVA_SOURCE_KEY_KEK is configured, so machine-source signing credentials are sealed under the PUBLIC deterministic local derivation (identical in every deployment). This is permitted only for loopback non-production use; production refuses to start this way.',
     );
   }
   const providerCredentialVars = [
@@ -174,7 +279,11 @@ export function loadConfig(env: RawEnv = process.env): AppConfig {
     ledgerPath: parsed.data.MOTERVA_LEDGER_PATH,
     sessionTtlMs: parsed.data.MOTERVA_SESSION_TTL_MS,
     devAuth,
+    reviewerDemo,
+    identity,
+    trustProxy: parsed.data.MOTERVA_TRUST_PROXY === '1',
     gitSha: parsed.data.GIT_SHA,
+    sourceKeyCustody,
     warnings,
   };
 }

@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,7 @@ import type { DispatchCommand } from '@moterva/ledger';
  * fixture. The type system itself proves dispatch can never return confirmed.
  */
 
-const CONFIG = loadAirwallexConfig({}); // disabled config is fine for the fixture
+const CONFIG = fixtureClientConfig();
 
 function makeStore() {
   const path = join(mkdtempSync(join(tmpdir(), 'awx-dispatch-')), 'ledger.sqlite');
@@ -77,6 +78,10 @@ function makeDispatcher(
     store,
     clock,
     () => beneficiary,
+    // Offline-fixture escape hatch: these are SINK/reconcile-behavior tests,
+    // not signature tests (the live sandbox builder has no such parameter —
+    // see webhook-signature.test.ts for the fail-closed matrix).
+    { allowUnverifiedWebhooks: true },
   );
   return { dispatcher, store, ledger, fixture, orgId, missionId, ns };
 }
@@ -395,13 +400,17 @@ describe('webhook ingestion (at-least-once, out-of-order safe)', () => {
       store,
       clock,
       () => 'ben-1',
+      // Offline-fixture escape hatch (explicit; structurally barred on the
+      // live sandbox builder): these tests exercise SINK dedupe/ordering,
+      // not signature verification.
+      {
+        allowUnverifiedWebhooks: true,
+        webhookSink: (event: { eventId: string }) => {
+          if (seen.includes(event.eventId)) throw new Error('duplicate event');
+          seen.push(event.eventId);
+        },
+      },
     );
-    // inject the dedupe sink (production wires the ledger evidence journal)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (dispatcher as any).deps.webhookSink = (event: { eventId: string }) => {
-      if (seen.includes(event.eventId)) throw new Error('duplicate event');
-      seen.push(event.eventId);
-    };
 
     const first = await dispatcher.ingestTransferWebhook({
       orgId,
@@ -471,9 +480,9 @@ describe('builder guards', () => {
       getTransfer: [],
       balances: [],
     });
-    expect(() => buildSandboxDispatcher(CONFIG, fixture, store, clock, () => 'b')).toThrowError(
-      /enabled sandbox configuration/,
-    );
+    expect(() =>
+      buildSandboxDispatcher(loadAirwallexConfig({}), fixture, store, clock, () => 'b'),
+    ).toThrowError(/enabled sandbox configuration/);
 
     const enabled = loadAirwallexConfig({
       AIRWALLEX_ENV: 'sandbox',

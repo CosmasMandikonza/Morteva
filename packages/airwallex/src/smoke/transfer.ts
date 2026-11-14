@@ -5,8 +5,23 @@
  * (a missing state file never authorizes another payment in any state; a
  * separate intent needs --new-intent after every prior intent is resolved).
  *
+ * Two operating modes, BOTH bound to the DISTINCT least-privilege
+ * Transfers-Write credential (the durable intent is fingerprinted to it at
+ * preparation, and confirmation/recovery must present the same identity):
+ *   --prepare-only  build the full governed chain (mandate → plan →
+ *                   separate-role approval → reservation → durable intent
+ *                   persisted) and STOP. No dispatcher, no provider write,
+ *                   no --confirm needed. Prints the exact intent identity
+ *                   for founder review. The read-only pair (if present)
+ *                   serves ONLY the funding-gate balance read, and only
+ *                   after provider-issued tokens verify both credentials
+ *                   belong to the same account.
+ *   --confirm       EXECUTE (or resume/reconcile) the intent under the
+ *                   SAME Transfers-Write credential that prepared it.
+ *
  * Outcome reporting is unambiguous:
  *   BLOCKED        nothing was submitted (strictly pre-attempt)     exit 2
+ *   PREPARED       governed intent persisted; NOT dispatched        exit 0
  *   STATUS_UNKNOWN a provider attempt may have occurred; funds      exit 0
  *                  remain committed; recover ONLY by reconciling
  *                  this same intent — never a new identity
@@ -17,15 +32,38 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadAirwallexConfig, HttpTransport } from '../index.js';
+import { loadAirwallexConfig, loadAirwallexWriteConfig, HttpTransport } from '../index.js';
 import { DEFAULT_SMOKE_AMOUNT_MINOR, runSmokeTransfer } from './transfer-runner.js';
 
-const config = loadAirwallexConfig();
-if (!config.enabled) {
+const prepareOnly = process.argv.includes('--prepare-only');
+
+// BOTH modes bind to the DISTINCT least-privilege Transfers-Write credential:
+// the durable intent is fingerprinted to that client id at PREPARATION and
+// the same id must present at confirmation and recovery (the strict
+// account-fingerprint law is never relaxed). The read-only key is never
+// reused for write authority, and a write pair identical to the read pair is
+// refused.
+let config;
+try {
+  config = loadAirwallexWriteConfig();
+} catch (error) {
   console.error(
-    'BLOCKED: sandbox credentials not configured (AIRWALLEX_ENV=sandbox + AIRWALLEX_CLIENT_ID + AIRWALLEX_API_KEY). The real sandbox transfer acceptance of issue #5 remains BLOCKED on founder-provided credentials and a sandbox beneficiary. Nothing was fabricated.',
+    `BLOCKED: ${error instanceof Error ? error.message : String(error)} Nothing was fabricated and no provider call was made.`,
   );
   process.exit(2);
+}
+
+// OPTIONAL funding-gate fallback: when the write key cannot read balances
+// (definitive 403), the read-only pair may serve the balance read — but only
+// after the runner verifies from PROVIDER-ISSUED tokens that both credentials
+// belong to the same account. Absent or half-configured read pair = no
+// fallback (the gate then fails closed on the write key's 403).
+let readConfig;
+try {
+  const candidate = loadAirwallexConfig();
+  readConfig = candidate.enabled ? candidate : undefined;
+} catch {
+  readConfig = undefined;
 }
 
 const result = await runSmokeTransfer({
@@ -36,9 +74,21 @@ const result = await runSmokeTransfer({
     requestTimeoutMs: config.requestTimeoutMs,
     idempotentReadRetries: config.idempotentReadRetries,
   }),
+  ...(readConfig === undefined
+    ? {}
+    : {
+        readConfig,
+        readTransport: new HttpTransport({
+          baseUrl: readConfig.baseUrl,
+          allowedOrigin: readConfig.allowedOrigin,
+          requestTimeoutMs: readConfig.requestTimeoutMs,
+          idempotentReadRetries: readConfig.idempotentReadRetries,
+        }),
+      }),
   beneficiaryId: process.env.AIRWALLEX_SANDBOX_BENEFICIARY_ID ?? '',
   amountMinor: Number(process.env.AIRWALLEX_SMOKE_AMOUNT_MINOR ?? DEFAULT_SMOKE_AMOUNT_MINOR),
   confirm: process.argv.includes('--confirm'),
+  prepareOnly,
   newIntent: process.argv.includes('--new-intent'),
   stateDir: join(tmpdir(), 'moterva-awx-transfer-smoke'),
 });
@@ -46,6 +96,25 @@ const result = await runSmokeTransfer({
 if (result.outcome === 'blocked') {
   console.error(`BLOCKED: ${result.reason} (no submission occurred)`);
   process.exit(2);
+}
+if (result.outcome === 'prepared') {
+  console.info('PREPARED — governed intent persisted; NOTHING was dispatched (no provider write):');
+  console.info(`  org=${result.orgId}`);
+  console.info(`  mission=${result.missionId}`);
+  console.info(`  mandate=${result.mandateId}`);
+  console.info(
+    `  plan=${result.planId} (exact terms: ${String(result.amountMinor)} minor ${result.currency} → beneficiary ${result.beneficiaryId})`,
+  );
+  console.info(`  approval=${result.approvalId} (separate approver role)`);
+  console.info(`  operation=${result.operationId} state=${result.operationState}`);
+  console.info(`  request=${result.ledgerRequestId} provider_request=${result.providerRequestId}`);
+  console.info(
+    `  funding gate: verified USD available ${String(result.verifiedUsdAvailableMinor)} minor ≥ 10× the amount`,
+  );
+  console.info(
+    '  This intent is BOUND to the Transfers-Write credential that prepared it. EXECUTION requires the founder explicitly approving THIS intent (beneficiary/amount/currency/fees); then rerun with --confirm under the SAME Transfers-Write credential — it resumes THIS intent, never a new identity. A different credential is refused.',
+  );
+  process.exit(0);
 }
 if (result.outcome === 'unverified') {
   console.error(`STATUS_UNKNOWN: ${result.reason}`);

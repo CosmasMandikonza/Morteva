@@ -1,0 +1,43 @@
+{
+  "contractVersion": 1,
+  "eventId": "mevt_59c57a99b617",
+  "sequence": 1,
+  "orgId": "org_fixture_reference",
+  "missionId": "msn_fixture_reference",
+  "assetId": "picker-bot-7",
+  "observedAt": "2026-11-07T22:00:00.000Z",
+  "ingestedAt": "2026-11-07T22:00:02.000Z",
+  "source": {
+    "sourceId": "wms-supervisor",
+    "sourceType": "warehouse_wms",
+    "keyId": "key_wms_sup_v1",
+    "provenance": "SYNTHETIC"
+  },
+  "observations": [
+    {
+      "kind": "asset_comms",
+      "unit": "state",
+      "value": "online"
+    },
+    {
+      "kind": "asset_position_status",
+      "unit": "state",
+      "value": "on_station"
+    },
+    {
+      "kind": "aisle_access",
+      "unit": "state",
+      "value": "clear"
+    },
+    {
+      "kind": "charger_status",
+      "unit": "state",
+      "value": "free"
+    },
+    {
+      "kind": "inspection_progress",
+      "unit": "percent",
+      "value": 0
+    }
+  ]
+}

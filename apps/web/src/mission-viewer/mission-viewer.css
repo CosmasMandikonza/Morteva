@@ -1,0 +1,607 @@
+/*
+ * Mission viewer scoped styles (MTV-09/12) — `mpv-` prefix only.
+ * Consumes the B-led semantic tokens (--mv-*) for every color; no ad-hoc hex
+ * except where three.js needs numeric values (THEMES in viewer3d.ts mirrors
+ * these tokens). Dark flagship; light mode shares every rule.
+ */
+
+.mpv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: var(--mv-motion-fast);
+  background: var(--mv-surface-card);
+  border: var(--mv-border-raised);
+  border-radius: 10px;
+  overflow: hidden;
+  color: var(--mv-ink-1);
+}
+
+.mpv-stage {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  background: var(--mv-surface-sunken);
+}
+
+.mpv-canvas-host,
+.mpv-canvas-host canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Markers are real buttons projected over the canvas. */
+.mpv-marker-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mpv-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 10px;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.mpv-marker__dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--mpv-marker-color, var(--mv-info-text));
+  border: 2px solid var(--mv-surface-card);
+  box-shadow: 0 0 0 2px var(--mpv-marker-color, var(--mv-info-text));
+  transition: transform var(--mv-motion-instant);
+}
+
+.mpv-marker:hover .mpv-marker__dot,
+.mpv-marker:focus-visible .mpv-marker__dot {
+  transform: scale(1.25);
+}
+
+.mpv-marker[data-selected='true'] .mpv-marker__dot {
+  outline: 3px solid var(--mv-focus-ring);
+  outline-offset: 2px;
+}
+
+.mpv-marker:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-focus-ring);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* HUD */
+.mpv-hud {
+  position: absolute;
+  inset: auto 10px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--mv-surface-overlay);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--mv-line);
+  max-width: min(560px, calc(100% - 20px));
+}
+
+.mpv-hud__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mpv-chip {
+  font-size: var(--mv-size-xs);
+  font-family: var(--mv-font-mono);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--mv-line);
+  color: var(--mv-ink-2);
+}
+
+.mpv-chip--truth {
+  color: var(--mv-accent-text);
+  border-color: var(--mv-accent-text);
+}
+
+.mpv-chip--restricted {
+  color: var(--mv-danger-text);
+  background: var(--mv-danger-bg);
+}
+
+.mpv-chip--uncertain {
+  color: var(--mv-transit-text);
+  background: var(--mv-transit-bg);
+}
+
+.mpv-chip--nominal {
+  color: var(--mv-info-text);
+  background: var(--mv-info-soft);
+}
+
+.mpv-chip--history {
+  color: var(--mv-hold-text);
+  background: var(--mv-hold-bg);
+}
+
+.mpv-hud__grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mpv-card {
+  min-width: 180px;
+}
+
+.mpv-card__k,
+.mpv-events__title {
+  margin: 0 0 2px;
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-hud);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+  font-weight: 600;
+}
+
+.mpv-card__v {
+  margin: 0;
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+}
+
+.mpv-card__v--muted {
+  color: var(--mv-ink-3);
+}
+
+.mpv-card__sub {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-sm);
+}
+
+.mpv-selected {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+  font-size: var(--mv-size-sm);
+}
+
+.mpv-selected dt {
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+}
+
+.mpv-selected dd {
+  margin: 0;
+  color: var(--mv-ink-1);
+}
+
+.mpv-decision-link {
+  align-self: flex-start;
+  color: var(--mv-interactive);
+  font-size: var(--mv-size-sm);
+  font-weight: 600;
+}
+
+.mpv-hud__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.mpv-note {
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-2);
+}
+
+.mpv-note--dim {
+  color: var(--mv-ink-3);
+}
+
+.mpv-fallback-note {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-transit-text);
+}
+
+.mpv-hud__modes {
+  display: flex;
+  gap: 6px;
+}
+
+.mpv-hud__modebtn {
+  font-size: var(--mv-size-xs);
+  font-family: var(--mv-font-mono);
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--mv-line-strong);
+  background: var(--mv-surface-raised);
+  color: var(--mv-ink-1);
+  cursor: pointer;
+}
+
+.mpv-hud__modebtn[aria-pressed='true'] {
+  border-color: var(--mv-focus-ring);
+  color: var(--mv-interactive);
+}
+
+.mpv-hud__modebtn:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-focus-ring);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* Event aside */
+.mpv-events {
+  border-left: 1px solid var(--mv-line);
+  padding: 10px;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.mpv-events__list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mpv-events__item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  text-align: left;
+  background: var(--mv-surface-raised);
+  border: 1px solid var(--mv-line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--mv-ink-1);
+  cursor: pointer;
+}
+
+.mpv-events__item[aria-pressed='true'] {
+  border-color: var(--mv-focus-ring);
+}
+
+.mpv-events__item:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-focus-ring);
+  outline-offset: var(--mv-focus-offset);
+}
+
+.mpv-events__id {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+}
+
+.mpv-events__meta {
+  grid-column: 2;
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+}
+
+.mpv-events__credits {
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+  margin: 8px 0 0;
+}
+
+.mpv-sev {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--mv-info-text);
+}
+
+.mpv-sev--breach {
+  background: var(--mv-danger-text);
+}
+.mpv-sev--hold {
+  background: var(--mv-transit-text);
+}
+.mpv-sev--offline {
+  background: var(--mv-ink-3);
+}
+.mpv-sev--recovery {
+  background: var(--mv-verified-text);
+}
+
+/* 2D fallback */
+.mpv-2d {
+  position: absolute;
+  inset: 0;
+}
+
+.mpv-2d svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.mpv-2d__sea--dark {
+  fill: var(--mv-surface-sunken);
+}
+.mpv-2d__sea--light {
+  fill: var(--mv-info-soft);
+}
+.mpv-2d__quay--dark {
+  fill: var(--mv-surface-raised);
+  stroke: var(--mv-line-strong);
+}
+.mpv-2d__quay--light {
+  fill: var(--mv-surface-raised);
+  stroke: var(--mv-line-strong);
+}
+.mpv-2d__vessel--dark {
+  fill: var(--mv-surface-card);
+  stroke: var(--mv-ink-2);
+}
+.mpv-2d__vessel--light {
+  fill: var(--mv-surface-card);
+  stroke: var(--mv-ink-2);
+}
+.mpv-2d__pad--dark,
+.mpv-2d__pad--light {
+  fill: var(--mv-accent-soft);
+  stroke: var(--mv-accent-text);
+}
+.mpv-2d__uav--dark,
+.mpv-2d__uav--light {
+  fill: var(--mv-info-text);
+  stroke: var(--mv-surface-card);
+  stroke-width: 2;
+}
+.mpv-2d__label--dark {
+  fill: var(--mv-ink-3);
+  font-size: 12px;
+  font-family: var(--mv-font-mono);
+  letter-spacing: 0.1em;
+}
+.mpv-2d__label--light {
+  fill: var(--mv-ink-2);
+  font-size: 12px;
+  font-family: var(--mv-font-mono);
+  letter-spacing: 0.1em;
+}
+
+.mpv-2d__markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mpv-2d__markers .mpv-marker {
+  transform: translate(-50%, -100%);
+}
+
+.mpv-2d__selected {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  background: var(--mv-surface-overlay);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.mpv-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Narrow layouts: the aside drops below; stage keeps 16:9 until 320px where
+   it becomes 4:3 so the harbor stays legible (acceptance: 320px layout). */
+@media (max-width: 900px) {
+  .mpv {
+    grid-template-columns: 1fr;
+  }
+  .mpv-events {
+    border-left: none;
+    border-top: 1px solid var(--mv-line);
+    max-height: 200px;
+  }
+}
+
+@media (max-width: 380px) {
+  .mpv-stage {
+    aspect-ratio: 4 / 3;
+  }
+  .mpv-hud {
+    inset: auto 6px 6px 6px;
+    padding: 8px;
+  }
+  .mpv-selected {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Honest availability states (C2): shown INSTEAD of a scene when the host
+   cannot deliver the physical-view snapshot. Never a demo-data substitute. */
+.mpv--unavailable,
+.mpv--loading {
+  display: block;
+}
+
+.mpv-unavailable {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 22px;
+  background: var(--mv-surface-sunken);
+}
+
+.mpv-unavailable__title {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  color: var(--mv-ink-1);
+}
+
+.mpv-unavailable__reason {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  max-width: 640px;
+}
+
+/* ---- Decision Room chrome ('below') — CTO visual gate, PR #65 -------------
+ * The scene is ONE unobstructed plane: a tiny non-interactive status pill is
+ * the only in-scene UI (well under 10% of a desktop canvas). The full HUD
+ * renders as a static block BENEATH the stage at every width, and the old
+ * fixed 250px evidence aside becomes a compact collapsible timeline below
+ * the strip (or one honest line when nothing has been admitted). Consumes
+ * the same semantic --mv-* tokens; dark and light share every rule. */
+
+.mpv--droom {
+  grid-template-columns: minmax(0, 1fr);
+  /* The viewer responds to ITS OWN width: on a phone-width canvas the scene
+     is too small to also carry an in-scene badge without crowding evidence
+     markers, so the badge yields (container query at the end of this file) —
+     the strip below keeps the full status. */
+  container-type: inline-size;
+}
+
+.mpv-scene-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--mv-surface-overlay);
+  border: 1px solid var(--mv-line);
+  backdrop-filter: blur(4px);
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  pointer-events: none;
+  max-width: calc(100% - 20px);
+}
+
+.mpv-scene-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.mpv-scene-badge__dot--nominal {
+  background: var(--mv-info-text);
+}
+
+.mpv-scene-badge__dot--restricted {
+  background: var(--mv-danger-text);
+}
+
+.mpv-scene-badge__dot--uncertain {
+  background: var(--mv-transit-text);
+}
+
+.mpv-scene-badge__mode {
+  color: var(--mv-ink-3);
+}
+
+/* The HUD block below the stage: same content and testids as the overlay,
+   repositioned by placement only. */
+.mpv-hud--below {
+  position: static;
+  inset: auto;
+  max-width: none;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  backdrop-filter: none;
+}
+
+.mpv-evidence {
+  border-top: 1px solid var(--mv-line);
+  padding: 8px 12px 10px;
+}
+
+.mpv-evidence summary {
+  cursor: pointer;
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-2);
+  padding: 2px 0;
+}
+
+.mpv-evidence summary:focus-visible {
+  outline: var(--mv-focus-width) solid var(--mv-focus-ring);
+  outline-offset: var(--mv-focus-offset);
+}
+
+/* Compact horizontal timeline inside the disclosure (the rail's vertical
+   list would waste the full-width row below the stage). */
+.mpv-evidence__list {
+  border-left: none;
+  padding: 6px 0 0;
+  max-height: none;
+  overflow: visible;
+}
+
+.mpv-evidence__list .mpv-events__list {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mpv-evidence__list .mpv-events__item {
+  width: auto;
+  grid-template-columns: 10px auto;
+}
+
+.mpv-evidence__list .mpv-events__meta {
+  grid-column: 2;
+}
+
+.mpv-evidence__empty {
+  margin: 0;
+  border-top: 1px solid var(--mv-line);
+  padding: 10px 12px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+
+/* Container query lives at the END of the file and uses a descendant
+   selector so it wins the cascade over the base badge rule regardless of
+   source order. On a phone-width CANVAS (the viewer's own inline size, not
+   the viewport) the in-scene badge yields entirely — the strip below the
+   stage keeps the full status text. */
+@container (max-width: 480px) {
+  .mpv--droom .mpv-scene-badge {
+    display: none;
+  }
+}
