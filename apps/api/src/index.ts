@@ -10,8 +10,10 @@
 import { resolve } from 'node:path';
 import { openLedger, type Ledger } from '@moterva/ledger';
 import { buildSandboxDispatcher, HttpTransport, loadAirwallexConfig } from '@moterva/airwallex';
+import { loadMetalConfig } from '@moterva/metal/status';
 import { buildApp } from './app.js';
 import { StartupConfigError, loadConfig, loadDotEnvForDev } from './config.js';
+import { SourceKeyCustodyError } from './integration/source-key-custody.js';
 
 loadDotEnvForDev();
 
@@ -107,6 +109,35 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Metal Tahoe testnet rail (issue #6): the adapter in packages/metal is
+  // complete and adversarially tested, but WORKER REGISTRATION stays dark
+  // until the ledger can express metal honestly (Agent A contract):
+  //  (a) reserve() refuses kind metal_order (RAIL_ASSET_UNSUPPORTED) — no
+  //      token-asset account exists, so no metal operation can be authorized;
+  //  (b) provider_receipts cannot persist a metal receipt truthfully (the
+  //      provider column is hardcoded 'airwallex'; the environment CHECK
+  //      excludes 'testnet').
+  // Registering a dispatcher whose evidence cannot be persisted truthfully
+  // would be exactly the dishonesty the repo forbids, so status reports the
+  // precise blocker instead. The gated smoke (packages/metal smoke:purchase)
+  // carries the live testnet path on its own labeled durable journal until
+  // the contract lands. An env with METAL_* set AND an invalid configuration
+  // still fails startup (never half-configured).
+  let metal: { detail: string };
+  try {
+    const metalConfig = loadMetalConfig();
+    metal = {
+      detail: metalConfig.enabled
+        ? 'adapter configured and ready (testnet signer + USDZ token + merchant); worker registration blocked on the ledger contract: metal_order token-asset accounting (RAIL_ASSET_UNSUPPORTED today) + provider-aware testnet receipt persistence — see docs/contracts/metal-ledger-contract-request.md. The gated smoke:purchase flow carries real testnet verification meanwhile.'
+        : 'disabled: no testnet signer/token configuration (METAL_ENV/METAL_SIGNER_PRIVATE_KEY/METAL_USDZ_TOKEN_ADDRESS/METAL_MERCHANT_ADDRESS). Real-testnet gate BLOCKED; no chain call is made or claimed.',
+    };
+  } catch (error) {
+    console.error(`moterva-api: refusing to start — invalid Metal configuration: ${String(error)}`);
+    ledger.close();
+    process.exit(1);
+    return;
+  }
+
   const app = buildApp(
     config,
     () => ({
@@ -131,6 +162,12 @@ async function main(): Promise<void> {
           .get() as { c: number }
       ).c,
     }),
+    () => ({
+      registered: false,
+      receiptCount: 0,
+      readbackCount: 0,
+      detail: metal.detail,
+    }),
   );
 
   for (const warning of config.warnings) {
@@ -143,6 +180,9 @@ async function main(): Promise<void> {
   );
   app.log.info(
     `airwallex rail: ${airwallex.enabled ? 'SANDBOX ENABLED' : 'DISABLED'} — ${airwallex.detail}`,
+  );
+  app.log.info(
+    `metal rail: DISABLED (worker registration blocked on ledger contract) — ${metal.detail}`,
   );
   void airwallex;
 
@@ -163,6 +203,13 @@ process.on('unhandledRejection', (reason) => {
 });
 
 main().catch((error) => {
+  // Source-key custody gate (CTO review PR #64): buildApp refuses to boot on an
+  // unrecoverable custody state — never a fallback to a predictable key. The
+  // message names env vars and KEK fingerprints only, never key material.
+  if (error instanceof SourceKeyCustodyError) {
+    console.error(`moterva-api: refusing to start — ${error.message}`);
+    process.exit(1);
+  }
   console.error('moterva-api: fatal startup error', error);
   process.exit(1);
 });

@@ -35,7 +35,7 @@ describe('authentication', () => {
       ],
     });
     const balances = await client.balancesCurrent();
-    expect(balances[0]?.availableAmount.minorUnits).toBe(1234);
+    expect(balances[0]?.availableAmount!.minorUnits).toBe(1234);
     const login = fixture.performedRequests.find((r) => r.path.endsWith('/authentication/login'));
     expect(login).toBeDefined();
   });
@@ -65,7 +65,7 @@ describe('authentication', () => {
     });
     const awx = new AirwallexClient(CONFIG, fixture, CLOCK);
     const balances = await awx.balancesCurrent();
-    expect(balances[0]?.availableAmount.minorUnits).toBe(10000);
+    expect(balances[0]?.availableAmount!.minorUnits).toBe(10000);
     expect(
       fixture.performedRequests.filter((r) => r.path.endsWith('/authentication/login')),
     ).toHaveLength(2);

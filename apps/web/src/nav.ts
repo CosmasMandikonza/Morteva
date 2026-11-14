@@ -5,7 +5,7 @@ export interface NavItem {
   readonly summary: string;
 }
 
-export type SectionId = 'missions' | 'decisions' | 'authority' | 'evidence';
+export type SectionId = 'missions' | 'setup' | 'decisions' | 'authority' | 'evidence';
 
 /**
  * Primary navigation. Every item maps to a real planned capability with its
@@ -18,6 +18,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: 'Mission Treasury',
     issue: '#12',
     summary: 'Mission budgets, reserves and financial operations overview.',
+  },
+  {
+    id: 'setup',
+    label: 'Mission Setup',
+    issue: '#13',
+    summary:
+      'Customer-authored mission specification, trusted sources and one-time signing credentials.',
   },
   {
     id: 'decisions',

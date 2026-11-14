@@ -1,0 +1,18 @@
+# Keep the docker build context lean and secret-free.
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+data
+apps/api/data
+playwright-report
+test-results
+docs/assets/design-lab
+research
+design
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.log

@@ -13,3 +13,8 @@ docs/
 scripts/check-docs.mjs
 .github/PULL_REQUEST_TEMPLATE.md
 .github/workflows/docs-integrity.yml
+
+# Generated reliability-matrix artifacts (issue #15, Agent C) — emitted verbatim by
+# apps/api/src/mission-events/reliability/run.ts; a committed test proves a fresh run
+# regenerates them byte-for-byte, so prettier reformatting would break that guarantee.
+apps/api/src/mission-events/reliability/results/

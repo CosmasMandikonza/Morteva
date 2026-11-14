@@ -1,0 +1,86 @@
+# MOTERVA production compose — runs ON the judge instance (issues #17/#19).
+#
+# This is the DEPLOY variant: image-only (built by CI at an immutable
+# release SHA and pulled from ECR — never built on the host). Provisioned to
+# /opt/moterva/compose.production.yml by deploy/aws/bootstrap.sh.
+#
+#   /opt/moterva/.env             → compose interpolation only:
+#                                     ECR_REGISTRY, MOTERVA_RELEASE_SHA, MOTERVA_DOMAIN
+#   /opt/moterva/production.env   → api container env (env_file; fetched from
+#                                   Secrets Manager; chmod 600; never committed):
+#                                     WEB_ORIGIN, MOTERVA_REVIEWER_DEMO=1,
+#                                     MOTERVA_OIDC_* (issuer/client/secret/redirect),
+#                                     optional AIRWALLEX_* sandbox credentials
+#
+# Deploy / rollback (both = same command, different immutable SHA):
+#   /opt/moterva/update.sh <release-sha>     (run via SSM by the CI workflow)
+#
+# Hardening mirrors deploy/docker-compose.yml: non-root, read-only rootfs,
+# cap_drop ALL, no-new-privileges, single SQLite writer. The ledger is a
+# BIND MOUNT to the dedicated encrypted EBS mountpoint /var/lib/moterva
+# (provisioned + owned by instance user-data) — NOT a Docker named volume,
+# which would silently live on the root disk and defeat EBS persistence.
+# The api's ONLY host exposure is 127.0.0.1:18087 for the update health
+# check (update.sh polls exactly this port — contract-checked); Caddy
+# remains the sole public edge.
+name: moterva
+
+services:
+  api:
+    image: ${ECR_REGISTRY:?set ECR_REGISTRY in /opt/moterva/.env}/moterva-api:${MOTERVA_RELEASE_SHA:?set MOTERVA_RELEASE_SHA}
+    restart: unless-stopped
+    env_file: production.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8787
+      MOTERVA_LEDGER_PATH: /var/lib/moterva/ledger.sqlite
+      # Behind the Caddy edge (X-Forwarded-*), never directly internet-exposed.
+      MOTERVA_TRUST_PROXY: '1'
+      GIT_SHA: ${MOTERVA_RELEASE_SHA}
+      LOG_LEVEL: ${MOTERVA_LOG_LEVEL:-info}
+      # Deliberately NOT set here: MOTERVA_DEV_AUTH (refused in production by
+      # config), MOTERVA_PROVIDER_MODE (offline default). Provider credentials
+      # may only enter via production.env (Secrets Manager) and stay server-side.
+    volumes:
+      # BIND mount: the financial journal lives on the dedicated encrypted
+      # EBS volume, not in Docker's root-disk storage. Fail-closed check in
+      # update.sh ensures the mount exists before the api starts.
+      - /var/lib/moterva:/var/lib/moterva
+    ports:
+      # Host-loopback ONLY: liveness for update.sh/rollback. Not 0.0.0.0.
+      - '127.0.0.1:18087:8787'
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    image: ${ECR_REGISTRY:?set ECR_REGISTRY in /opt/moterva/.env}/moterva-web:${MOTERVA_RELEASE_SHA}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      MOTERVA_DOMAIN: ${MOTERVA_DOMAIN:?set MOTERVA_DOMAIN in /opt/moterva/.env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # Caddy cert/config state is small and regenerable: root-disk named
+      # volumes are acceptable (only the FINANCIAL ledger demands EBS).
+      - caddy-data:/data
+      - caddy-config:/config
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caddy-data:
+  caddy-config:

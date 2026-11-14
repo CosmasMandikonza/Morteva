@@ -1,0 +1,2122 @@
+{
+  "label": "SIMULATED_OPERATION",
+  "generatedBy": "mission-events reliability matrix (issue #15 evidence layer)",
+  "totals": {
+    "scenarios": 45,
+    "passed": 45,
+    "failed": 0,
+    "byFamily": {
+      "physical-evidence": {
+        "total": 26,
+        "passed": 26
+      },
+      "financial-interaction": {
+        "total": 12,
+        "passed": 12
+      },
+      "baseline-comparison": {
+        "total": 7,
+        "passed": 7
+      }
+    }
+  },
+  "invariants": {
+    "evidenceOnlyZeroFinancialSideEffects": true,
+    "financialEvidenceOnlyFromExplicitFinancialActs": true,
+    "noProviderReceiptsEver": true,
+    "crossSourceRaceFixPreserved": true,
+    "replayDeterministic": true
+  },
+  "cases": [
+    {
+      "id": "PE-01",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-01-duplicate",
+      "summary": "The same signed event is submitted twice (link-layer replay).",
+      "fault": "exact duplicate submission",
+      "checks": [
+        {
+          "name": "first submission",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "replay submission",
+          "expected": "rejected/DUPLICATE_EVENT",
+          "actual": "rejected/DUPLICATE_EVENT",
+          "pass": true
+        },
+        {
+          "name": "journal rows",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "idempotent replay suppression"
+    },
+    {
+      "id": "PE-02",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-02-regression",
+      "summary": "A new event id reuses an already-consumed stream sequence.",
+      "fault": "sequence regression",
+      "checks": [
+        {
+          "name": "sequence reuse",
+          "expected": "rejected/SEQUENCE_REGRESSION",
+          "actual": "rejected/SEQUENCE_REGRESSION",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "regression refused"
+    },
+    {
+      "id": "PE-03",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-03-gap",
+      "summary": "A lost update (sequence 3 after 1) then repair by delivering sequence 2.",
+      "fault": "sequence gap (lost update), then repair",
+      "checks": [
+        {
+          "name": "gap detected",
+          "expected": "rejected/SEQUENCE_GAP",
+          "actual": "rejected/SEQUENCE_GAP",
+          "pass": true
+        },
+        {
+          "name": "repair accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "then 3 accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "fail-closed until the lost event arrives"
+    },
+    {
+      "id": "PE-04",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-04-first-seq",
+      "summary": "A brand-new stream opens at sequence 7 instead of 1.",
+      "fault": "first-ever sequence > 1",
+      "checks": [
+        {
+          "name": "new stream must start at 1",
+          "expected": "rejected/SEQUENCE_GAP",
+          "actual": "rejected/SEQUENCE_GAP",
+          "pass": true
+        },
+        {
+          "name": "seq 1 then accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "no silent mid-stream start"
+    },
+    {
+      "id": "PE-05",
+      "family": "physical-evidence",
+      "domain": "cross-domain",
+      "seed": "PE-05-org-collision",
+      "summary": "Two organizations reuse identical mission, asset and source id strings.",
+      "fault": "cross-org id collision",
+      "checks": [
+        {
+          "name": "org A seq1",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "org B same ids seq1 accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "org A still expects seq2",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "composite org-scoped keys; no leak"
+    },
+    {
+      "id": "PE-06",
+      "family": "physical-evidence",
+      "domain": "cross-domain",
+      "seed": "PE-06-mission-collision",
+      "summary": "Same org, two missions reusing one asset id; mission A declares it offline.",
+      "fault": "cross-mission offline bleed attempt",
+      "checks": [
+        {
+          "name": "mission A telemetry blocked",
+          "expected": "rejected/ASSET_OFFLINE",
+          "actual": "rejected/ASSET_OFFLINE",
+          "pass": true
+        },
+        {
+          "name": "mission B same asset online accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "offline state is mission-scoped"
+    },
+    {
+      "id": "PE-07",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-07-conflicting-state",
+      "summary": "Two authorized sources report conflicting comms state in sequence; the newest authoritative reading wins deterministically.",
+      "fault": "conflicting asset state across sources",
+      "checks": [
+        {
+          "name": "latest comms reading",
+          "expected": "offline",
+          "actual": "offline",
+          "pass": true
+        },
+        {
+          "name": "deterministic source of truth",
+          "expected": "src-gateway",
+          "actual": "src-gateway",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "journal order decides; no silent side-picking"
+    },
+    {
+      "id": "PE-08",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-08-offline-race",
+      "summary": "ACCEPTED cross-source race regression: telemetry validated before the gateway offline commit arrives after it.",
+      "fault": "stale-memory offline race",
+      "checks": [
+        {
+          "name": "telemetry after offline commit",
+          "expected": "rejected/ASSET_OFFLINE",
+          "actual": "rejected/ASSET_OFFLINE",
+          "pass": true
+        },
+        {
+          "name": "still rejected on retry",
+          "expected": "rejected/ASSET_OFFLINE",
+          "actual": "rejected/ASSET_OFFLINE",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "accepted cross-source admission-boundary fix preserved"
+    },
+    {
+      "id": "PE-09",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-09-monotonic-race",
+      "summary": "ACCEPTED cross-source race regression: progress decrease vs a concurrently committed higher reading.",
+      "fault": "cross-source monotonic regression race",
+      "checks": [
+        {
+          "name": "decrease vs journaled 66",
+          "expected": "rejected/MONOTONIC_VIOLATION",
+          "actual": "rejected/MONOTONIC_VIOLATION",
+          "pass": true
+        },
+        {
+          "name": "equal accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "accepted cross-source monotonic fix preserved"
+    },
+    {
+      "id": "PE-10",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-10-unauthorized-recovery",
+      "summary": "Recovery attempts without trusted authority: self-recovery and a gateway event without the comms observation.",
+      "fault": "unauthorized recovery attempts",
+      "checks": [
+        {
+          "name": "self-recovery refused",
+          "expected": "rejected/ASSET_OFFLINE",
+          "actual": "rejected/ASSET_OFFLINE",
+          "pass": true
+        },
+        {
+          "name": "recovery without comms obs refused",
+          "expected": "rejected/ASSET_OFFLINE",
+          "actual": "rejected/ASSET_OFFLINE",
+          "pass": true
+        },
+        {
+          "name": "unregistered recovery source refused",
+          "expected": "rejected/UNAUTHENTICATED_SOURCE",
+          "actual": "rejected/UNAUTHENTICATED_SOURCE",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "no magic recovery"
+    },
+    {
+      "id": "PE-11",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-11-trusted-recovery",
+      "summary": "Trusted recovery with proper provenance reopens the asset; the planner sees clear again after fresh readings.",
+      "fault": "authorized recovery after offline",
+      "checks": [
+        {
+          "name": "authorized recovery accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "bridge sees recovery evidence",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "latest bridge state after recovery",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 2,
+        "constraintStates": [
+          "unknown"
+        ],
+        "note": "recovery visible; wind reading aged out so clearance is unknown — fail-closed, not fabricated"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "recovery is physical only; planner still refuses without fresh full clearance"
+    },
+    {
+      "id": "PE-12",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-12-delayed-telemetry",
+      "summary": "Telemetry observed 20 minutes ago arrives late.",
+      "fault": "delayed delivery",
+      "checks": [
+        {
+          "name": "stale at arrival refused",
+          "expected": "rejected/STALE_EVENT",
+          "actual": "rejected/STALE_EVENT",
+          "pass": true
+        },
+        {
+          "name": "fresh accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "delayed evidence cannot masquerade as current"
+    },
+    {
+      "id": "PE-13",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-13-mixed-history",
+      "summary": "Mixed historical timestamps: old journaled events age to expired while a fresh event stays planning-valid.",
+      "fault": "ageing timeline",
+      "checks": [
+        {
+          "name": "old event expired",
+          "expected": "expired",
+          "actual": "expired",
+          "pass": true
+        },
+        {
+          "name": "old not planning-valid",
+          "expected": "false",
+          "actual": "false",
+          "pass": true
+        },
+        {
+          "name": "fresh event planning-valid",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "history preserved",
+          "expected": "2",
+          "actual": "2",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "journal truth vs planning eligibility separated"
+    },
+    {
+      "id": "PE-14",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-14-freshness-boundary",
+      "summary": "Exactly-on-boundary freshness: age == maxAgeMs is stale and withheld from planning; maxAge-1ms is fresh.",
+      "fault": "freshness threshold boundary",
+      "checks": [
+        {
+          "name": "1ms before boundary: evidence used",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "on boundary: evidence withheld",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "on boundary: withheld id recorded",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 0,
+        "bridgeWithheld": 1,
+        "constraintStates": [],
+        "note": "exactly at maxAgeMs the event is withheld — stale never authorizes planning"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "one-millisecond precision at the freshness boundary"
+    },
+    {
+      "id": "PE-15",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-15-future-skew",
+      "summary": "Future-dated readings: within the 2-minute tolerance accepted, beyond it refused.",
+      "fault": "clock skew",
+      "checks": [
+        {
+          "name": "60s ahead accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "10 minutes ahead refused",
+          "expected": "rejected/FUTURE_EVENT",
+          "actual": "rejected/FUTURE_EVENT",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "bounded skew tolerance"
+    },
+    {
+      "id": "PE-16",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-16-malformed-time",
+      "summary": "Malformed timestamps are rejected at the envelope boundary.",
+      "fault": "malformed timestamps",
+      "checks": [
+        {
+          "name": "garbage observedAt refused",
+          "expected": "rejected/INVALID_ENVELOPE",
+          "actual": "rejected/INVALID_ENVELOPE",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 0
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "schema-strict timestamps"
+    },
+    {
+      "id": "PE-17",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-17-journal-corruption",
+      "summary": "A stored journal payload is corrupted; replay and fresh-instance ingestion fail closed.",
+      "fault": "stored digest corruption",
+      "checks": [
+        {
+          "name": "replay fails closed",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "fresh ingestion fails closed",
+          "expected": "rejected/JOURNAL_TAMPERED",
+          "actual": "rejected/JOURNAL_TAMPERED",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "corruption never silently resets state"
+    },
+    {
+      "id": "PE-18",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-18-bad-signature",
+      "summary": "A tampered payload with a stale HMAC signature is refused; no journal row appears.",
+      "fault": "invalid signature",
+      "checks": [
+        {
+          "name": "forged signature refused",
+          "expected": "rejected/SIGNATURE_INVALID",
+          "actual": "rejected/SIGNATURE_INVALID",
+          "pass": true
+        },
+        {
+          "name": "no journal row",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 0
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "HMAC covers the exact canonical payload"
+    },
+    {
+      "id": "PE-19",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-19-empty-contradictory",
+      "summary": "Missing observations (empty array) and contradictory readings in one event are refused.",
+      "fault": "missing/contradictory observations",
+      "checks": [
+        {
+          "name": "empty observations refused",
+          "expected": "rejected/INVALID_ENVELOPE",
+          "actual": "rejected/INVALID_ENVELOPE",
+          "pass": true
+        },
+        {
+          "name": "duplicate kind refused",
+          "expected": "rejected/CONFLICTING_OBSERVATIONS",
+          "actual": "rejected/CONFLICTING_OBSERVATIONS",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 0
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "at least one typed observation; one value per kind"
+    },
+    {
+      "id": "PE-20",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-20-instance-race",
+      "summary": "Two live instances: a stale-memory instance tries to admit an already-committed sequence.",
+      "fault": "multi-instance same-sequence race",
+      "checks": [
+        {
+          "name": "racer stale-memory seq2 refused",
+          "expected": "rejected/SEQUENCE_REGRESSION",
+          "actual": "rejected/SEQUENCE_REGRESSION",
+          "pass": true
+        },
+        {
+          "name": "after rehydrate next seq accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "journal-authoritative admission inside the write transaction"
+    },
+    {
+      "id": "PE-21",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-21-restart-replay",
+      "summary": "Process restart: a fresh instance rebuilds identical timeline and rejects a previously accepted event id.",
+      "fault": "process restart",
+      "checks": [
+        {
+          "name": "timeline rebuilt",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "event id known after restart",
+          "expected": "rejected/DUPLICATE_EVENT",
+          "actual": "rejected/DUPLICATE_EVENT",
+          "pass": true
+        },
+        {
+          "name": "progress continues",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "journal is the only durable state"
+    },
+    {
+      "id": "PE-22",
+      "family": "physical-evidence",
+      "domain": "warehouse",
+      "seed": "PE-22-schema-violations",
+      "summary": "Units and values outside the documented schema: wrong unit, integer wind, 1-dp wave, battery 140%.",
+      "fault": "invalid units/values",
+      "checks": [
+        {
+          "name": "wind unit kts refused",
+          "expected": "rejected/INVALID_UNIT",
+          "actual": "rejected/INVALID_UNIT",
+          "pass": true
+        },
+        {
+          "name": "integer wind refused",
+          "expected": "rejected/INVALID_VALUE",
+          "actual": "rejected/INVALID_VALUE",
+          "pass": true
+        },
+        {
+          "name": "wave 1-dp refused",
+          "expected": "rejected/INVALID_VALUE",
+          "actual": "rejected/INVALID_VALUE",
+          "pass": true
+        },
+        {
+          "name": "battery 140 refused",
+          "expected": "rejected/INVALID_VALUE",
+          "actual": "rejected/INVALID_VALUE",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 0
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "closed vocabulary enforced in both domains"
+    },
+    {
+      "id": "PE-23",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-23-raw-writer",
+      "summary": "A raw writer bypassing ingestion inserts a duplicate stream sequence; replay fails closed.",
+      "fault": "raw journal write bypassing ingestion",
+      "checks": [
+        {
+          "name": "raw duplicate detected at replay",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 3
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "documented residual: detected fail-closed, not prevented"
+    },
+    {
+      "id": "PE-24",
+      "family": "physical-evidence",
+      "domain": "warehouse",
+      "seed": "PE-24-warehouse-not-uav",
+      "summary": "Warehouse robot events flow through the SAME ingest path WITHOUT being forced into UAV wind-safety rules.",
+      "fault": "domain generality probe (no fault injected)",
+      "checks": [
+        {
+          "name": "warehouse vocabulary accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "no wind rule invented for warehouse asset",
+          "expected": "false",
+          "actual": "false",
+          "pass": true
+        },
+        {
+          "name": "journal preserves warehouse facts",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "unknown"
+        ],
+        "note": "warehouse facts journaled; bridge conservative (unknown clearance), domain adapter requested from Agent A"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "same architecture, no cross-domain rule forcing"
+    },
+    {
+      "id": "PE-25",
+      "family": "physical-evidence",
+      "domain": "cross-domain",
+      "seed": "PE-25-both-domains",
+      "summary": "Offshore and warehouse missions coexist in one ledger with no state bleed; both replay correctly.",
+      "fault": "multi-domain coexistence (no fault injected)",
+      "checks": [
+        {
+          "name": "warehouse mission event accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "offshore mission isolated",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "warehouse mission isolated",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "cross-tenant replay refused",
+          "expected": "rejected/MISSION_NOT_IN_ORG",
+          "actual": "rejected/MISSION_NOT_IN_ORG",
+          "pass": true
+        }
+      ],
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "one architecture, two domains, zero bleed"
+    },
+    {
+      "id": "PE-26",
+      "family": "physical-evidence",
+      "domain": "offshore",
+      "seed": "PE-26-clock-rollover",
+      "summary": "Clock rollover: a previously fresh observation crosses the planning boundary, while NEW telemetry keeps arriving and stays eligible.",
+      "fault": "read clock advances past a fresh observation",
+      "checks": [
+        {
+          "name": "before rollover: eligible",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "after rollover: withheld",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "after rollover: listed as withheld",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "post-rollover ingestion accepted",
+          "expected": "accepted",
+          "actual": "accepted",
+          "pass": true
+        },
+        {
+          "name": "new observation eligible",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "new observation is the gale",
+          "expected": "blocked",
+          "actual": "blocked",
+          "pass": true
+        },
+        {
+          "name": "old event still listed as history",
+          "expected": "2",
+          "actual": "2",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 1,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "rollover flips eligibility per-observation; fresh telemetry keeps constraining the plan"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "freshness boundary is evaluated per event at read time — no stale carry-over, no lockout"
+    },
+    {
+      "id": "FI-01",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-01-evidence-restriction",
+      "summary": "A valid gale event forces an operational restriction: the UAV incumbent becomes infeasible and the vessel alternative wins.",
+      "fault": "wind 24.6kt exceeds the 22kt UAV limit mid-mission",
+      "checks": [
+        {
+          "name": "decision selects a paid alternative or escalates",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "UAV incumbent physically blocked",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "selected is not the blocked UAV incumbent",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations from evidence",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "zero commitments from evidence",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 2,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "clear",
+          "blocked"
+        ],
+        "note": "verified wind evidence flipped the economic choice to the vessel alternative"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "operational restriction caused by authenticated evidence, not by model prose"
+    },
+    {
+      "id": "FI-02",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-02-unsafe-uav-unselectable",
+      "summary": "The unsafe UAV candidate can never be SELECTED while the block is fresh — even if it is the cheapest.",
+      "fault": "blocked asset remains the cheapest option",
+      "checks": [
+        {
+          "name": "no selected candidate requires the blocked asset",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "asset-blocked rejection present",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "ASSET_SAFETY_BLOCKED enforced at candidate scoring"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "physical safety precedes economics"
+    },
+    {
+      "id": "FI-03",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-03-unknown-clearance",
+      "summary": "Unknown clearance (only a comms reading, no wind/hold) fails closed: asset-dependent spend is refused.",
+      "fault": "insufficient physical evidence",
+      "checks": [
+        {
+          "name": "no asset-dependent selection under unknown clearance",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "insufficient-evidence or asset-block recorded",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "unknown"
+        ],
+        "note": "uncertainty refuses asset-dependent spend — never a favorable guess"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "fail closed on insufficient evidence"
+    },
+    {
+      "id": "FI-04",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-04-vessel-not-uav-blocked",
+      "summary": "When the UAV is wind-blocked, the vessel alternative (no UAV asset dependency) is NOT blocked by the UAV-only rule.",
+      "fault": "domain rule scoping",
+      "checks": [
+        {
+          "name": "vessel candidate present",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "vessel not asset-blocked",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "UAV-only clearance rule does not leak onto the vessel alternative"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "constraint scoping is per-asset"
+    },
+    {
+      "id": "FI-05",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-05-insufficient-funds",
+      "summary": "Insufficient funds: spendable below the vessel cost → INSUFFICIENT_SPENDABLE, decline, zero operations.",
+      "fault": "funded below the alternative’s cost",
+      "checks": [
+        {
+          "name": "insufficient-spendable recorded",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "no paid candidate selected",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED",
+          "INSUFFICIENT_SPENDABLE"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "the ledger refuses to commit against unverified/insufficient funds"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "money gates precede selection"
+    },
+    {
+      "id": "FI-06",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-06-unknown-balance",
+      "summary": "No balance snapshot at all → facts.balanceStatus no_snapshot → every paid candidate refused.",
+      "fault": "unknown balance",
+      "checks": [
+        {
+          "name": "balance carried as no_snapshot",
+          "expected": "no_snapshot",
+          "actual": "no_snapshot",
+          "pass": true
+        },
+        {
+          "name": "spendable null",
+          "expected": "null",
+          "actual": "null",
+          "pass": true
+        },
+        {
+          "name": "paid candidates refused",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "no-action",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED",
+          "INSUFFICIENT_SPENDABLE"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "unknown funds never become a selection"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "stale/missing snapshots are carried, never coerced"
+    },
+    {
+      "id": "FI-07",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-07-expired-mandate",
+      "summary": "Expired mandate → MANDATE_EXPIRED for every paid candidate; abstention only.",
+      "fault": "lapsed authority",
+      "checks": [
+        {
+          "name": "mandate-expired recorded",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "no paid selection",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "decline",
+        "selectedId": null,
+        "rejectionCodes": [
+          "MANDATE_EXPIRED",
+          "ASSET_SAFETY_BLOCKED",
+          "MANDATE_EXPIRED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "lapsed authority blocks spend even with funds present"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "authority expiry is a hard gate"
+    },
+    {
+      "id": "FI-08",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-08-no-provider-success",
+      "summary": "No provider access exists: a PAID selection (gale forces the vessel switch) is only a PROPOSAL — zero operations, zero receipts, no success claim.",
+      "fault": "missing sponsor/provider access",
+      "checks": [
+        {
+          "name": "a PAID selection exists to propose",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "plan proposed",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "zero provider receipts",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "zero approvals",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "decision journaled as operational evidence",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "POLICY-ONLY selection journals a decision and proposes a plan — nothing executes without human/provider gates"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 2
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "no provider credentials → no fabricated receipt, ever"
+    },
+    {
+      "id": "FI-09",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-09-no-blind-retry",
+      "summary": "Approved + reserved operation with NO registered dispatcher: stays RESERVED (not settled), no receipt, and the same requestId cannot create a second operation.",
+      "fault": "ambiguous external action / disabled rail",
+      "checks": [
+        {
+          "name": "paid plan proposed",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "first reservation succeeds",
+          "expected": "reserved",
+          "actual": "reserved",
+          "pass": true
+        },
+        {
+          "name": "same requestId is refused or idempotently returns the SAME operation",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "no provider receipt fabricated",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "exactly one operation",
+          "expected": "1",
+          "actual": "1",
+          "pass": true
+        },
+        {
+          "name": "no settlement (no dispatcher registered)",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "submitted ≠ settled: the reserved operation waits; retry by the same request id is idempotent"
+      },
+      "sideEffects": {
+        "operations": 1,
+        "commitments": 1,
+        "approvals": 1,
+        "providerReceipts": 0,
+        "financialEvidence": 4,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "ambiguous external action never permits a blind duplicate"
+    },
+    {
+      "id": "FI-10",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-10-changed-intent",
+      "summary": "A second, economically different decision is a NEW immutable plan version: the old approval cannot authorize it.",
+      "fault": "changed terms after approval",
+      "checks": [
+        {
+          "name": "v2 is a new version",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "v2 digest differs",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "old approval cannot authorize v2",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "blocked"
+        ],
+        "note": "changed terms structurally cannot ride an old approval"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 1,
+        "providerReceipts": 0,
+        "financialEvidence": 4,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "immutable intent identity is digest-bound"
+    },
+    {
+      "id": "FI-11",
+      "family": "financial-interaction",
+      "domain": "offshore",
+      "seed": "FI-11-evidence-invalidates",
+      "summary": "Changed evidence invalidates the earlier decision world: clear-weather selection flips to blocked after the gale event, and both decisions journal separately.",
+      "fault": "evidence change between evaluations",
+      "checks": [
+        {
+          "name": "decisions differ",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "before: no asset block",
+          "expected": "false",
+          "actual": "false",
+          "pass": true
+        },
+        {
+          "name": "after: asset blocked",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "two separate decision records",
+          "expected": "2",
+          "actual": "2",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-vessel-inspection",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 2,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "clear",
+          "blocked"
+        ],
+        "note": "the same mission re-evaluated on new verified evidence reaches a materially different, journaled decision"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 4
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "changed evidence → changed decision, both replayable"
+    },
+    {
+      "id": "FI-12",
+      "family": "financial-interaction",
+      "domain": "warehouse",
+      "seed": "FI-12-warehouse-economics",
+      "summary": "Warehouse domain economics: robot incumbent remains selectable; the manual alternative stays available; zero financial rows from evidence.",
+      "fault": "second-domain financial probe (no fault injected)",
+      "checks": [
+        {
+          "name": "no wind constraint invented",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "zero operations",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "name": "zero commitments",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        }
+      ],
+      "planner": {
+        "outcome": "select",
+        "selectedId": "hire-manual-cycle-count",
+        "rejectionCodes": [
+          "ASSET_SAFETY_BLOCKED"
+        ],
+        "bridgeEvidence": 1,
+        "bridgeWithheld": 0,
+        "constraintStates": [
+          "unknown"
+        ],
+        "note": "warehouse catalogue evaluated; conservative clearance applies pending the domain adapter request to Agent A"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 1,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "second domain exercises the same financial gates"
+    },
+    {
+      "id": "BM-01",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-01-calm-abstention-tie",
+      "summary": "Calm weather, healthy funds: nothing is broken, so the economically dominant action is to buy NOTHING — planner TIES static-safe.",
+      "fault": "none (baseline fairness anchor)",
+      "checks": [
+        {
+          "name": "planner abstained",
+          "expected": "no-action",
+          "actual": "no-action",
+          "pass": true
+        },
+        {
+          "name": "static-safe ties the planner",
+          "expected": "tie",
+          "actual": "tie",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "no-action",
+        "plannerNetMinor": 4350000,
+        "cheapestFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": 3150000
+        },
+        "earliestDeadlineFirst": {
+          "pick": "hire-vessel-inspection",
+          "netMinor": 2175000
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": 4350000
+        },
+        "verdict": "tie",
+        "explanation": "a simpler baseline matched the planner exactly — recorded honestly"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "no adverse evidence → spending for the same outcome only destroys value; the naive procurement heuristics lose here, static-safe ties"
+    },
+    {
+      "id": "BM-02",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-02-gale-planner-wins",
+      "summary": "Gale blocks the cheap UAV: cheapest-first buys a physically unusable service; the planner switches to the vessel.",
+      "fault": "wind above the UAV limit",
+      "checks": [
+        {
+          "name": "planner did not pick the blocked UAV",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "cheapest-first picked the blocked offer",
+          "expected": "continue-uav-inspection",
+          "actual": "continue-uav-inspection",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "hire-vessel-inspection",
+        "plannerNetMinor": 2175000,
+        "cheapestFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": 0
+        },
+        "earliestDeadlineFirst": {
+          "pick": "hire-vessel-inspection",
+          "netMinor": 2175000
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": -1500000
+        },
+        "verdict": "tie",
+        "explanation": "a simpler baseline matched the planner exactly — recorded honestly"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "evidence-constrained choice beats naive cheap procurement"
+    },
+    {
+      "id": "BM-03",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-03-low-value-static-safe",
+      "summary": "Low mission value: every paid alternative has negative expected net — abstaining is optimal and static-safe TIES (or wins).",
+      "fault": "weak economics (mission value below service cost)",
+      "checks": [
+        {
+          "name": "planner abstained (no-action selected)",
+          "expected": "no-action",
+          "actual": "no-action",
+          "pass": true
+        },
+        {
+          "name": "static-safe verdict is tie or baseline-wins",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "no-action",
+        "plannerNetMinor": 360000,
+        "cheapestFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": -840000
+        },
+        "earliestDeadlineFirst": {
+          "pick": "hire-vessel-inspection",
+          "netMinor": -1510000
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": 360000
+        },
+        "verdict": "tie",
+        "explanation": "a simpler baseline matched the planner exactly — recorded honestly"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "spending money is not always the answer — the honest anchor where doing nothing wins"
+    },
+    {
+      "id": "BM-04",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-04-useless-diagnostics",
+      "summary": "A cheap diagnostic with negligible information value: cheapest-first buys it; the planner declines (not worth the price).",
+      "fault": "low-value information purchase",
+      "checks": [
+        {
+          "name": "diagnostic declined as not worth the price",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "cheapest offer was the useless diagnostic",
+          "expected": "diagnostics-cheap-diagnostic",
+          "actual": "diagnostics-cheap-diagnostic",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "no-action",
+        "plannerNetMinor": 4350000,
+        "cheapestFirst": {
+          "pick": "diagnostics-cheap-diagnostic",
+          "netMinor": 0
+        },
+        "earliestDeadlineFirst": {
+          "pick": "diagnostics-cheap-diagnostic",
+          "netMinor": 0
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": 4350000
+        },
+        "verdict": "tie",
+        "explanation": "a simpler baseline matched the planner exactly — recorded honestly"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "a diagnostic that costs money and proves nothing is refused"
+    },
+    {
+      "id": "BM-05",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-05-equal-offers-tie",
+      "summary": "Two alternatives with identical cost and probability: planner and cheapest-first pick the same offer — TIE by construction.",
+      "fault": "none (symmetry anchor)",
+      "checks": [
+        {
+          "name": "same pick as cheapest-first",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "no-action",
+        "plannerNetMinor": 4350000,
+        "cheapestFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": 3150000
+        },
+        "earliestDeadlineFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": 3150000
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": 4350000
+        },
+        "verdict": "tie",
+        "explanation": "a simpler baseline matched the planner exactly — recorded honestly"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "symmetric offers: a tie is the correct, honestly-recorded result"
+    },
+    {
+      "id": "BM-06",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-06-planner-wins",
+      "summary": "Gale blocks the UAV; a fast-but-poor rush alternative tempts earliest-deadline-first while the planner picks the balanced vessel — PLANNER WINS.",
+      "fault": "wind above the UAV limit + a tempting fast rush offer",
+      "checks": [
+        {
+          "name": "planner picked the vessel",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "planner strictly wins",
+          "expected": "planner-wins",
+          "actual": "planner-wins",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "hire-vessel-inspection",
+        "plannerNetMinor": 2175000,
+        "cheapestFirst": {
+          "pick": "continue-uav-inspection",
+          "netMinor": 0
+        },
+        "earliestDeadlineFirst": {
+          "pick": "hire-helicopter-rush",
+          "netMinor": 0
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": -1500000
+        },
+        "verdict": "planner-wins",
+        "explanation": "constrained planner achieved a strictly higher expected net than every baseline"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "balanced expected-value choice beats both the naive rush (EDF) and the blocked cheap incumbent"
+    },
+    {
+      "id": "BM-07",
+      "family": "baseline-comparison",
+      "domain": "offshore",
+      "seed": "BM-07-escalation-baseline-wins",
+      "summary": "Two materially different actions near-tied (vessel vs high-value diagnostic) → the planner ESCALATES to a human; cheapest-first just buys — BASELINE WINS on immediate expected net.",
+      "fault": "genuine near-tie between different action kinds",
+      "checks": [
+        {
+          "name": "planner escalated the near-tie",
+          "expected": "escalate",
+          "actual": "escalate",
+          "pass": true
+        },
+        {
+          "name": "no autonomous selection",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "both near-tied actions are economically real",
+          "expected": "true",
+          "actual": "true",
+          "pass": true
+        },
+        {
+          "name": "baseline-wins recorded honestly",
+          "expected": "baseline-wins",
+          "actual": "baseline-wins",
+          "pass": true
+        }
+      ],
+      "baseline": {
+        "plannerPick": "(escalated — no autonomous action)",
+        "plannerNetMinor": 0,
+        "cheapestFirst": {
+          "pick": "diagnostics-hull-diagnostic",
+          "netMinor": 1275000
+        },
+        "earliestDeadlineFirst": {
+          "pick": "diagnostics-hull-diagnostic",
+          "netMinor": 1275000
+        },
+        "staticSafe": {
+          "pick": "no-action",
+          "netMinor": -1500000
+        },
+        "verdict": "baseline-wins",
+        "explanation": "escalation deliberately defers a materially different near-tied choice to a human; an automaton that just bought would have captured the diagnostic's expected value — an honest baseline win recorded, not hidden"
+      },
+      "sideEffects": {
+        "operations": 0,
+        "commitments": 0,
+        "approvals": 0,
+        "providerReceipts": 0,
+        "financialEvidence": 0,
+        "operationalEvidence": 1
+      },
+      "replayDeterministic": true,
+      "replayNote": "two independent full runs produced identical world-independent results",
+      "pass": true,
+      "explanation": "governance costs expected value by design — measured, not spun"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ export { isConfirmedProviderResult } from './ports.js';
 export type {
   ProviderReceipt,
   ProviderReceiptEnvironment,
+  ProviderReceiptProvider,
   ProviderReceiptKind,
   ProviderReceiptStore,
 } from './receipts.js';

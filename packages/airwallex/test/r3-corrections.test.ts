@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,9 +28,7 @@ const CREDS = {
   AIRWALLEX_CLIENT_ID: 'cid',
   AIRWALLEX_API_KEY: 'key',
 } as const;
-const CONFIG = loadAirwallexConfig({});
-
-// ------------------------------------------------------------------ P0-1
+const CONFIG = fixtureClientConfig();
 
 describe('P0-1 credential exfiltration boundary', () => {
   it('rejects ANY base-URL override other than the exact sandbox origin while credentials are enabled', () => {

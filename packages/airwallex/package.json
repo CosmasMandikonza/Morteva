@@ -17,8 +17,9 @@
     "build": "tsc -b",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
-    "smoke:balance": "node dist/smoke/balance.js",
-    "smoke:transfer": "node dist/smoke/transfer.js"
+    "smoke:balance": "node --env-file-if-exists=../../.env dist/smoke/balance.js",
+    "smoke:connection": "node --env-file-if-exists=../../.env dist/smoke/connection.js",
+    "smoke:transfer": "node --env-file-if-exists=../../.env dist/smoke/transfer.js"
   },
   "dependencies": {
     "@moterva/domain": "0.1.0",

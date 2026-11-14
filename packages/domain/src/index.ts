@@ -70,6 +70,8 @@ export type {
   FinancialCurrencyView,
   FinancialOperationView,
   FinancialOverviewView,
+  IdentityLinkView,
+  InvitationView,
   MandateId,
   MandateView,
   MissionEvidenceEventView,
@@ -88,6 +90,7 @@ export type {
   OutboxDispatchView,
   OutboxStatus,
   PlanId,
+  ProviderEvidenceView,
   SessionContextView,
   SpendableView,
 } from './entities.js';

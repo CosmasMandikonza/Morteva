@@ -1,0 +1,84 @@
+# MOTERVA staging/production topology (issue #19).
+#
+#   docker compose --env-file deploy/env/production.env up -d
+#
+# Two services, one host, one exposed edge:
+#   - api:  Fastify API, production mode. Container-private only (no ports
+#           published). The authenticated/financial route family DOES NOT
+#           EXIST in this mode (loopback-only DEMO_AUTH is refused with
+#           NODE_ENV=production by apps/api/src/config.ts), so the public
+#           surface is exactly GET /healthz + GET /api/system/status.
+#   - web:  Caddy edge. Serves the built static shell over HTTPS (automatic
+#           TLS for a real domain; internal self-signed for localhost) and
+#           reverse-proxies /api/* and /healthz to the api service.
+#
+# The financial ledger is a SQLite file on a named volume — never ephemeral.
+# Single writer by construction (exactly one api container). Backups:
+#   node deploy/scripts/backup-ledger.mjs   (see deploy/README.md)
+#
+# RELEASE PROVENANCE: set MOTERVA_RELEASE_SHA to the exact deployed git SHA;
+# it is baked into /healthz output (gitSha) and the image tags.
+
+name: moterva
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: moterva-api:${MOTERVA_RELEASE_SHA:-unreleased}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # 0.0.0.0 is safe ONLY because this container publishes no ports and
+      # sits on the compose-internal network; the Caddy edge is the sole
+      # externally reachable service.
+      HOST: 0.0.0.0
+      PORT: 8787
+      WEB_ORIGIN: ${MOTERVA_PUBLIC_ORIGIN:?set MOTERVA_PUBLIC_ORIGIN, e.g. https://moterva-demo.example.org}
+      MOTERVA_LEDGER_PATH: /var/lib/moterva/ledger.sqlite
+      GIT_SHA: ${MOTERVA_RELEASE_SHA:-unreleased}
+      LOG_LEVEL: ${MOTERVA_LOG_LEVEL:-info}
+      # Deliberately NOT set: MOTERVA_DEV_AUTH (refused in production anyway),
+      # MOTERVA_PROVIDER_MODE (offline default), provider credentials (#5).
+    volumes:
+      - moterva-ledger:/var/lib/moterva
+    # Read-only outside the ledger volume; the API writes nothing else.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    image: moterva-web:${MOTERVA_RELEASE_SHA:-unreleased}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      MOTERVA_DOMAIN: ${MOTERVA_DOMAIN:?set MOTERVA_DOMAIN (real DNS name, or localhost for staging TLS)}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Caddy needs CAP_NET_BIND_SERVICE for :80/:443; the caddy image's entry
+    # point handles this via setcap when run as the default user.
+    cap_add:
+      - NET_BIND_SERVICE
+
+volumes:
+  moterva-ledger:
+  caddy-data:
+  caddy-config:

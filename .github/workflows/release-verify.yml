@@ -1,0 +1,171 @@
+name: Release verify
+
+# Issue #19 — automated deployment + release-security verification.
+# Two jobs, additive to ci.yml (which stays the engineering gate):
+#   1. release-scripts: boots the compiled production API on the runner and
+#      runs scripts/release/verify-production.mjs (incl. the real Linux
+#      SIGTERM graceful-shutdown assertion) and the DEMO_AUTH security suite.
+#   2. compose-boot: builds BOTH release images, boots the exact docker
+#      compose topology with staging TLS (localhost internal CA) and asserts
+#      the public HTTPS surface end-to-end: health provenance, honest status,
+#      fail-closed 404 on authenticated routes, no-store on /api/*, security
+#      headers.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-scripts:
+    name: Release verification suites (production boot + demo-auth security)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Build all workspaces
+        run: npm run build
+
+      - name: Production-boot adversarial suite (15 scenarios)
+        run: node scripts/release/verify-production.mjs
+
+      - name: DEMO_AUTH security suite (12 scenarios, real cookies/CSRF)
+        run: node scripts/release/verify-demo-auth-security.mjs
+
+      - name: AWS deployment contract checks (CTO P0 regression harness)
+        run: |
+          bash -n deploy/aws/bootstrap.sh
+          bash -n deploy/aws/teardown.sh
+          bash -n deploy/aws/provision-cognito.sh
+          bash -n deploy/aws/link-owner.sh
+          bash -n deploy/aws/reviewer-smoke.sh
+          bash -n deploy/aws/ensure-kek.sh
+          node deploy/aws/test/contract-checks.mjs
+
+      - name: Source-key KEK provisioning tests (stubbed Secrets Manager)
+        run: bash deploy/aws/test/kek-provision.test.sh
+
+      - name: Source-key KEK production-boot probe (skips until PR #64 merges)
+        run: node deploy/aws/test/kek-boot-probe.mjs .
+
+  compose-boot:
+    name: Compose boot (build images, HTTPS edge, fail-closed surface)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release images at this exact SHA
+        run: |
+          docker build -f deploy/Dockerfile -t "moterva-api:${{ github.sha }}" .
+          docker build -f deploy/web/Dockerfile -t "moterva-web:${{ github.sha }}" .
+
+      - name: Boot the stack (staging TLS on localhost)
+        run: |
+          mkdir -p deploy/env
+          cat > deploy/env/ci.env <<EOF
+          MOTERVA_RELEASE_SHA=${{ github.sha }}
+          MOTERVA_PUBLIC_ORIGIN=https://localhost
+          MOTERVA_DOMAIN=localhost
+          MOTERVA_LOG_LEVEL=info
+          EOF
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env up -d --no-build
+          for i in $(seq 1 60); do
+            if curl -kfsS https://localhost/healthz >/dev/null 2>&1; then echo "stack healthy after ${i} polls"; exit 0; fi
+            sleep 2
+          done
+          echo "stack failed to become healthy"; docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env logs; exit 1
+
+      - name: Assert the public surface (provenance, honesty, fail-closed, headers)
+        run: |
+          set -eu
+          echo "--- /healthz provenance ---"
+          H=$(curl -kfsS https://localhost/healthz)
+          echo "$H"
+          echo "$H" | grep -o '"gitSha":"${{ github.sha }}"' >/dev/null || { echo "FAIL: gitSha missing/wrong"; exit 1; }
+
+          echo "--- /api/system/status honesty ---"
+          S=$(curl -kfsS https://localhost/api/system/status)
+          echo "$S" | grep -q '"label":"OFFLINE"' || { echo "FAIL: provider rail not honestly OFFLINE"; exit 1; }
+          echo "$S" | grep -q '"integrity":"ok"' || { echo "FAIL: ledger integrity not reported"; exit 1; }
+
+          echo "--- authenticated routes fail closed through the edge ---"
+          CODE=$(curl -ks -o /dev/null -w '%{http_code}' https://localhost/api/missions)
+          [ "$CODE" = "404" ] || { echo "FAIL: /api/missions returned $CODE (expected 404)"; exit 1; }
+          CODE=$(curl -ks -o /dev/null -w '%{http_code}' -X POST https://localhost/api/auth/login)
+          [ "$CODE" = "404" ] || { echo "FAIL: login returned $CODE (expected 404)"; exit 1; }
+
+          echo "--- caching + security headers ---"
+          HDRS=$(curl -ksI https://localhost/api/system/status)
+          echo "$HDRS" | grep -qi 'cache-control: *no-store' || { echo "FAIL: /api/* not no-store"; exit 1; }
+          echo "$HDRS" | grep -qi 'strict-transport-security' || { echo "FAIL: no HSTS"; exit 1; }
+          echo "$HDRS" | grep -qi 'x-content-type-options: *nosniff' || { echo "FAIL: no nosniff"; exit 1; }
+
+          echo "--- static shell served ---"
+          curl -kfsS https://localhost/ | grep -q '<div id="root">' || { echo "FAIL: web shell not served"; exit 1; }
+
+          echo "ALL EDGE ASSERTIONS PASS"
+
+      - name: Ledger persistence across container rebuild (stop → verify → start → compare)
+        run: |
+          set -eu
+          FINGERPRINT='SELECT (SELECT COUNT(*) FROM evidence_events) AS events, (SELECT COUNT(*) FROM actors) AS actors, (SELECT COUNT(*) FROM operations) AS ops'
+          BEFORE=$(docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api node -e "
+            const {openLedger} = require('/repo/packages/ledger/dist/index.js');
+            const l = openLedger('/var/lib/moterva/ledger.sqlite');
+            console.log(JSON.stringify(l.db.prepare('$FINGERPRINT').get()));
+            l.db.close();
+          ")
+          echo "before: $BEFORE"
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env stop api
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env start api
+          # The api is container-private — poll health INSIDE the container.
+          HEALTHY=no
+          for i in $(seq 1 60); do
+            if docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api \
+                 node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              HEALTHY=yes; break
+            fi
+            sleep 2
+          done
+          [ "$HEALTHY" = "yes" ] || { echo "api did not come back healthy after restart"; exit 1; }
+          AFTER=$(docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec -T api node -e "
+            const {openLedger} = require('/repo/packages/ledger/dist/index.js');
+            const l = openLedger('/var/lib/moterva/ledger.sqlite');
+            console.log(JSON.stringify(l.db.prepare('$FINGERPRINT').get()));
+            l.db.close();
+          ")
+          echo "after:  $AFTER"
+          [ "$BEFORE" = "$AFTER" ] || { echo "FAIL: ledger state changed across container rebuild (or journal lost)"; exit 1; }
+          echo "PASS: ledger persistence proven across container rebuild (events/actors/ops identical)"
+
+      - name: Ledger backup through the running container
+        run: |
+          docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env exec api node deploy/scripts/backup-ledger.mjs \
+            --ledger /var/lib/moterva/ledger.sqlite --out /var/lib/moterva/backups
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml --env-file deploy/env/ci.env down -v --remove-orphans

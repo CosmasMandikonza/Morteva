@@ -1,3 +1,4 @@
+import { fixtureClientConfig } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,6 @@ import { FixtureTransport, created, ok, unavailable } from '../src/fixture-trans
 import type { FixtureScript } from '../src/fixture-transport.js';
 import { buildOfflineFixtureDispatcher } from '../src/dispatcher.js';
 import { providerRequestIdFor } from '../src/provider-request-id.js';
-import { loadAirwallexConfig } from '../src/config.js';
 
 /**
  * End-to-end ledger integration (issue #5 "executable end-to-end test path
@@ -20,7 +20,7 @@ import { loadAirwallexConfig } from '../src/config.js';
  * readback with a provider-readback attestation.
  */
 
-const CONFIG = loadAirwallexConfig({});
+const CONFIG = fixtureClientConfig();
 
 function world() {
   const path = join(mkdtempSync(join(tmpdir(), 'awx-e2e-')), 'ledger.sqlite');

@@ -1,0 +1,123 @@
+{
+  "description": "Authorized trusted recovery, then docked — physical only, never a payment event",
+  "contractVersion": 1,
+  "tenant": {
+    "orgId": "org_8a31b69f-119e-4ccc-a030-6a4161060883",
+    "missionId": "msn_0ece848b-701e-478c-9c90-f0f17a4f23d5"
+  },
+  "asOf": "2026-11-06T09:12:02.000Z",
+  "truthLabel": "SIMULATED_OPERATION",
+  "policy": {
+    "maxAgeMs": 900000,
+    "expiredMs": 1800000,
+    "uavAssetId": "uav-seeker-1",
+    "uavWindLimitKt": 22
+  },
+  "assets": [
+    {
+      "assetId": "uav-seeker-1",
+      "kind": "aerial",
+      "label": "Inspection UAV"
+    },
+    {
+      "assetId": "vessel-prospect",
+      "kind": "surface",
+      "label": "Moored vessel"
+    }
+  ],
+  "events": [
+    {
+      "eventId": "mevt_rc01",
+      "journalSeq": 1,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:01:00.000Z",
+      "ingestedAt": "2026-11-06T09:01:02.000Z",
+      "recordedAt": "2026-11-06T09:01:02.000Z",
+      "eventDigest": "ee6cf03cd8890453704e33349fbad8b476222b95920ce69721e37730b754a342",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_rc02",
+      "journalSeq": 2,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "vessel-gateway",
+      "sourceType": "vessel_gateway",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:05:00.000Z",
+      "ingestedAt": "2026-11-06T09:05:02.000Z",
+      "recordedAt": "2026-11-06T09:05:02.000Z",
+      "eventDigest": "286322244e023dea44a0675fe5138ea1f57f122c06dce469c8fbbf9625245cb2",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "offline"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_rc03",
+      "journalSeq": 3,
+      "sequence": 2,
+      "assetId": "uav-seeker-1",
+      "sourceId": "vessel-gateway",
+      "sourceType": "vessel_gateway",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:09:00.000Z",
+      "ingestedAt": "2026-11-06T09:09:02.000Z",
+      "recordedAt": "2026-11-06T09:09:02.000Z",
+      "eventDigest": "3a63f234351e0f96726e71b37fe87bae2c4fa8eb49e309d2de58a610bc84b18c",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_rc04",
+      "journalSeq": 4,
+      "sequence": 2,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:12:00.000Z",
+      "ingestedAt": "2026-11-06T09:12:02.000Z",
+      "recordedAt": "2026-11-06T09:12:02.000Z",
+      "eventDigest": "92806e8c68547cef6d4c1789635cab9b90e623b972caef297fd15e1ab154b8b8",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    }
+  ]
+}

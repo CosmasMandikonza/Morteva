@@ -1,0 +1,79 @@
+{
+  "description": "Ground-domain mission: no aerial wind rule applies to the robot",
+  "contractVersion": 1,
+  "tenant": {
+    "orgId": "org_804e8b66-fb84-4fd0-90d3-ca54ef710f79",
+    "missionId": "msn_0110b1b6-9fe4-4b5c-8501-c45c71180618"
+  },
+  "asOf": "2026-11-06T09:06:02.000Z",
+  "truthLabel": "SIMULATED_OPERATION",
+  "policy": {
+    "maxAgeMs": 900000,
+    "expiredMs": 1800000,
+    "uavAssetId": "uav-seeker-1",
+    "uavWindLimitKt": 22
+  },
+  "assets": [
+    {
+      "assetId": "uav-seeker-1",
+      "kind": "aerial",
+      "label": "Inspection UAV"
+    },
+    {
+      "assetId": "vessel-prospect",
+      "kind": "surface",
+      "label": "Moored vessel"
+    }
+  ],
+  "events": [
+    {
+      "eventId": "mevt_wh01",
+      "journalSeq": 1,
+      "sequence": 1,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:01:00.000Z",
+      "ingestedAt": "2026-11-06T09:01:02.000Z",
+      "recordedAt": "2026-11-06T09:01:02.000Z",
+      "eventDigest": "2e1ce1ba0daa29f8f57121516660e3798a775015fb21645c7bee15a748774329",
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    },
+    {
+      "eventId": "mevt_wh02",
+      "journalSeq": 2,
+      "sequence": 2,
+      "assetId": "uav-seeker-1",
+      "sourceId": "src-telemetry",
+      "sourceType": "asset_telemetry",
+      "provenance": "SYNTHETIC",
+      "observedAt": "2026-11-06T09:06:00.000Z",
+      "ingestedAt": "2026-11-06T09:06:02.000Z",
+      "recordedAt": "2026-11-06T09:06:02.000Z",
+      "eventDigest": "0baa247caa2174d371c3a1cc5c61590ab957f27934968f8a1c96aec2150089a8",
+      "observations": [
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "obstructed"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 17
+        }
+      ],
+      "freshnessAtSnapshot": "fresh",
+      "planningValidAtSnapshot": true
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+# Metal sponsor-testnet environment (issue #6) — TEMPLATE with placeholders.
+# Copy to `.env.metal` (gitignored) and fill ONLY the two founder values.
+# Never commit `.env.metal`; never print the RPC URL (it is credential-bearing).
+
+# --- FOUNDER VALUE 1 (required for on-chain reads: account create, mandate
+# bind/status/verify). Create an endpoint at https://console-testnet.metalntwx.com
+# and paste its URL. The founder has verified eth_chainId returns 0xf951 (63825).
+METAL_RPC_URL=<paste-the-console-endpoint-url-here>
+
+# --- AGENT KEY (created autonomously by the setup; disposable testnet-only).
+# Path only — key material is never read by MOTERVA code; the official CLI
+# holds it. Default created by this setup:
+METAL_AGENT_KEY_FILE=C:\Users\<you>\.metal-agent-secrets\agent-key.json
+
+# --- MANDATE CREDENTIAL (created by `metal-agent mandate credential create`
+# after the owner account exists; bound on chain with `mandate bind`).
+# Path only. Created by this setup once METAL_RPC_URL is present:
+METAL_MANDATE_CREDENTIAL=C:\Users\<you>\.metal-agent-secrets\mandate.json
+
+# --- ISSUER PUBLIC KEY (written beside the owner key by credential create;
+# public half — safe to reference by path):
+#METAL_ISSUER_PUBLIC_KEY_FILE=C:\Users\<you>\.metal-agent-secrets\owner-key.issuer.public.json
+
+# --- SPEND AUTHORIZATION (founder only): set ONLY with an explicit founder
+# approval naming environment (Metal testnet), payee (the seller's payTo
+# address) and amount. Any value counts as approval; unset means NO signing.
+#METAL_SPEND_APPROVED=<founder-approval-token>
+
+# --- Diagnostics seller (defaults to the official sponsor demo seller):
+#METAL_DIAGNOSTIC_SELLER_URL=https://x402-demo-testnet.metalntwx.com/quote
+
+# --- Per-payment cap in decimal *USDZ (official client default is 1 *USDZ;
+# our setup binds 0.05 for the rehearsal):
+#METAL_MAX_PAYMENT_USDZ=0.05
+
+# --- Value-of-information gate: estimated information value in integer cents:
+#METAL_INFO_VALUE_CENTS=5

@@ -290,6 +290,25 @@ export interface OperationListView {
 }
 
 /**
+ * One redacted provider receipt in an operation's provider-evidence chain
+ * (read-only; GET /api/operations/:id/provider-evidence). Identity and
+ * settlement-progress fields ONLY — the stored receipt payload JSON is never
+ * disclosed through this view (the journal's own disclosure projection
+ * remains the replayable record).
+ */
+export interface ProviderEvidenceView {
+  readonly seq: number;
+  readonly provider: string;
+  readonly environment: string;
+  readonly kind: string;
+  readonly requestId: string;
+  readonly transferId: string | null;
+  readonly httpStatus: number | null;
+  readonly providerStatus: string | null;
+  readonly recordedAt: string;
+}
+
+/**
  * One append-only journal event. `payload` is a PROJECTED public view, not the
  * stored journal JSON: the API discloses only per-event-type allowlisted
  * scalar fields (see the API's evidence projection); unrecognized event types
@@ -358,4 +377,33 @@ export interface SpendableView {
   readonly spendableMinor: number;
   /** True when commitments exceed balance+floor (external spend detected); spendable clamps to 0. */
   readonly overcommitted: boolean;
+}
+
+/** Persisted external-identity to actor binding (MTV-19). Authority lives in the actor; the link only points at it. */
+export interface IdentityLinkView {
+  readonly id: string;
+  readonly orgId: OrgId;
+  readonly actorId: string;
+  /** Canonical identity-provider issuer URL. */
+  readonly provider: string;
+  /** The identity-provider stable subject (sub) claim - the ONLY identity key we trust. */
+  readonly subject: string;
+  /** Informational record of the IdP email at link time; NEVER an authorization input. */
+  readonly emailAtLink: string | null;
+  readonly linkedBy: string;
+  readonly linkedAt: string;
+  readonly revokedAt: string | null;
+}
+
+/** Expiring single-use organization invitation (MTV-19). Roles are schema-restricted to approver/operator/viewer. */
+export interface InvitationView {
+  readonly id: string;
+  readonly orgId: OrgId;
+  readonly role: string;
+  readonly email: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly redeemedAt: string | null;
+  readonly revokedAt: string | null;
 }

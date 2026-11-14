@@ -1,0 +1,78 @@
+{
+  "contractVersion": 1,
+  "description": "Closed observation vocabulary (contract v1): kind -> unit + value rules + monotonicity. Ingest rejects any kind, unit or value outside this table; the planner (issue #8) consumes exactly these typed readings.",
+  "kinds": {
+    "wind_speed": {
+      "kind": "wind_speed",
+      "unit": "kt",
+      "domain": "offshore",
+      "monotonic": false
+    },
+    "wave_height": {
+      "kind": "wave_height",
+      "unit": "m",
+      "domain": "offshore",
+      "monotonic": false
+    },
+    "visibility": {
+      "kind": "visibility",
+      "unit": "category",
+      "domain": "offshore",
+      "monotonic": false
+    },
+    "weather_hold": {
+      "kind": "weather_hold",
+      "unit": "state",
+      "domain": "offshore",
+      "monotonic": false
+    },
+    "battery_soc": {
+      "kind": "battery_soc",
+      "unit": "percent",
+      "domain": "any",
+      "monotonic": false
+    },
+    "asset_comms": {
+      "kind": "asset_comms",
+      "unit": "state",
+      "domain": "any",
+      "monotonic": false
+    },
+    "asset_position_status": {
+      "kind": "asset_position_status",
+      "unit": "state",
+      "domain": "any",
+      "monotonic": false
+    },
+    "inspection_progress": {
+      "kind": "inspection_progress",
+      "unit": "percent",
+      "domain": "any",
+      "monotonic": true
+    },
+    "defect_severity": {
+      "kind": "defect_severity",
+      "unit": "category",
+      "domain": "any",
+      "monotonic": false
+    },
+    "aisle_access": {
+      "kind": "aisle_access",
+      "unit": "state",
+      "domain": "warehouse",
+      "monotonic": false
+    },
+    "charger_status": {
+      "kind": "charger_status",
+      "unit": "state",
+      "domain": "warehouse",
+      "monotonic": false
+    },
+    "stock_discrepancy": {
+      "kind": "stock_discrepancy",
+      "unit": "items",
+      "domain": "warehouse",
+      "monotonic": false
+    }
+  }
+}

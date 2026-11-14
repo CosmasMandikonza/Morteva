@@ -1,0 +1,545 @@
+{
+  "scenarioId": "warehouse-cycle-count-v1",
+  "seed": "moterva-warehouse-fixture-2026-11-06",
+  "provenance": "SIMULATED_OPERATION: fully SYNTHETIC reference trace; regenerates deterministically from this seed with the scenario builders (see module README).",
+  "world": {
+    "orgId": "org_fixture_reference",
+    "missionId": "msn_fixture_reference"
+  },
+  "scriptDigest": "77dfda40da58fe1a8f7db83d65286b7a8a950e717e68ae67b670c440a245ee1e",
+  "envelopes": [
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_ca9896b1b5d8",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:00:00.000Z",
+      "ingestedAt": "2026-11-06T06:00:01.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "221f7acfdf1d282faa9c7ce7a8e49799f81e8663dd3f32adbd8c835b113113d4"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "on_station"
+        },
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "clear"
+        },
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "free"
+        },
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_a13be21c2683",
+      "sequence": 1,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:06:00.000Z",
+      "ingestedAt": "2026-11-06T06:06:03.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "47a3b6785d462ec9990a3c56beeb50e7b27b8ec86d98ee880dbb94a99de20c63"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 8
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 92
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_01005963e3e8",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:14:00.000Z",
+      "ingestedAt": "2026-11-06T06:14:04.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "4743ed0bf8e0a9092db40e1fc6dd90dbe52f1a045b8612cf10e988f4c802a97a"
+      },
+      "observations": [
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "obstructed"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 78
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_6d5c9b102ecd",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:22:00.000Z",
+      "ingestedAt": "2026-11-06T06:22:01.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "8f62b6c1fa495ab09df20d3918b1548dc684e00a0bc7853fce275e4948a0f30f"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 17
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_edbaeb879640",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:30:00.000Z",
+      "ingestedAt": "2026-11-06T06:30:02.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "cde031bce53dc5dc70bace1ab04c1381bc5332138f638668bc8df8eee86e2fb9"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 29
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "returning"
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_4aee55c550a4",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:33:00.000Z",
+      "ingestedAt": "2026-11-06T06:33:05.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "0e4396ccab766ebaa7f6831803e3c598b4789c2882d39cdc3e0187d98044d533"
+      },
+      "observations": [
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 24
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "degraded"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "returning"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_5dcda0a6ba79",
+      "sequence": 2,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:36:00.000Z",
+      "ingestedAt": "2026-11-06T06:36:05.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "f0ff5d55efe364e6dff675939c8aa1fdeb54b1923097fb28d311aaae94769ee6"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "offline"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_6686b49e4eb1",
+      "sequence": 6,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:40:00.000Z",
+      "ingestedAt": "2026-11-06T06:40:02.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "09f26f44686b65f39ec85d77f70dd61dfc515180d5ae723e0f5c671aeee43d91"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 31
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 19
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_42fc89896d59",
+      "sequence": 3,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:47:00.000Z",
+      "ingestedAt": "2026-11-06T06:47:04.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ac655e8e25140a6ff521c31f45942a04fc275349dd333deab0eedab3b6e71872"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        },
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "fault"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_42b74b7792c8",
+      "sequence": 4,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:58:00.000Z",
+      "ingestedAt": "2026-11-06T06:58:02.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "d8d7c42e0943e0d52caae70596aa1866fca7cc8abfed0ac3a402afd5c841ed3a"
+      },
+      "observations": [
+        {
+          "kind": "charger_status",
+          "unit": "state",
+          "value": "docked_charging"
+        },
+        {
+          "kind": "aisle_access",
+          "unit": "state",
+          "value": "clear"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_05793d48aeb8",
+      "sequence": 5,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T07:10:00.000Z",
+      "ingestedAt": "2026-11-06T07:10:05.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "f72f7e21e0c54c7fac9c62961b0037059de45e3348e32b25ba40afdda6fef1b2"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 41
+        },
+        {
+          "kind": "stock_discrepancy",
+          "unit": "items",
+          "value": 14
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_634e36003764",
+      "sequence": 6,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T07:24:00.000Z",
+      "ingestedAt": "2026-11-06T07:24:04.000Z",
+      "source": {
+        "sourceId": "robot-telemetry",
+        "sourceType": "asset_telemetry",
+        "keyId": "key_robot_tel_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "a621a49ddc0dd2132889e15f89ce5dbef2f8751331f61b8d35b1a1e0d584520d"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 68
+        },
+        {
+          "kind": "battery_soc",
+          "unit": "percent",
+          "value": 61
+        },
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "transit"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_aed0dfc04675",
+      "sequence": 6,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T07:36:00.000Z",
+      "ingestedAt": "2026-11-06T07:36:02.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "ff5a15a6481c9695736af62d1f9582ce9c333b97ef26df1b4fcc872bab729df6"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 100
+        },
+        {
+          "kind": "stock_discrepancy",
+          "unit": "items",
+          "value": 14
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_a1280d38fe59",
+      "sequence": 7,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "approve-count-payment",
+      "observedAt": "2026-11-06T07:38:00.000Z",
+      "ingestedAt": "2026-11-06T07:38:01.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "4aa4a1d5b8b6bed6d685825e2add5efeebfa9ba7bb9aaf6294cb7050d8c61ac0"
+      },
+      "observations": [
+        {
+          "kind": "asset_comms",
+          "unit": "state",
+          "value": "online"
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_72a44464ed32",
+      "sequence": 7,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T06:20:00.000Z",
+      "ingestedAt": "2026-11-06T06:20:03.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "cab5556b3faeb8cb0795a2e9e3fd9d6c77e4dc4c8b3e77981f893a87105aa453"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 20
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_47ad9c9278bf",
+      "sequence": 7,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T07:41:00.000Z",
+      "ingestedAt": "2026-11-06T07:41:02.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "26c4034f2a71a52b8c0bd54f7d42e5f5a03ab425ee91332f4060d74009dea3ce"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 88
+        }
+      ]
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "mevt_b6d7d93726dd",
+      "sequence": 7,
+      "orgId": "org_fixture_reference",
+      "missionId": "msn_fixture_reference",
+      "assetId": "robot-counter-3",
+      "observedAt": "2026-11-06T07:42:00.000Z",
+      "ingestedAt": "2026-11-06T07:42:04.000Z",
+      "source": {
+        "sourceId": "wms-bridge",
+        "sourceType": "warehouse_wms",
+        "keyId": "key_wms_v1",
+        "provenance": "SYNTHETIC",
+        "signature": "1a3caf9ef394b0bf46323c9921aa165d273e7e27eee300a8bc801bc32e77a2d4"
+      },
+      "observations": [
+        {
+          "kind": "inspection_progress",
+          "unit": "percent",
+          "value": 100
+        },
+        {
+          "kind": "stock_discrepancy",
+          "unit": "items",
+          "value": 14
+        },
+        {
+          "kind": "asset_position_status",
+          "unit": "state",
+          "value": "docked"
+        }
+      ]
+    }
+  ]
+}

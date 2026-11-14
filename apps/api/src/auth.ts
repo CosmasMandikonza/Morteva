@@ -23,8 +23,6 @@ import {
 
 export type AuthorityAction = 'manageAuthority' | 'approve' | 'operate' | 'read' | 'propose';
 
-export const SESSION_COOKIE = 'moterva_session';
-
 declare module 'fastify' {
   interface FastifyRequest {
     session: SessionContextView | null;
@@ -81,6 +79,15 @@ export function actorMay(actor: ActorView, action: AuthorityAction): PolicyDecis
   }
 }
 
+export const SESSION_COOKIE = 'moterva_session';
+/**
+ * Double-submit CSRF companion cookie (MTV-19): readable by the SPA so an
+ * OIDC redirect sign-in can obtain its CSRF value without a JSON body. NOT a
+ * secret — the server only accepts a header whose value hashes to the
+ * session's stored csrf hash, and SameSite=Strict blocks cross-site sends.
+ */
+export const CSRF_COOKIE = 'moterva_csrf';
+
 export function setSessionCookie(
   reply: FastifyReply,
   token: string,
@@ -96,8 +103,26 @@ export function setSessionCookie(
   });
 }
 
+/** Sets the session AND its double-submit CSRF companion. */
+export function setSessionAndCsrfCookies(
+  reply: FastifyReply,
+  session: { token: string; csrfToken: string },
+  ttlMs: number,
+  secure: boolean,
+): void {
+  setSessionCookie(reply, session.token, ttlMs, secure);
+  reply.setCookie(CSRF_COOKIE, session.csrfToken, {
+    httpOnly: false,
+    sameSite: 'strict',
+    secure,
+    path: '/',
+    maxAge: Math.floor(ttlMs / 1000),
+  });
+}
+
 export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, { path: '/' });
+  reply.clearCookie(CSRF_COOKIE, { path: '/' });
 }
 
 /** 401 with a machine-readable code — never a hint about which users exist. */

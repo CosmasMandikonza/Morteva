@@ -2,10 +2,15 @@
  * Airwallex API client (server-only).
  *
  * Verified endpoints (official reference, API version 2026-08-21; checked
- * 2026-11-03 against airwallex.com/docs/api + airwallexdev.com/guide):
+ * 2026-11-03 against airwallex.com/docs/api + airwallexdev.com/guide;
+ * beneficiaries re-checked 2026-11-10 against airwallex.com/docs/api/payouts/beneficiaries):
  *   POST /api/v1/authentication/login   headers x-client-id / x-api-key
  *                                      → 201 { token, expires_at } (30 min)
  *   GET  /api/v1/balances/current       → { available_amount, currency, ... }
+ *   GET  /api/v1/beneficiaries          → { has_more, items } (read-only proof;
+ *                                         page_num/page_size query params)
+ *   GET  /api/v1/beneficiaries/{id}     → { id, beneficiary, nickname,
+ *                                         transfer_methods } (read-only proof)
  *   POST /api/v1/transfers/create       { request_id, beneficiary_id,
  *                                         transfer_currency, transfer_amount }
  *   GET  /api/v1/transfers/{id}         → transfer (status, failure, ...)
@@ -19,15 +24,26 @@
 import type { AirwallexAdapterConfig } from './config.js';
 import type { AirwallexTransport, TransportRequest, TransportResponse } from './transport.js';
 import { TransportUnavailableError } from './transport.js';
-import { majorUnitsToMoney, minorToMajorUnits } from './money.js';
+import { majorUnitsToMoney, transferAmountMinorToMajor } from './money.js';
 import type { Money } from '@moterva/domain';
 
+/**
+ * One provider balance row. Money fields are NULL when the account holds a
+ * currency outside the internal money table (a REAL account may hold any
+ * provider currency — e.g. ARS on a demo sandbox account): the row is
+ * reported honestly with the raw provider amount instead of being dropped or
+ * guessed. Null Money is NOT a zero and NEVER convertible — MOTERVA simply
+ * cannot reason internally about that currency until it is deliberately
+ * added to the domain table with its exact exponent.
+ */
 export interface AirwallexBalance {
   readonly currency: string;
-  readonly availableAmount: Money;
-  readonly pendingAmount: Money;
-  readonly reservedAmount: Money;
-  readonly totalAmount: Money;
+  readonly availableAmount: Money | null;
+  readonly pendingAmount: Money | null;
+  readonly reservedAmount: Money | null;
+  readonly totalAmount: Money | null;
+  /** Provider major-unit available amount (always present, unconverted). */
+  readonly providerAvailableMajor: number | null;
   readonly accountType: string;
 }
 
@@ -42,6 +58,24 @@ export interface AirwallexTransferRecord {
   readonly createdAt: string | null;
   readonly updatedAt: string | null;
   readonly raw: unknown;
+}
+
+/**
+ * BENEFICIARY READ PROJECTION — deliberately NOT the provider's beneficiary
+ * object. Only identity/facilitation fields are surfaced (id, operator-set
+ * nickname, payout transfer methods); bank details, card and digital-wallet
+ * payloads are NEVER parsed or persisted by this adapter (read-only
+ * connection proof A1; receipts stay minimized the same way).
+ */
+export interface AirwallexBeneficiary {
+  readonly id: string;
+  readonly nickname: string | null;
+  readonly transferMethods: readonly string[];
+}
+
+export interface AirwallexBeneficiaryPage {
+  readonly items: readonly AirwallexBeneficiary[];
+  readonly hasMore: boolean;
 }
 
 export class AirwallexDefinitiveRejectionError extends Error {
@@ -94,8 +128,25 @@ export class AirwallexClient {
   ) {}
 
   private async login(): Promise<void> {
+    // The official guide: login authenticates with `x-client-id` +
+    // `x-api-key` HEADERS (no body). These credentials go ONLY here — every
+    // other request carries the bearer token alone. A header-less POST is
+    // rejected at the provider edge (WAF HTML 403), which is exactly what the
+    // live connection proof surfaced on 2026-11-11.
+    if (this.config.clientId === null || this.config.apiKey === null) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'missing_login_credentials',
+        'airwallex login attempted without configured client id/api key (config enabled-state violated)',
+        null,
+      );
+    }
     const response = await this.transport.request(
-      {},
+      {
+        'x-client-id': this.config.clientId,
+        'x-api-key': this.config.apiKey,
+        'content-type': 'application/json',
+      },
       { method: 'POST', path: '/api/v1/authentication/login' },
     );
     if (response.httpStatus !== 200 && response.httpStatus !== 201) {
@@ -122,6 +173,19 @@ export class AirwallexClient {
     this.tokenExpiresAtMs = Number.isFinite(expiresRaw)
       ? expiresRaw - 60_000
       : this.clock.now().getTime() + 25 * 60_000;
+  }
+
+  /**
+   * The PROVIDER-VERIFIED account identity of THIS credential (org/account
+   * claims from the bearer token the provider itself issued). Triggers a
+   * login if no fresh token is held. Returns null when the token carries no
+   * decodable claims — callers must treat null as UNVERIFIABLE.
+   */
+  async accountIdentity(): Promise<AirwallexAccountIdentity | null> {
+    if (this.token === null || this.clock.now().getTime() >= this.tokenExpiresAtMs) {
+      await this.login();
+    }
+    return accountIdentityFromToken(this.token);
   }
 
   private async authorizedRequest(request: TransportRequest): Promise<TransportResponse> {
@@ -191,14 +255,28 @@ export class AirwallexClient {
         (item): item is Record<string, unknown> =>
           item !== null && typeof item.currency === 'string',
       )
-      .map((item) => ({
-        currency: String(item.currency).toUpperCase(),
-        availableAmount: majorUnitsToMoney(String(item.currency), item.available_amount ?? 0),
-        pendingAmount: majorUnitsToMoney(String(item.currency), item.pending_amount ?? 0),
-        reservedAmount: majorUnitsToMoney(String(item.currency), item.reserved_amount ?? 0),
-        totalAmount: majorUnitsToMoney(String(item.currency), item.total_amount ?? 0),
-        accountType: typeof item.account_type === 'string' ? item.account_type : 'unknown',
-      }));
+      .map((item) => {
+        const currency = String(item.currency).toUpperCase();
+        // Per-currency conversion: an unknown currency is reported honestly
+        // (null Money + raw provider amount), never guessed and never fatal.
+        const convert = (value: unknown): Money | null => {
+          try {
+            return majorUnitsToMoney(currency, value ?? 0);
+          } catch {
+            return null;
+          }
+        };
+        return {
+          currency,
+          availableAmount: convert(item.available_amount),
+          pendingAmount: convert(item.pending_amount),
+          reservedAmount: convert(item.reserved_amount),
+          totalAmount: convert(item.total_amount),
+          providerAvailableMajor:
+            typeof item.available_amount === 'number' ? item.available_amount : null,
+          accountType: typeof item.account_type === 'string' ? item.account_type : 'unknown',
+        };
+      });
   }
 
   /**
@@ -219,7 +297,7 @@ export class AirwallexClient {
       request_id: input.requestId,
       beneficiary_id: input.beneficiaryId,
       transfer_currency: input.currency,
-      transfer_amount: minorToMajorUnits(input.currency, input.amountMinor),
+      transfer_amount: transferAmountMinorToMajor(input.currency, input.amountMinor),
       reason: input.reason,
       reference: input.requestId,
     };
@@ -250,6 +328,109 @@ export class AirwallexClient {
       );
     }
     return parseTransferRecord(response.body);
+  }
+
+  /**
+   * READ-ONLY beneficiary list (connection proof A1): the first bounded page
+   * of the account's beneficiaries. Pagination is intentionally single-page —
+   * this is a connection/identity proof, not a synchronization job — and
+   * `hasMore` is reported honestly so the caller knows the account holds
+   * more than the page returned. Malformed bodies fail closed (definitive
+   * rejection), matching the readback law that ambiguity is never invented.
+   */
+  async listBeneficiaries(
+    input: {
+      pageSize?: number;
+      pageNumber?: number;
+    } = {},
+  ): Promise<AirwallexBeneficiaryPage> {
+    const pageSize = input.pageSize ?? 10;
+    const pageNumber = input.pageNumber ?? 1;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_page_size',
+        `beneficiary page_size must be an integer in [1,100] (got ${String(pageSize)})`,
+        null,
+      );
+    }
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_page_number',
+        `beneficiary page_num must be an integer >= 1 (got ${String(pageNumber)})`,
+        null,
+      );
+    }
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: '/api/v1/beneficiaries',
+      query: { page_size: String(pageSize), page_num: String(pageNumber) },
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, 'beneficiaries');
+      throw new TransportUnavailableError(
+        `airwallex beneficiaries non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    if (
+      response.body === null ||
+      typeof response.body !== 'object' ||
+      Array.isArray(response.body)
+    ) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response is not an object with items',
+        response.body,
+      );
+    }
+    const body = response.body as { items?: unknown; has_more?: unknown };
+    if (!Array.isArray(body.items)) {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response missing items array',
+        response.body,
+      );
+    }
+    if (body.has_more !== undefined && typeof body.has_more !== 'boolean') {
+      throw new AirwallexDefinitiveRejectionError(
+        response.httpStatus,
+        'malformed_beneficiaries_response',
+        'airwallex beneficiaries response has a non-boolean has_more',
+        response.body,
+      );
+    }
+    return {
+      items: body.items.map((item) => parseBeneficiaryRecord(item)),
+      hasMore: body.has_more === true,
+    };
+  }
+
+  /** READ-ONLY single beneficiary by id (connection proof A1). */
+  async getBeneficiary(beneficiaryId: string): Promise<AirwallexBeneficiary> {
+    if (typeof beneficiaryId !== 'string' || beneficiaryId.trim() === '') {
+      throw new AirwallexDefinitiveRejectionError(
+        0,
+        'invalid_beneficiary_id',
+        'beneficiary id must be a non-empty string',
+        null,
+      );
+    }
+    const response = await this.authorizedRequest({
+      method: 'GET',
+      path: `/api/v1/beneficiaries/${encodeURIComponent(beneficiaryId)}`,
+      idempotentRead: true,
+    });
+    if (response.httpStatus !== 200) {
+      AirwallexClient.raiseIfDefinitiveHttpError(response, `beneficiaries/${beneficiaryId}`);
+      throw new TransportUnavailableError(
+        `airwallex beneficiaries/${beneficiaryId} non-success ${response.httpStatus}; treating as ambiguous`,
+      );
+    }
+    return parseBeneficiaryRecord(response.body);
   }
 
   /**
@@ -380,4 +561,78 @@ export function parseTransferRecord(raw: unknown): AirwallexTransferRecord {
     updatedAt: typeof record.updated_at === 'string' ? record.updated_at : null,
     raw,
   };
+}
+
+/**
+ * Beneficiary parse — identity fields ONLY (see AirwallexBeneficiary). The
+ * provider's `beneficiary` sub-object (bank_details/card/digital_wallet) is
+ * deliberately dropped here: it never reaches a receipt, a log line or a
+ * caller. A missing id fails closed as a definitive malformed response.
+ */
+export function parseBeneficiaryRecord(raw: unknown): AirwallexBeneficiary {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_beneficiary',
+      'provider beneficiary record is not an object',
+      raw,
+    );
+  }
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' && record.id !== '' ? record.id : null;
+  if (id === null) {
+    throw new AirwallexDefinitiveRejectionError(
+      0,
+      'malformed_beneficiary',
+      'provider beneficiary record missing id',
+      raw,
+    );
+  }
+  const transferMethods = Array.isArray(record.transfer_methods)
+    ? record.transfer_methods.filter((m): m is string => typeof m === 'string' && m !== '')
+    : [];
+  return {
+    id,
+    nickname:
+      typeof record.nickname === 'string' && record.nickname !== '' ? record.nickname : null,
+    transferMethods,
+  };
+}
+
+/** The account claims readable from the provider-issued JWT (claims only — the signature is not verified here and is never trust-boundary material for writes). */
+export interface AirwallexAccountIdentity {
+  readonly orgId: string;
+  readonly accountId: string | null;
+}
+
+/**
+ * Decodes the account claims from a provider bearer token (JWT). Returns
+ * null when the token is not a decodable HS256 JWT with an org claim — the
+ * caller must treat null as UNVERIFIABLE, never as a match. This is the
+ * verified same-account binding: two credentials belong to the same account
+ * only when PROVIDER-ISSUED tokens carry the same org/account claims —
+ * never assumed from configuration.
+ */
+export function accountIdentityFromToken(token: string | null): AirwallexAccountIdentity | null {
+  if (token === null || token === '') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [headerPart, payloadPart] = parts as [string, string, string];
+  try {
+    const decode = (segment: string): unknown =>
+      JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
+    const header = decode(headerPart) as { alg?: unknown };
+    const payload = decode(payloadPart) as Record<string, unknown>;
+    if (header?.alg !== 'HS256') return null;
+    const orgId =
+      typeof payload.org_id === 'string' && payload.org_id !== '' ? payload.org_id : null;
+    if (orgId === null) return null;
+    const accountId =
+      typeof payload.account_id === 'string' && payload.account_id !== ''
+        ? payload.account_id
+        : null;
+    return { orgId, accountId };
+  } catch {
+    return null;
+  }
 }

@@ -1,0 +1,10 @@
+{
+  "primary": "./fixtures/primary.physical-view.json",
+  "empty": "./fixtures/empty.physical-view.json",
+  "stale": "./fixtures/stale.physical-view.json",
+  "conflict": "./fixtures/conflict.physical-view.json",
+  "offline": "./fixtures/offline.physical-view.json",
+  "recovered": "./fixtures/recovered.physical-view.json",
+  "warehouse": "./fixtures/warehouse.physical-view.json",
+  "duplicate": "./fixtures/duplicate.physical-view.json"
+}

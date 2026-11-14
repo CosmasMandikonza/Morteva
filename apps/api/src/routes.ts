@@ -23,6 +23,7 @@ import type {
   MoneyView,
   OperationListView,
   OperationReadView,
+  ProviderEvidenceView,
 } from '@moterva/domain';
 import type { AppConfig } from './config.js';
 import { clearSessionCookie, csrfOk, guard, LoginRateLimiter, setSessionCookie } from './auth.js';
@@ -114,6 +115,9 @@ export function registerAuthAndFinancialRoutes(
         orgId: actor.orgId,
       },
       expiresAt: request.session.expiresAt,
+      // Which sign-in method is configured: production identity (OIDC) or the
+      // loopback-only demo bridge (identity/v1 frontend contract).
+      authMode: config.identity !== null ? 'oidc' : config.devAuth ? 'demo' : 'none',
       demoAuth: config.devAuth,
     };
   });
@@ -394,6 +398,62 @@ export function registerAuthAndFinancialRoutes(
       );
       return {
         operation: enrichOperationRow(ledger, orgOperationRow(ledger, g.actor.orgId, operation.id)),
+      };
+    } catch (error) {
+      return notFoundOrRethrow(error, reply, 'operation not found');
+    }
+  });
+
+  // ------------------------------------------------ provider evidence (#5/A4)
+  //
+  // The REDACTED provider receipt chain for one operation — the settlement
+  // truth a human needs (dispatch, readbacks, definitive rejections,
+  // ambiguous failures, webhooks) without ever disclosing the stored receipt
+  // payload JSON (identity + settlement-progress fields only; the journal's
+  // disclosure projection remains the replayable record). Org scope comes
+  // from the session; a foreign org's operation is 404-indistinguishable.
+  app.get('/api/operations/:id/provider-evidence', async (request, reply) => {
+    const g = guard(request, reply, 'read');
+    if ('blocked' in g) return reply;
+    try {
+      const operation = ledger.reservations.getOperation(
+        g.actor.orgId,
+        (request.params as { id: string }).id,
+      );
+      const rows = ledger.db
+        .prepare(
+          `SELECT seq, provider, environment, kind, request_id, transfer_id,
+                  http_status, provider_status, recorded_at
+             FROM provider_receipts
+            WHERE org_id = ? AND (operation_id = ? OR request_id = ?)
+            ORDER BY seq`,
+        )
+        .all(g.actor.orgId, operation.id, operation.requestId) as {
+        seq: number;
+        provider: string;
+        environment: string;
+        kind: string;
+        request_id: string;
+        transfer_id: string | null;
+        http_status: number | null;
+        provider_status: string | null;
+        recorded_at: string;
+      }[];
+      const evidence: ProviderEvidenceView[] = rows.map((row) => ({
+        seq: row.seq,
+        provider: row.provider,
+        environment: row.environment,
+        kind: row.kind,
+        requestId: row.request_id,
+        transferId: row.transfer_id,
+        httpStatus: row.http_status,
+        providerStatus: row.provider_status,
+        recordedAt: row.recorded_at,
+      }));
+      return {
+        operationId: operation.id,
+        requestId: operation.requestId,
+        evidence,
       };
     } catch (error) {
       return notFoundOrRethrow(error, reply, 'operation not found');
@@ -768,6 +828,23 @@ const EVIDENCE_PAYLOAD_ALLOWLIST: Readonly<Record<string, readonly FieldRule[]>>
     ['planDigest', HEXISH],
     ['approvalId', ID],
   ],
+  'planner.decision.snapshot': [
+    // Top-level scalars only; the full structured snapshot (decision,
+    // candidates, linkage) is served by the dedicated decision-snapshot
+    // routes with digest verification, not through this projection.
+    ['evaluationId', HEXISH],
+    ['stage', LOWER_WORD],
+    ['snapshotVersion', NON_NEGATIVE_INT],
+    ['recordedAt', ISO_OR_EMPTY],
+  ],
+  'planner.plan.proposed': [
+    ['evaluationId', HEXISH],
+    ['planId', ID],
+    ['planVersion', NON_NEGATIVE_INT],
+    ['planDigest', HEXISH],
+    ['proposedBy', ID],
+    ['grossMinor', NON_NEGATIVE_INT],
+  ],
   'dispatch.attempt': [
     ['dispatchId', ID],
     ['requestId', ID],
@@ -842,7 +919,25 @@ function projectEvidencePayload(type: string, raw: unknown): unknown {
     }
   };
 
-  if (EVIDENCE_PAYLOAD_ALLOWLIST[type] !== undefined) {
+  if (type === 'mission.event.ingested') {
+    // Only explicitly validated provenance scalars escape the operational journal.
+    // Never expose nested observations, signatures, source keys or raw payload JSON.
+    const event = record.event;
+    if (event === null || typeof event !== 'object' || Array.isArray(event)) return null;
+    const item = event as Record<string, unknown>;
+    const src = item.source;
+    const source =
+      src !== null && typeof src === 'object' && !Array.isArray(src)
+        ? (src as Record<string, unknown>)
+        : null;
+    if (passesRule(item.eventId, ID)) out.eventId = item.eventId;
+    if (passesRule(item.assetId, ID)) out.assetId = item.assetId;
+    if (passesRule(item.observedAt, ISO_OR_EMPTY)) out.observedAt = item.observedAt;
+    if (passesRule(record.eventDigest, HEXISH)) out.eventDigest = record.eventDigest;
+    if (source !== null && passesRule(source.sourceId, ID)) out.sourceId = source.sourceId;
+    if (source !== null && (source.provenance === 'SYNTHETIC' || source.provenance === 'FIELD'))
+      out.provenance = source.provenance;
+  } else if (EVIDENCE_PAYLOAD_ALLOWLIST[type] !== undefined) {
     applyRules(EVIDENCE_PAYLOAD_ALLOWLIST[type]!);
   } else if (TRANSITION_EVENT_TYPES.has(type)) {
     // Known state transitions: identifiers + state names only. The

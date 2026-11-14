@@ -58,6 +58,9 @@ const CURRENCIES: Readonly<Record<string, CurrencySpec>> = {
   PLN: { exponent: 2 },
   ZAR: { exponent: 2 },
   JPY: { exponent: 0 },
+  // Token ledger (MTV-19 / ADR 0007): Metal testnet USDZ, 2 decimals as
+  // verified on-chain by the adapter before registration.
+  USDZ: { exponent: 2 },
   KWD: { exponent: 3 },
   BHD: { exponent: 3 },
 };

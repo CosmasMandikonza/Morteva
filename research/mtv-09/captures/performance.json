@@ -1,0 +1,35 @@
+{
+  "label": "SIMULATED_OPERATION — measured, not estimated",
+  "environment": {
+    "browser": "Chromium (Playwright project chromium, SwiftShader software WebGL via --enable-unsafe-swiftshader)",
+    "device": "CI-equivalent local runner (Windows, Node 24)",
+    "viewport": "1440×900 @1x",
+    "note": "SwiftShader is a CPU rasterizer; GPU numbers on real hardware will be materially better. Honest CI-class results reported."
+  },
+  "loading": {
+    "harnessMountMs": 3047,
+    "navigation": {
+      "domContentLoadedMs": 291,
+      "loadEventMs": 291,
+      "transferSize": 909
+    }
+  },
+  "rendering": {
+    "fpsMeasuredOver3s": 12,
+    "trianglesPerFrame": 6268,
+    "drawCallsPerFrame": 101,
+    "trackedResourcesDisposedSafely": 222,
+    "modelFallback": false
+  },
+  "memory": {
+    "usedJsHeapBytes": 14300000
+  },
+  "scene": {
+    "phase": "event",
+    "dronePosition": {
+      "x": 24,
+      "y": 11.19,
+      "z": 6
+    }
+  }
+}

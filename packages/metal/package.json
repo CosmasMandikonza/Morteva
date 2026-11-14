@@ -1,0 +1,38 @@
+{
+  "name": "@moterva/metal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./status": {
+      "types": "./dist/status-entry.d.ts",
+      "default": "./dist/status-entry.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "smoke:balance": "node dist/smoke/balance.js",
+    "smoke:purchase": "node dist/smoke/purchase.js",
+    "smoke:network": "node dist/smoke/network.js",
+    "smoke:sponsor-purchase": "node dist/smoke/sponsor-purchase.js",
+    "smoke:sponsor-rehearsal": "node dist/smoke/sponsor-rehearsal.js"
+  },
+  "dependencies": {
+    "@moterva/domain": "0.1.0",
+    "@moterva/ledger": "0.1.0",
+    "@moterva/providers": "0.1.0",
+    "viem": "^2.57.17"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^5.1.0"
+  }
+}

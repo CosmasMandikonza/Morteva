@@ -1,0 +1,127 @@
+/*
+ * MOTERVA production theme — semantic tokens.
+ * Values mirrored from design/tokens.json v1.1.0 (ADR 0004, PR #31) — the
+ * machine-checked contract. Do not ad-lib hex values here; change the
+ * contract first. Dark is the flagship; [data-theme='light'] shares every
+ * component and only swaps mode-scoped values.
+ */
+:root {
+  /* surfaces */
+  --mv-surface-page: #0a0a0b;
+  --mv-surface-card: #141417;
+  --mv-surface-raised: #1e1e22;
+  --mv-surface-sunken: #0a0a0b;
+  --mv-surface-overlay: rgba(20, 20, 23, 0.78);
+  /* ink */
+  --mv-ink-1: #f4f4f5;
+  --mv-ink-2: #a9a9b2;
+  --mv-ink-3: #8e8e96;
+  /* lines (decorative) */
+  --mv-line: #27272a;
+  --mv-line-strong: #333338;
+  /* authority amber */
+  --mv-accent-fill: #e8b23e;
+  --mv-accent-fill-hover: #f0c565;
+  --mv-accent-text: #e8b23e;
+  --mv-accent-on-fill: #231a07;
+  --mv-accent-soft: rgba(232, 178, 62, 0.12);
+  /* info */
+  --mv-info-text: #5fa8d3;
+  --mv-info-soft: rgba(95, 168, 211, 0.14);
+  /* interactive + focus */
+  --mv-interactive: #e8b23e;
+  --mv-focus-ring: #e8b23e;
+  /* status ladder */
+  --mv-transit-text: #e8b23e;
+  --mv-transit-bg: rgba(232, 178, 62, 0.12);
+  --mv-verified-text: #4ade80;
+  --mv-verified-bg: rgba(74, 222, 128, 0.12);
+  --mv-danger-text: #f87171;
+  --mv-danger-bg: rgba(248, 113, 113, 0.12);
+  --mv-hold-text: #b9a06a;
+  --mv-hold-bg: rgba(185, 160, 106, 0.12);
+  /* charts */
+  --mv-chart-grid: #27272a;
+  /* typography */
+  --mv-font-display: 'Space Grotesk Variable', 'Space Grotesk', sans-serif;
+  --mv-font-ui: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --mv-font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+  --mv-size-2xs: 0.64rem; /* nonessential only */
+  --mv-size-xs: 0.72rem; /* nonessential only */
+  --mv-size-sm: 0.875rem; /* essential minimum (~14px) */
+  --mv-size-md: 1rem; /* preferred body/money (16px) */
+  --mv-size-lg: 1.2rem;
+  --mv-size-xl: 1.55rem;
+  --mv-size-2xl: 1.9rem;
+  --mv-size-3xl: 2.9rem;
+  --mv-track-caps: 0.12em;
+  --mv-track-hud: 0.34em;
+  --mv-track-display: -0.02em;
+  /* focus geometry (identical in both modes) */
+  --mv-focus-width: 3px;
+  --mv-focus-offset: 2px;
+  /* motion */
+  --mv-motion-instant: 150ms;
+  --mv-motion-fast: 180ms;
+  --mv-motion-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* elevation */
+  --mv-shadow-raised: none;
+  --mv-border-raised: 1px solid var(--mv-line);
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --mv-surface-page: #f4f4f5;
+  --mv-surface-card: #ffffff;
+  --mv-surface-raised: #ffffff;
+  --mv-surface-sunken: #ececee;
+  --mv-surface-overlay: rgba(255, 255, 255, 0.92);
+  --mv-ink-1: #18181b;
+  --mv-ink-2: #3f3f46;
+  --mv-ink-3: #52525b;
+  --mv-line: #d4d4d8;
+  --mv-line-strong: #b9b9c0;
+  /* identity amber fill carries over; TEXT amber darkens for AA on white */
+  --mv-accent-text: #8a6118;
+  --mv-accent-soft: #fdf1dc;
+  --mv-info-text: #1d5a8a;
+  --mv-info-soft: #e3edf5;
+  --mv-interactive: #1d5a8a;
+  --mv-focus-ring: #1d5a8a;
+  --mv-transit-text: #7d4f03;
+  --mv-transit-bg: #fdf1dc;
+  --mv-verified-text: #1b7a43;
+  --mv-verified-bg: #e6f4ec;
+  --mv-danger-text: #b4232a;
+  --mv-danger-bg: #fdefef;
+  --mv-hold-text: #7a5a12;
+  --mv-hold-bg: #faf5e4;
+  --mv-chart-grid: #d4d4d8;
+  --mv-shadow-raised: 0 1px 2px rgba(24, 24, 27, 0.06), 0 4px 12px rgba(24, 24, 27, 0.06);
+  --mv-border-raised: 1px solid var(--mv-line);
+  color-scheme: light;
+}
+
+/* Financial numerals: mono everywhere, tabular in UI runs. */
+:root {
+  font-family: var(--mv-font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.mv-num {
+  font-family: var(--mv-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Motion gate — mirrors the design-lab rule. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
