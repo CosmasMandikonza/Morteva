@@ -192,9 +192,35 @@ check(
 );
 check(
   'P0-6e',
-  'deploy workflow pins the checkout to the input SHA and tags sha-<SHA>',
-  /ref: \$\{\{ env\.SHA_FULL \}\}/.test(workflow) && /TAG="sha-\$\{SHA_FULL\}"/.test(workflow),
+  'deploy workflow pins the checkout to the input SHA and tags the bare <SHA>',
+  /ref: \$\{\{ env\.SHA_FULL \}\}/.test(workflow) && /TAG="\$\{SHA_FULL\}"/.test(workflow),
   'provenance chain incomplete',
+);
+check(
+  'TAG-1',
+  'ECR tag alignment: workflow pushes the bare SHA that update.sh validates, compose pulls and GIT_SHA reports (no prefix drift)',
+  (() => {
+    const pushesBareSha = /TAG="\$\{SHA_FULL\}"/.test(workflow) && !/TAG="sha-/.test(workflow);
+    const updateValidatesBareSha = /\[\[ "\$SHA" =~ \^\[0-9a-f\]\{7,64\}\$ \]\]/.test(cfn);
+    const composePullsEnvSha = /\$\{MOTERVA_RELEASE_SHA:\?/.test(compose);
+    const gitShaIsEnvSha = /GIT_SHA: \$\{MOTERVA_RELEASE_SHA\}/.test(compose);
+    const ssmPassesBareSha = /update\.sh \$\{SHA_FULL\}/.test(workflow);
+    return (
+      pushesBareSha &&
+      updateValidatesBareSha &&
+      composePullsEnvSha &&
+      gitShaIsEnvSha &&
+      ssmPassesBareSha
+    );
+  })(),
+  'push/pull/validation tag forms disagree',
+);
+check(
+  'TAG-2',
+  'bootstrap ECR image-wait matches the bare-SHA tag scheme (no sha- prefix remains anywhere in bootstrap)',
+  /contains\(imageTags, '\$\{SHA_TO_WAIT\}'\)/.test(bootstrap) &&
+    !/sha-/.test(bootstrap.replace(/update\.sh/g, '')),
+  'bootstrap still expects prefixed tags',
 );
 
 // ---- P0-7: least privilege — branch-scoped OIDC trust, repo-ARN ECR push,
@@ -357,8 +383,15 @@ check(
   'IAM-12',
   'trust policy subject matches the manual dispatch branch and bootstrap states the dispatch requirement',
   /ref:refs\/heads\/\$\{RELEASE_BRANCH\}/.test(bootstrap) &&
-    /workflow_dispatch MUST be launched from this/.test(bootstrap),
+    /workflow_dispatch MUST be launched from this/.test(bootstrap) === false &&
+    /workflow_dispatch for this workflow runs from the/.test(bootstrap),
   'trust/dispatch-branch mismatch or undocumented',
+);
+check(
+  'REL-1',
+  'the release line is MAIN: trust targets refs/heads/main and no stale integration-branch pin remains',
+  /RELEASE_BRANCH="main"/.test(bootstrap) && !/feat\/mtv-19-connected-golden-path/.test(bootstrap),
+  'trust still pinned to the pre-release integration branch (a dispatch from main would be denied)',
 );
 check(
   'IAM-13',
