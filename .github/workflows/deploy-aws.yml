@@ -80,7 +80,11 @@ jobs:
           set -euo pipefail
           REGISTRY=$(aws sts get-caller-identity --query Account --output text)
           REGION="${{ vars.AWS_REGION }}"
-          TAG="sha-${SHA_FULL}"
+          # The image tag IS the bare commit SHA — identical to what
+          # /opt/moterva/update.sh validates, compose interpolates and GIT_SHA
+          # reports (a prefixed tag here would make the first deploy's pull
+          # fail; contract check TAG-1 pins this alignment).
+          TAG="${SHA_FULL}"
           echo "REGISTRY=$REGISTRY" >> "$GITHUB_ENV"
           aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY.dkr.ecr.$REGION.amazonaws.com"
           docker build -f deploy/Dockerfile    -t "$REGISTRY.dkr.ecr.$REGION.amazonaws.com/moterva-api:$TAG" .

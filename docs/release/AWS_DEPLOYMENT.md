@@ -80,20 +80,25 @@ uses GitHub OIDC; the instance uses its role.
 ## Deployment & rollback (immutable release SHAs)
 
 **Dispatch prerequisites (both verified/enforced by bootstrap):** the
-workflow file must exist on the repo's **default branch** (GitHub runs
-`workflow_dispatch` only from there — bootstrap checks and tells you if
-PR #62 still needs to merge), and the run must be **dispatched from the
-release branch** (`feat/mtv-19-connected-golden-path`) — the deploy role's
-OIDC trust is scoped to exactly that branch subject, and bootstrap runs a
+workflow file exists on the repo's **default branch = the release line,
+`main`** (GitHub runs `workflow_dispatch` from the default branch — the
+Nov 14 release `0944a8d` carries it), and the run must be **dispatched
+from `main`**: the deploy role's OIDC trust is scoped to exactly
+`repo:CosmasMandikonza/Morteva:ref:refs/heads/main`, and bootstrap runs a
 free **IAM `simulate-principal-policy` preflight** proving document +
 tagged-instance + ECR actions all evaluate allowed before anything
-billable happens.
+billable happens. (Contract check REL-1 pins the trust to `main`; an
+earlier head pinned the pre-release integration branch and would have
+denied a main dispatch.)
 
-`Actions → Deploy AWS → Run workflow`: input `release_sha` (the reviewed
-SHA) + `confirm_live=DEPLOY`. The workflow checks out THAT SHA, builds both
-images, pushes to ECR as `sha-<sha>` (ECR tag immutability is ON — a tag
-can never be overwritten), then runs `/opt/moterva/update.sh <sha>` over
-SSM, which pulls, recreates, and health-checks (loopback `:18087`, never
+`Actions → Deploy AWS → Run workflow` (branch: `main`): input
+`release_sha` (the reviewed SHA) + `confirm_live=DEPLOY`. The workflow
+checks out THAT SHA, builds both images, and pushes them to ECR **tagged
+with the bare commit SHA** — the exact tag `/opt/moterva/update.sh`
+validates, compose pulls and `GIT_SHA` reports (ECR tag immutability is
+ON — a tag can never be overwritten; contract check TAG-1 pins the
+push/pull/report alignment). SSM then runs `/opt/moterva/update.sh <sha>`,
+which pulls, recreates, and health-checks (loopback `:18087`, never
 public) before reporting success.
 
 **Rollback = the same workflow with an older reviewed SHA.** Old images

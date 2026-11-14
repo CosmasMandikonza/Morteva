@@ -260,12 +260,16 @@ if [ -z "$PROVIDER_ARN" ]; then
     --tags Key=created-by,Value=moterva-bootstrap >/dev/null
 fi
 ROLE_NAME="moterva-github-deploy"
-RELEASE_BRANCH="feat/mtv-19-connected-golden-path"
-# Trust is scoped to the RELEASE BRANCH of this one repository — not
-# repo:* (P0 least-privilege). workflow_dispatch MUST be launched from this
-# branch: GitHub's OIDC subject is repo:<org>/<repo>:ref:refs/heads/<branch>
-# of the branch the run is dispatched FROM. bootstrap verifies the workflow
-# file's availability below and the summary states the dispatch branch.
+# The release line is MAIN (authoritative main SHA 0944a8d, Nov 14 2026;
+# earlier heads pinned the integration branch, which is no longer the
+# release path). Trust is scoped to this one repository's MAIN branch —
+# not repo:* (least privilege) — because GitHub's OIDC subject is
+# repo:<org>/<repo>:ref:refs/heads/<branch> of the branch the run is
+# DISPATCHED from, and workflow_dispatch for this workflow runs from the
+# default branch (main). bootstrap verifies the workflow file's
+# availability on the default branch below and the summary states the
+# dispatch branch.
+RELEASE_BRANCH="main"
 TRUST=$(cat <<EOF
 {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"$PROVIDER_ARN"},"Action":"sts:AssumeRoleWithWebIdentity","Condition":{"StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},"StringLike":{"token.actions.githubusercontent.com:sub":"repo:${GH_REPO_FULL}:ref:refs/heads/${RELEASE_BRANCH}"}}}]}
 EOF
@@ -407,12 +411,14 @@ if [ "$MODE" = "wait-images" ] || [ "$MODE" = "provision" ]; then
   while [ "$(date +%s)" -lt "$DEADLINE" ]; do
     if [ -n "$SHA_TO_WAIT" ]; then
       # Explicit provenance: wait for THIS exact immutable tag in BOTH repos.
+      # Tags are the bare commit SHA (no prefix) — identical in the workflow
+      # push, update.sh's validation, compose's image reference and GIT_SHA.
       API_OK=$(aws ecr describe-images --region "$REGION" --repository-name moterva-api \
-        --query "imageDetails[?contains(imageTags, 'sha-${SHA_TO_WAIT}')] | [0].imageTags" --output text 2>/dev/null || true)
+        --query "imageDetails[?contains(imageTags, '${SHA_TO_WAIT}')] | [0].imageTags" --output text 2>/dev/null || true)
       WEB_OK=$(aws ecr describe-images --region "$REGION" --repository-name moterva-web \
-        --query "imageDetails[?contains(imageTags, 'sha-${SHA_TO_WAIT}')] | [0].imageTags" --output text 2>/dev/null || true)
+        --query "imageDetails[?contains(imageTags, '${SHA_TO_WAIT}')] | [0].imageTags" --output text 2>/dev/null || true)
       if [ "$API_OK" != "None" ] && [ "$WEB_OK" != "None" ] && [ -n "$API_OK" ] && [ -n "$WEB_OK" ]; then
-        log "images found for sha-$SHA_TO_WAIT — deploying"
+        log "images found for $SHA_TO_WAIT — deploying"
         ssm_run "$ID" "/opt/moterva/update.sh ${SHA_TO_WAIT}" 600 || die "update.sh failed"
         # P0-4: bind the founder's Cognito owner identity once (SSM, on the
         # instance — never an HTTP endpoint), then verify the public surface.
@@ -427,17 +433,17 @@ if [ "$MODE" = "wait-images" ] || [ "$MODE" = "provision" ]; then
     else
       # No explicit SHA: deploy the newest workflow-pushed tag present in both repos.
       for TAG in $(aws ecr describe-images --region "$REGION" --repository-name moterva-api \
-        --query 'imageDetails[].imageTags[]' --output text 2>/dev/null | grep '^sha-' | sort -u); do
+        --query 'imageDetails[].imageTags[]' --output text 2>/dev/null | grep -E '^[0-9a-f]{7,64}$' | sort -u); do
         WEB_TAG=$(aws ecr describe-images --region "$REGION" --repository-name moterva-web \
           --query "imageDetails[?contains(imageTags, '$TAG')].imageTags | [0]" --output text 2>/dev/null || echo None)
         if [ "$WEB_TAG" != "None" ] && [ -n "$WEB_TAG" ]; then
           log "images found for $TAG — deploying"
-          ssm_run "$ID" "/opt/moterva/update.sh ${TAG#sha-}" 600 || die "update.sh failed"
+          ssm_run "$ID" "/opt/moterva/update.sh ${TAG}" 600 || die "update.sh failed"
           log "binding first owner identity (auditable, one-shot, server-side)"
           ssm_run "$ID" "ISSUER='$ISSUER' OWNER_EMAIL='$EMAIL' bash /opt/moterva/link-owner.sh" 300 \
             || die "owner identity binding failed"
           log "deployed + owner bound. running reviewer smoke checks against https://$DOMAIN"
-          DOMAIN="$DOMAIN" RELEASE_SHA="${TAG#sha-}" bash "$TMP/reviewer-smoke.sh" || die "smoke checks failed"
+          DOMAIN="$DOMAIN" RELEASE_SHA="$TAG" bash "$TMP/reviewer-smoke.sh" || die "smoke checks failed"
           log "JUDGE ENVIRONMENT LIVE: https://$DOMAIN — sign in as $EMAIL via the hosted UI"
           exit 0
         fi
