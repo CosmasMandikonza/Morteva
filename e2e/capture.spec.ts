@@ -11,7 +11,7 @@ test.skip(!shouldCapture, 'screenshot capture is opt-in (CAPTURE=1)');
 
 test('capture app shell at 1440x900 and 390x844', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/app');
   await page.screenshot({ path: 'docs/assets/app-shell-1440x900.png' });
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -22,7 +22,7 @@ test('capture app shell at 1440x900 and 390x844', async ({ page }) => {
   // itself in its own panel (no fabricated data, no developer instructions).
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.route('**/api/missions', (route) => route.abort('connectionrefused'));
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByLabel('Username').fill('founder');
   await page.getByLabel('Password').fill('moterva-e2e-demo');
   await page.getByRole('button', { name: 'Sign in' }).click();

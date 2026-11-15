@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test';
 test('one synthetic physical incident changes a real ledger-bound financial decision', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByLabel('Username').fill('founder');
   await page.getByLabel('Password').fill('moterva-e2e-demo');
   await page.getByRole('button', { name: 'Sign in' }).click();

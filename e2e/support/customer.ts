@@ -327,7 +327,7 @@ export async function deliver(
 // ------------------------------------------------------------------ UI helpers
 
 export async function signIn(page: Page, username: string): Promise<void> {
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
