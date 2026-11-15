@@ -79,22 +79,33 @@ if [ -z "$CLIENTID" ] || [ "$CLIENTID" = "None" ]; then
     --output json)
 else
   echo "[cognito] reusing client $CLIENTID"
-  # Callback URL may have changed (new DOMAIN): update it on rerun.
-  aws cognito-idp update-user-pool-client --region "$REGION" \
-    --user-pool-id "$POOLID" --client-id "$CLIENTID" \
-    --generate-secret \
-    --allowed-o-auth-flows-user-pool-client \
-    --allowed-o-auth-flows "code" \
-    --allowed-o-auth-scopes "openid" "profile" "email" \
-    --callback-urls "$CALLBACK" \
-    --logout-urls "https://${DOMAIN}/" \
-    --supported-identity-providers "COGNITO" \
-    --explicit-auth-flows "ALLOW_USER_SRP_AUTH" \
-    --prevent-user-existence-errors ENABLED \
-    --refresh-token-validity 1 --access-token-validity 60 --id-token-validity 60 \
-    --token-validity-units "AccessToken=minutes,IdToken=minutes,RefreshToken=days" >/dev/null
   CLIENTJSON=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
     --user-pool-id "$POOLID" --client-id "$CLIENTID" --output json)
+  # If the existing callback/logout URL already matches, leave the client
+  # completely untouched. Cognito UpdateUserPoolClient has no GenerateSecret
+  # parameter; the secret is a property of the existing client, not something
+  # to regenerate during an idempotent update.
+  if echo "$CLIENTJSON" | jq -e --arg callback "$CALLBACK" --arg logout "https://${DOMAIN}/" \
+    '((.UserPoolClient.CallbackURLs // []) | index($callback)) != null and
+     ((.UserPoolClient.LogoutURLs // []) | index($logout)) != null' >/dev/null; then
+    echo '[cognito] callback and logout URLs already current — leaving client unchanged'
+  else
+    echo "[cognito] reconciling existing client URLs for $DOMAIN"
+    aws cognito-idp update-user-pool-client --region "$REGION" \
+      --user-pool-id "$POOLID" --client-id "$CLIENTID" \
+      --allowed-o-auth-flows-user-pool-client \
+      --allowed-o-auth-flows "code" \
+      --allowed-o-auth-scopes "openid" "profile" "email" \
+      --callback-urls "$CALLBACK" \
+      --logout-urls "https://${DOMAIN}/" \
+      --supported-identity-providers "COGNITO" \
+      --explicit-auth-flows "ALLOW_USER_SRP_AUTH" \
+      --prevent-user-existence-errors ENABLED \
+      --refresh-token-validity 1 --access-token-validity 60 --id-token-validity 60 \
+      --token-validity-units "AccessToken=minutes,IdToken=minutes,RefreshToken=days" >/dev/null
+    CLIENTJSON=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
+      --user-pool-id "$POOLID" --client-id "$CLIENTID" --output json)
+  fi
 fi
 
 CLIENTID=$(echo "$CLIENTJSON" | jq -r '.UserPoolClient.ClientId')
@@ -108,9 +119,9 @@ echo "[cognito] client secret captured (sha256 prefix $SECRET_FP) — stored in 
 
 # Pool owner: temporary password generated here, printed ONCE (Cognito
 # forces a change at first hosted-UI sign-in).
-OWNER_TEMP=$(head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 20)'!Aa1'
 if ! aws cognito-idp admin-get-user --region "$REGION" --user-pool-id "$POOLID" \
      --username "$OWNER_EMAIL" >/dev/null 2>&1; then
+  OWNER_TEMP=$(head -c 64 /dev/urandom | base64 | tr -d '/+=' | head -c 20)'!Aa1'
   aws cognito-idp admin-create-user --region "$REGION" \
     --user-pool-id "$POOLID" --username "$OWNER_EMAIL" \
     --user-attributes Name=email,Value="$OWNER_EMAIL" Name=email_verified,Value=true \
