@@ -38,7 +38,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 MODE="provision"
 WAIT_MINUTES=15
-DOMAIN=""; EMAIL=""; RELEASE_SHA=""; EXTRA_ARGS=()
+DOMAIN=""; EMAIL=""; RELEASE_SHA=""; SKIP_STACK=false
 # PROVENANCE (P0): --ref is REQUIRED and must be an exact reviewed SHA or
 # the founder's documented release ref. Companions are fetched ONLY from
 # this ref and verified against the embedded sha256 map below — a silent
@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
     --ref) REF="$2"; shift 2 ;;
     --refresh-env) MODE="refresh-env"; shift ;;
     --wait-images) WAIT_MINUTES="$2"; MODE="wait-images"; shift 2 ;;
-    --skip-stack) EXTRA_ARGS="$EXTRA_ARGS skip-stack"; shift ;;
+    --skip-stack) SKIP_STACK=true; shift ;;
     *) echo "unknown arg $1"; exit 2 ;;
   esac
 done
@@ -199,7 +199,7 @@ log "merging OIDC values into the secret"
 merge_secret "$ISSUER" "$CLIENTID" "$CLIENTSECRET"
 
 # --------------------------------------------------------------- stack
-if [[ "$EXTRA_ARGS" != *"skip-stack"* ]]; then
+if [ "$SKIP_STACK" = false ]; then
   log "validating the CloudFormation template (free API call — no resources created)"
   aws cloudformation validate-template --region "$REGION" \
     --template-body "file://$TMP/cloudformation.yaml" >/dev/null \

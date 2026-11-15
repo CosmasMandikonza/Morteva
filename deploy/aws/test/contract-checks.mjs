@@ -254,6 +254,50 @@ check(
     /refusing mixed revisions/.test(companionMismatch.stderr ?? ''),
   companionMismatch.stderr?.trim() || `exit=${companionMismatch.status}`,
 );
+
+// The first live rerun got past Cognito, then failed because EXTRA_ARGS=()
+// was subsequently read as a scalar under nounset. Execute the actual CLI
+// parser AND CloudFormation guard with both flag combinations, without AWS.
+const bootstrapCliParser = /^MODE="provision"\n[^]*?^done$/m.exec(bootstrap)?.[0];
+const bootstrapStackGuard = /^if .*?(?:EXTRA_ARGS|SKIP_STACK).*; then$/m.exec(bootstrap)?.[0];
+function verifyStackFlag(args, expected) {
+  return spawnSync(
+    'bash',
+    [
+      '-c',
+      [
+        'set -euo pipefail',
+        bootstrapCliParser ?? 'false',
+        'selected=skip',
+        bootstrapStackGuard ?? 'false',
+        '  selected=provision',
+        'fi',
+        `[ "$selected" = "${expected}" ]`,
+      ].join('\n'),
+      'bootstrap-flag-check',
+      '--domain',
+      'moterva.duckdns.org',
+      '--email',
+      'fixture@example.invalid',
+      ...args,
+    ],
+    { encoding: 'utf8' },
+  );
+}
+const stackEnabled = verifyStackFlag([], 'provision');
+check(
+  'P0-6h',
+  'real bootstrap CLI and default stack guard work under bash nounset',
+  Boolean(bootstrapCliParser && bootstrapStackGuard) && stackEnabled.status === 0,
+  stackEnabled.stderr?.trim() || `exit=${stackEnabled.status}`,
+);
+const stackSkipped = verifyStackFlag(['--skip-stack'], 'skip');
+check(
+  'P0-6i',
+  'real bootstrap CLI honors --skip-stack under bash nounset',
+  Boolean(bootstrapCliParser && bootstrapStackGuard) && stackSkipped.status === 0,
+  stackSkipped.stderr?.trim() || `exit=${stackSkipped.status}`,
+);
 check(
   'TAG-1',
   'ECR tag alignment: workflow pushes the bare SHA that update.sh validates, compose pulls and GIT_SHA reports (no prefix drift)',
