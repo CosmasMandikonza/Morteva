@@ -270,9 +270,10 @@ export function registerProductionIdentityRoutes(
   function finishSignIn(reply: FastifyReply, actorId: string): unknown {
     const session = ledger.authority.createSession(actorId, { ttlMs: config.sessionTtlMs });
     setSessionAndCsrfCookies(reply, session, config.sessionTtlMs, secureCookies);
-    // Always land on the configured web origin — never a caller-supplied path
-    // (open-redirect safe).
-    return reply.redirect(config.webOrigin, 303);
+    // Always land on the product entrance — never a caller-supplied path
+    // (open-redirect safe). The public landing lives at the origin root; the
+    // authenticated Mission Treasury app lives under /app.
+    return reply.redirect(new URL('/app', config.webOrigin).toString(), 303);
   }
 
   /**

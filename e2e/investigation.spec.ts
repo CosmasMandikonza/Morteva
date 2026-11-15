@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
  * from the seeded throwaway ledger; provenance stays explicit throughout.
  */
 async function signIn(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByLabel('Username').fill('founder');
   await page.getByLabel('Password').fill('moterva-e2e-demo');
   await page.getByRole('button', { name: 'Sign in' }).click();

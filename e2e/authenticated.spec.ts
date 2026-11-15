@@ -14,7 +14,7 @@ import { expect, test, type Page } from '@playwright/test';
  *   12,000.00 committed.
  */
 async function signIn(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto('/app');
   await page.getByLabel('Username').fill('founder');
   await page.getByLabel('Password').fill('moterva-e2e-demo');
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -192,7 +192,7 @@ test.describe('authenticated treasury journey', () => {
   });
 
   test('wrong password shows the server error, never a session', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/app');
     await page.getByLabel('Username').fill('founder');
     await page.getByLabel('Password').fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();

@@ -11,7 +11,7 @@ test.describe('app shell smoke', () => {
   test('shows MOTERVA shell with primary navigation and honest OFFLINE status', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/app');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Mission Treasury' })).toBeVisible();
     await expect(page.getByText('MOTERVA').first()).toBeVisible();
@@ -42,7 +42,7 @@ test.describe('app shell smoke', () => {
   test('Mission Treasury shows the honest not-available state without DEMO_AUTH (CI parity)', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/app');
 
     const gate = page.getByTestId('auth-unavailable');
     const response = await page.request.get('/api/auth/session');
@@ -60,7 +60,7 @@ test.describe('app shell smoke', () => {
   });
 
   test('primary navigation switches surfaces with honest planned states', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/app');
 
     await page.getByRole('link', { name: 'Decision Room' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Decision Room' })).toBeVisible();
@@ -79,7 +79,7 @@ test.describe('app shell smoke', () => {
   test('capabilities discovery (demo deployment) offers the controlled demo form only', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/app');
     // R3 P0-2: the demo form renders ONLY when the server reports
     // authMode=demo with demoLogin=true via the read-only capabilities read.
     const caps = await page.evaluate(async () => {
@@ -98,7 +98,7 @@ test.describe('app shell smoke', () => {
   });
 
   test('theme toggle switches the semantic tokens', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/app');
     const body = page.locator('body');
     await expect(body).toHaveCSS('background-color', 'rgb(10, 10, 11)');
 
@@ -111,7 +111,7 @@ test.describe('app shell smoke', () => {
   test('no horizontal overflow at 320px and 390px on the treasury', async ({ page }) => {
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto('/');
+      await page.goto('/app');
       // Measure the settled layout: fonts drive tabular figures and labels.
       await page.evaluate('document.fonts.ready.then(() => undefined)');
       await page.evaluate('new Promise((r) => requestAnimationFrame(() => r(null)))');

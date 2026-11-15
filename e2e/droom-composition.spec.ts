@@ -50,7 +50,7 @@ async function openDecisionRoom(
   role: 'founder' | 'operator',
   title: string,
 ): Promise<void> {
-  await page.goto('/');
+  await page.goto('/app');
   const chip = page.getByTestId('actor-chip');
   const user = page.getByLabel('Username');
   await chip.or(user).first().waitFor({ state: 'visible', timeout: 20_000 });

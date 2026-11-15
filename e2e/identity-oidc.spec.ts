@@ -210,7 +210,7 @@ test.describe('browser OIDC identity journeys', () => {
   test('reviewer accepts an invitation in the browser and lands read-only', async ({ browser }) => {
     const page = await browser.newContext().then((c) => c.newPage());
     // Accept endpoint is PRE-authentication: the secret is the credential.
-    await page.goto(`${SPA}/`); // same-origin context for cookies
+    await page.goto(`${SPA}/app`); // same-origin context for cookies
     // redirect:'manual' via the context's request (shares the cookie jar) —
     // browser fetch would follow the cross-origin 303 into opaque-CORS failure.
     const accept = await page.context().request.post(`${SPA}/api/auth/invitations/accept`, {
@@ -278,7 +278,7 @@ test('capabilities discovery is read-only and offers ONLY the IdP entry (OIDC de
     if (u.includes('/api/auth/oidc/login')) oidcLoginHits += 1;
     if (r.method() !== 'GET' && u.includes('/api/')) writeHits += 1;
   });
-  await page.goto(`${SPA}/`);
+  await page.goto(`${SPA}/app`);
   await page.waitForTimeout(800);
   // OIDC deployment → the IdP entry, NOT a local username/password form.
   await expect(page.getByTestId('oidc-signin')).toBeVisible({ timeout: 15_000 });
@@ -328,7 +328,7 @@ test('invitation acceptance through the REAL visible UI — one POST, IdP contin
   });
 
   // The REAL visible UI at the #invite entry.
-  await page.goto(`${SPA}/#invite`);
+  await page.goto(`${SPA}/app#invite`);
   const panel = page.getByTestId('invite-accept');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByLabel('Invitation id').fill(invitation.id);
@@ -378,7 +378,7 @@ test('invitation UI renders the server refusal inline for a wrong secret (no sec
       acceptPosts += 1;
     }
   });
-  await page.goto(`${SPA}/#invite`);
+  await page.goto(`${SPA}/app#invite`);
   const panel = page.getByTestId('invite-accept');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await panel.getByLabel('Invitation id').fill(invitation.id);

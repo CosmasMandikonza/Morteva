@@ -63,7 +63,7 @@ async function completeCallback(callbackUrl: string): Promise<Login> {
     url: new URL(callbackUrl).pathname + new URL(callbackUrl).search,
   });
   expect(done.statusCode, done.body).toBe(303);
-  expect(done.headers.location).toBe(WEB_ORIGIN); // open-redirect safe landing
+  expect(done.headers.location).toBe(WEB_ORIGIN + '/app'); // open-redirect safe product entrance
   const setCookie = done.headers['set-cookie'] as unknown;
   const allCookies = Array.isArray(setCookie) ? setCookie : [String(setCookie)];
   const sessionCookie = allCookies.find((c) => c.startsWith('moterva_session='))!;

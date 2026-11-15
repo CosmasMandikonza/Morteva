@@ -68,7 +68,7 @@ async function openDecisionRoom(
   // login form never renders for the next role. The session restores
   // ASYNC after goto — wait for whichever lands first (chip = signed in,
   // username field = signed out) instead of racing a count() probe.
-  await page.goto('/');
+  await page.goto('/app');
   const chip = page.getByTestId('actor-chip');
   const user = page.getByLabel('Username');
   await chip.or(user).first().waitFor({ state: 'visible', timeout: 20_000 });
