@@ -10,6 +10,7 @@
 // IAM breadth, owner-binding path.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const read = (p) => readFileSync(join(ROOT, ...p.split('/')), 'utf8');
@@ -195,6 +196,63 @@ check(
   'deploy workflow pins the checkout to the input SHA and tags the bare <SHA>',
   /ref: \$\{\{ env\.SHA_FULL \}\}/.test(workflow) && /TAG="\$\{SHA_FULL\}"/.test(workflow),
   'provenance chain incomplete',
+);
+
+// Execute the REAL bootstrap helper under nounset. Parsing the script alone
+// missed Bash's same-statement `local name="$1" var="...${name}..."` bug,
+// which aborted the founder's first CloudShell run before provisioning.
+const companionHelper = /fetch_companion\(\) \{[^]*?\n\}/.exec(bootstrap)?.[0];
+const companionFixture = [
+  'set -euo pipefail',
+  'base=$(mktemp -d)',
+  'trap \'rm -rf "$base"\' EXIT',
+  'SCRIPT_DIR="$base/src"',
+  'TMP="$base/out"',
+  'mkdir -p "$SCRIPT_DIR" "$TMP"',
+  'printf "safe fixture\\n" > "$SCRIPT_DIR/mock.sh"',
+  'EXPECTED_SHA256_mock_sh=$(sha256sum "$SCRIPT_DIR/mock.sh" | cut -d\' \' -f1)',
+  'GH_REPO_FULL=unused',
+  'REF=pinned',
+  'die() { printf "%s\\n" "$*" >&2; exit 1; }',
+  companionHelper ?? 'false',
+];
+const companionValid = spawnSync(
+  'bash',
+  [
+    '-c',
+    [
+      ...companionFixture,
+      'fetch_companion mock.sh',
+      'cmp "$SCRIPT_DIR/mock.sh" "$TMP/mock.sh"',
+    ].join('\n'),
+  ],
+  { encoding: 'utf8' },
+);
+check(
+  'P0-6f',
+  'real fetch_companion works under bash set -u and validates the matching hash',
+  Boolean(companionHelper) && companionValid.status === 0,
+  companionValid.stderr?.trim() || `exit=${companionValid.status}`,
+);
+const companionMismatch = spawnSync(
+  'bash',
+  [
+    '-c',
+    [
+      ...companionFixture,
+      'EXPECTED_SHA256_mock_sh=0000000000000000000000000000000000000000000000000000000000000000',
+      'fetch_companion mock.sh',
+    ].join('\n'),
+  ],
+  { encoding: 'utf8' },
+);
+check(
+  'P0-6g',
+  'real fetch_companion refuses a mismatched revision',
+  Boolean(companionHelper) &&
+    companionMismatch.status !== 0 &&
+    /refusing mixed revisions/.test(companionMismatch.stderr ?? ''),
+  companionMismatch.stderr?.trim() || `exit=${companionMismatch.status}`,
 );
 check(
   'TAG-1',

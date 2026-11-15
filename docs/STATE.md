@@ -476,6 +476,13 @@ MTV-17 AWS judge environment + production-safe REVIEWER_DEMO (E3 P0/E4) — bran
 - Gates on the fix branch: contract-checks **55/55**; kek-provision 19/19; boot-probe 4/4 (custody present); `bash -n` ✓; secrets 473 files 0 findings ✓; docs 72 files 0 errors ✓; eslint ✓; prettier ✓; companion hash map untouched (bootstrap/workflow/docs are not mapped files). Exact head SHA and CI on the PR.
 - **Acceptance boundary unchanged and restated:** everything above is automation evidence. The submission gate is the founder-authorized run: real HTTPS, Cognito first-owner login, full authorized synthetic mission journey, ledger persistence across a redeploy, and `/healthz` reporting the deployed SHA. No billable resource was created by this work.
 
+## AWS bootstrap CloudShell nounset regression — Nov 15, 2026 (branch `fix/aws-bootstrap-nounset`; no provisioning from failed attempt)
+
+- The founder ran the SHA-pinned release `9923057` with `moterva.duckdns.org`. After the account/region log, Bash aborted at `main: line 81: name: unbound variable`, before infrastructure provisioning. The prior `judge.YOURDOMAIN.com` failure was an unfilled example hostname, not a real DNS requirement.
+- Root cause: `fetch_companion` declared `name` and referenced it in another initializer on the same `local` command while `set -u` was enabled. The helper now initializes `var` **after** `name`; companion SHA-256 verification, refusal of mixed revisions, and the pinned-ref download path are unchanged.
+- Regression proof: added a harness that extracts and runs the **actual** helper under Bash `set -euo pipefail` against an isolated local fixture. Both new tests failed against the old source (**55/57**) and pass after correction (**57/57**), including the negative case requiring rejection of an intentionally bad hash. No AWS calls, credentials, live payments, or billable resources are involved in these checks.
+- Still pending: merge this fix and rerun bootstrap from the resulting reviewed `main` SHA in the founder's CloudShell, then complete AWS provisioning and DuckDNS IPv4 update. This change alone is **not** a deployed product.
+
 ## NOT yet verified
 No Airwallex/Metal transaction or credential, Visa eligibility, T:0 key, production deployment, approved palette/typeface, 3D asset, customer validation or economic improvements have been verified. No production money movement should be attempted. 'MOTERVA' is a product hypothesis, not an operating company with customers.
 

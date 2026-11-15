@@ -78,7 +78,8 @@ log "account $ACCOUNT, region $REGION"
 
 # --------------------------------------------------------------- helpers
 fetch_companion() { # fetch + VERIFY a companion against the embedded sha256 map (no fallback ref, no mixed revisions)
-  local name="$1" var="EXPECTED_SHA256_${name//[.\/-]/_}" expected actual
+  local name="$1" var expected actual
+  var="EXPECTED_SHA256_${name//[.\/-]/_}"
   expected="${!var:-}"
   if [ -f "$SCRIPT_DIR/$name" ]; then
     cp "$SCRIPT_DIR/$name" "$TMP/$name"
