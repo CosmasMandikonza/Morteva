@@ -62,7 +62,7 @@ done
 # download against this map: if the requested --ref contains a DIFFERENT
 # revision of any companion than this bootstrap was reviewed with, the run
 # REFUSES rather than silently mixing versions.
-EXPECTED_SHA256_provision_cognito_sh="aea27e3b20b451287210ff056205c64009d0577bdd3d550395714f0914fd0443"
+EXPECTED_SHA256_provision_cognito_sh="6251eaaa2d57347903d9acc150fc7ddfd78c5e95993d6822168498ba053726d2"
 EXPECTED_SHA256_reviewer_smoke_sh="475319311eb7bef4d0b8c03a2f5defa7e4f6962618cd938fc42be8f5d3cd9f2e"
 EXPECTED_SHA256_compose_production_yml="347baf02c64a4a2f0912bf38e434f263367218402cbbd1da02c5d97dd737f4c5"
 EXPECTED_SHA256_cloudformation_yaml="93ab6c81a92adbbf9cbdff13b6b972700c0c5a4a1021ef03e74528188cb5a4a9"

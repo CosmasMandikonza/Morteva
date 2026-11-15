@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const read = (p) => readFileSync(join(ROOT, ...p.split('/')), 'utf8');
@@ -173,6 +174,28 @@ check(
     /EXPECTED_SHA256_ensure_kek_sh=/.test(bootstrap),
   'companion hash map incomplete',
 );
+const pinnedCompanions = [
+  'provision-cognito.sh',
+  'reviewer-smoke.sh',
+  'compose.production.yml',
+  'cloudformation.yaml',
+  'link-owner.sh',
+  'ensure-kek.sh',
+];
+const companionHashMismatches = pinnedCompanions.filter((name) => {
+  const expectedVar = `EXPECTED_SHA256_${name.replaceAll('.', '_').replaceAll('-', '_').replaceAll('/', '_')}`;
+  const pinned = new RegExp(`^${expectedVar}="([a-f0-9]{64})"$`, 'm').exec(bootstrap)?.[1];
+  const actual = createHash('sha256')
+    .update(read(`deploy/aws/${name}`))
+    .digest('hex');
+  return pinned !== actual;
+});
+check(
+  'P0-6j',
+  'all embedded companion SHA-256 digests exactly match the current release files',
+  companionHashMismatches.length === 0,
+  `outdated or missing entries: ${companionHashMismatches.join(', ')}`,
+);
 check(
   'P0-6b',
   'downloads are hash-verified (sha256sum) and mixed revisions are refused',
@@ -297,6 +320,17 @@ check(
   'real bootstrap CLI honors --skip-stack under bash nounset',
   Boolean(bootstrapCliParser && bootstrapStackGuard) && stackSkipped.status === 0,
   stackSkipped.stderr?.trim() || `exit=${stackSkipped.status}`,
+);
+const cognitoRerun = spawnSync('bash', [join(ROOT, 'deploy/aws/test/cognito-provision.test.sh')], {
+  encoding: 'utf8',
+});
+check(
+  'COGNITO-R',
+  'real Cognito helper reuses an existing client, reconciles stale URLs, and never prints its secret',
+  cognitoRerun.status === 0 &&
+    /PASS COGNITO-R1/.test(cognitoRerun.stdout ?? '') &&
+    /PASS COGNITO-R2/.test(cognitoRerun.stdout ?? ''),
+  cognitoRerun.stderr?.trim() || cognitoRerun.stdout?.trim() || `exit=${cognitoRerun.status}`,
 );
 check(
   'TAG-1',
