@@ -412,6 +412,55 @@ check(
   Boolean(bootstrapCliParser && bootstrapStackGuard) && stackSkipped.status === 0,
   stackSkipped.stderr?.trim() || `exit=${stackSkipped.status}`,
 );
+// Live CloudShell regression: SSM's shorthand parser rejects quotes and
+// commas inside commands=[...]. Execute the REAL ssm_run helper with a fake
+// AWS transport that accepts ONLY JSON and round-trips the original bytes.
+const ssmHelper = /^ssm_run\(\) \{[^\n]*\n[\s\S]*?^\}/m.exec(bootstrap)?.[0];
+const trickySsmCommand =
+  "printf '%s' 'encoded,with|special=characters' | base64 -d > /opt/moterva/file\nprintf 'hello\\nworld'";
+const ssmRoundTrip = spawnSync(
+  'bash',
+  [
+    '-c',
+    [
+      'set -euo pipefail',
+      'REGION=us-east-1',
+      'aws() {',
+      '  case "$1 $2" in',
+      '    "ssm send-command")',
+      '      local parameters=""',
+      '      while [ "$#" -gt 0 ]; do',
+      '        if [ "$1" = "--parameters" ]; then parameters="$2"; shift 2; continue; fi',
+      '        shift',
+      '      done',
+      '      jq -e --arg expected "$TEST_COMMAND" \'.commands == [$expected]\' <<< "$parameters" >/dev/null || return 1',
+      '      printf "test-command-id\\n"',
+      '      ;;',
+      '    "ssm get-command-invocation") printf "Success\\n" ;;',
+      '    *) printf "unexpected fake AWS request\\n" >&2; return 1 ;;',
+      '  esac',
+      '}',
+      ssmHelper ?? 'false',
+      'ssm_run i-test "$TEST_COMMAND" 30',
+    ].join('\n'),
+    'test-ssm-json',
+  ],
+  { encoding: 'utf8', env: { ...process.env, TEST_COMMAND: trickySsmCommand } },
+);
+check(
+  'SSM-JSON-1',
+  'actual bootstrap ssm_run round-trips quotes, commas, pipes and newlines through JSON parameters',
+  Boolean(ssmHelper) && ssmRoundTrip.status === 0,
+  ssmRoundTrip.stderr?.trim() || `exit=${ssmRoundTrip.status}`,
+);
+check(
+  'SSM-JSON-2',
+  'GitHub deploy workflow sends update and domain-read commands as JSON parameter maps',
+  (workflow.match(/--parameters "\$[A-Z_]+"/g) ?? []).length === 2 &&
+    (workflow.match(/jq -nc --arg cmd /g) ?? []).length === 2 &&
+    !/--parameters "commands=\[/.test(workflow),
+  'one or more workflow SSM calls still use unescaped shorthand parameters',
+);
 const cognitoRerun = spawnSync('bash', [join(ROOT, 'deploy/aws/test/cognito-provision.test.sh')], {
   encoding: 'utf8',
 });
