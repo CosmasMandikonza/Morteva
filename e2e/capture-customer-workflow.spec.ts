@@ -77,6 +77,7 @@ test('capture the customer-operated workflow (dark + light, 1440 → 320, 200% z
   await page.getByTestId('credential-ack').check();
   await page.getByTestId('credential-done').click();
   await expect(page.getByTestId('credential-reveal')).toHaveCount(0);
+  await page.getByTestId('developer-integration').locator('summary').click();
   await page.getByTestId('headless-guide').scrollIntoViewIfNeeded();
   await page.getByTestId('headless-guide').getByText('Example envelope').click();
   await shot(page, 'setup-sources-and-headless-guide-1440x900');

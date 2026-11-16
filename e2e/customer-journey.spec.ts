@@ -123,9 +123,13 @@ test('customer journey: unseen mission → authenticated evidence → decision �
   // Key inventory note carries the NON-secret key id only.
   await expect(page.getByTestId('source-row-bench7-flight-link')).toContainText('key-bench7-a');
 
-  // Headless guide: honest about today's ingress, contains no secret, includes the signer.
+  // Headless guide (collapsed Developer integration disclosure on Mission
+  // Setup — clarity redesign): open it, then assert the same contract.
+  await page.getByTestId('developer-integration').locator('> summary').click();
   const guide = page.getByTestId('headless-guide');
-  await expect(guide).toContainText('How a field system sends signed evidence');
+  await expect(page.getByTestId('developer-integration')).toContainText(
+    'How a field system sends signed evidence',
+  );
   await expect(page.getByTestId('ingest-route')).toContainText('/events');
   await guide.getByText('Reference signer (Node.js)').click();
   await expect(page.getByTestId('ingest-snippet')).toContainText('createHmac');

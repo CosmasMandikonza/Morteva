@@ -19,17 +19,26 @@ import { CopyButton, HaloBadge } from './ui';
  * describes credential-only delivery (no cookie, no CSRF); against an older
  * build that only accepts signed events through an operator session it says
  * so instead of implying that a bare credential is enough.
+ *
+ * `embedded` renders the same documentation as content for a host-owned
+ * disclosure (Mission Setup's collapsed "Developer integration" section) —
+ * the HMAC/canonicalization/sequence requirements are rendered verbatim in
+ * both modes.
  */
 export function HeadlessGuide({
   missionId,
   orgId,
   source,
   assetDomain,
+  embedded = false,
 }: {
   missionId: string;
   orgId: string | null;
   source: MissionSpecSourceView | null;
   assetDomain: DomainKind;
+  /** Render as content for a host disclosure (no outer section card or
+   *  heading — the host owns the collapsed chrome). */
+  embedded?: boolean;
 }): JSX.Element {
   const route = INGEST_CONTRACT.route(missionId);
   const example = sampleEnvelope({
@@ -48,6 +57,20 @@ export function HeadlessGuide({
   const snippet = headlessSnippet(route);
   const machine = INGEST_CONTRACT.authentication === 'source-credential';
 
+  if (embedded) {
+    return (
+      <div className="ms-devint__body" data-testid="headless-guide">
+        <GuideBody
+          route={route}
+          exampleText={exampleText}
+          snippet={snippet}
+          machine={machine}
+          lead="Observations do not come from this screen. Your own system (telemetry gateway, WMS, control room) signs each observation with its source credential and sends it to MOTERVA."
+        />
+      </div>
+    );
+  }
+
   return (
     <section
       className="mv-governed"
@@ -55,11 +78,34 @@ export function HeadlessGuide({
       data-testid="headless-guide"
     >
       <h3 className="mv-droom__secttitle">How a field system sends signed evidence</h3>
-      <p className="mv-governed__lead">
-        Observations do not come from this screen. Your own system (telemetry gateway, WMS, control
-        room) signs each observation with its source credential and sends it to MOTERVA. The
-        Decision Room then evaluates from the real journal.
-      </p>
+      <GuideBody
+        route={route}
+        exampleText={exampleText}
+        snippet={snippet}
+        machine={machine}
+        lead="Observations do not come from this screen. Your own system (telemetry gateway, WMS, control room) signs each observation with its source credential and sends it to MOTERVA. The Decision Room then evaluates from the real journal."
+      />
+    </section>
+  );
+}
+
+/** The actual guide content — identical in standalone and embedded modes. */
+function GuideBody({
+  route,
+  exampleText,
+  snippet,
+  machine,
+  lead,
+}: {
+  route: string;
+  exampleText: string;
+  snippet: string;
+  machine: boolean;
+  lead: string;
+}): JSX.Element {
+  return (
+    <>
+      <p className="mv-governed__lead">{lead}</p>
 
       <p className="mv-governed__note" data-testid="ingest-auth-status">
         <HaloBadge
@@ -167,6 +213,6 @@ export function HeadlessGuide({
         by a registered source about the physical world — MOTERVA verifies who signed it, not that
         the sensor is right. It can inform a proposal; it can never approve, reserve or move money.
       </p>
-    </section>
+    </>
   );
 }

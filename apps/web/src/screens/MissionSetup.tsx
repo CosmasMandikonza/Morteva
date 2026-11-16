@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { Panel } from '../components/Panel';
-import { HaloBadge, SkeletonRows, Stepper } from '../components/ui';
+import { CopyButton, HaloBadge, SkeletonRows } from '../components/ui';
 import { SpecForm } from '../components/SpecForm';
 import { SourceCredentials } from '../components/SourceCredentials';
 import { HeadlessGuide } from '../components/HeadlessGuide';
@@ -21,6 +21,7 @@ import {
   type SessionState,
 } from '../lib/api';
 import { money, safeMoney } from '../lib/format';
+import './mission-setup-polish.css';
 import {
   draftToWire,
   emptyDraft,
@@ -261,96 +262,128 @@ export function MissionSetup({
         ? true
         : null;
 
-  const steps = [
+  /** Readiness strip: the same five real states, as one lightweight row.
+   *  Unknown stays unknown; unavailable never becomes complete. */
+  const readiness: readonly {
+    key: string;
+    label: string;
+    state: 'done' | 'active' | 'pending' | 'unknown';
+    note?: string;
+  }[] = [
     {
       key: 'spec',
-      label: 'Mission specification',
-      state: isRegistered ? ('done' as const) : ('active' as const),
-      note: isRegistered
-        ? `registered · ${view?.specId ?? ''}`
-        : 'not registered — a fresh mission would fall back to the harbor DEMO default',
+      label: 'Specification',
+      state: isRegistered ? 'done' : 'active',
+      note: isRegistered ? (view?.specId ?? undefined) : 'not registered',
     },
     {
       key: 'sources',
-      label: 'Source credentials',
+      label: 'Sources',
       state: !isRegistered
-        ? ('pending' as const)
+        ? 'pending'
         : keysKnown === true
-          ? ('done' as const)
+          ? 'done'
           : keysKnown === false
-            ? ('active' as const)
-            : ('unknown' as const),
+            ? 'active'
+            : 'unknown',
       note: !isRegistered
-        ? 'after the specification'
+        ? undefined
         : keysKnown === null
           ? 'key inventory not exposed by this API build'
-          : undefined,
+          : keysKnown === false
+            ? 'no credentials issued yet'
+            : undefined,
     },
     {
       key: 'authority',
-      label: 'Spending authority',
-      state: !isRegistered
-        ? ('pending' as const)
-        : mandate !== null
-          ? ('done' as const)
-          : ('active' as const),
+      label: 'Authority',
+      state: !isRegistered ? 'pending' : mandate !== null ? 'done' : 'active',
       note:
         mandate !== null
-          ? `active mandate v${String(mandate.version)} · ${money(mandate.currency, mandate.remaining_minor)} remaining`
-          : 'no active mandate — decisions cannot propose spend',
+          ? money(mandate.currency, mandate.remaining_minor) + ' remaining'
+          : 'no active mandate',
     },
     {
       key: 'evidence',
-      label: 'Authenticated field evidence',
+      label: 'Field evidence',
       state: !isRegistered
-        ? ('pending' as const)
+        ? 'pending'
         : eventCount === null
-          ? ('unknown' as const)
+          ? 'unknown'
           : eventCount > 0
-            ? ('done' as const)
-            : ('active' as const),
+            ? 'done'
+            : 'active',
       note:
         eventCount === null
-          ? undefined
+          ? 'count unavailable'
           : eventCount > 0
-            ? `${String(eventCount)} admitted event${eventCount === 1 ? '' : 's'}`
-            : 'no observations admitted yet',
+            ? String(eventCount) + ' admitted event' + (eventCount === 1 ? '' : 's')
+            : 'none admitted yet',
     },
     {
       key: 'decide',
-      label: 'Evaluate & approve',
-      state: 'pending' as const,
+      label: 'Decision',
+      state: 'pending',
       note: 'Decision Room',
     },
   ];
 
   const formDisabled = !canOperate || registering;
+  const statusBadge = isRegistered ? (
+    <HaloBadge tone="info" glyph="●" label="Specification registered" />
+  ) : (
+    <HaloBadge tone="neutral" glyph="○" label="No specification yet" />
+  );
 
   return (
     <Panel
-      title="Mission setup"
+      title="Mission Setup"
       testId="mission-setup"
-      meta={
-        <span className="mv-tag">
-          {isRegistered ? 'SPECIFICATION REGISTERED' : 'NO SPECIFICATION YET'}
-        </span>
-      }
+      meta={<span className="mv-tag">{isRegistered ? 'CONFIGURED' : 'UNCONFIGURED'}</span>}
     >
-      <header className="mv-droom__head">
-        <div className="mv-droom__titlebox">
-          <h2 className="mv-droom__title">{mission.title}</h2>
-          <p className="mv-droom__sub mv-hud">
+      {/* ---- header: mission name is the primary title; one status badge ---- */}
+      <header className="ms-head">
+        <div className="ms-head__titlebox">
+          <p className="ms-kicker mv-hud">
             mission <span className="mv-num">{mission.id.slice(0, 14)}…</span> · configure what
             MOTERVA may observe, decide and propose
           </p>
+          <h2 className="ms-title">{mission.title}</h2>
+          {isRegistered && view !== null && (
+            <p className="ms-support" data-testid="ms-objective">
+              {view.objective}
+            </p>
+          )}
         </div>
-        <div className="mv-droom__badges">
-          <HaloBadge tone="hold" glyph="⚑" label="PROPOSES ONLY" />
-          <HaloBadge tone="neutral" glyph="◇" label="POLICY-ONLY DECISIONS" />
+        <div className="ms-head__badges">
+          {statusBadge}
+          <span
+            className="ms-policychip mv-hud"
+            title="MOTERVA only proposes financial actions. Approval, reservation and provider execution are separate, human-governed controls."
+          >
+            Proposes only
+          </span>
         </div>
       </header>
 
-      <Stepper steps={steps} ariaLabel="Mission setup readiness" />
+      {/* ---- readiness strip: real states only, never fake completion ---- */}
+      <ol className="ms-rstrip" aria-label="Mission setup readiness" data-testid="ms-readiness">
+        {readiness.map((r) => (
+          <li className={'ms-rstrip__item is-' + r.state} key={r.key}>
+            <span className="ms-rstrip__dot" aria-hidden="true">
+              {r.state === 'done'
+                ? '●'
+                : r.state === 'active'
+                  ? '◐'
+                  : r.state === 'unknown'
+                    ? '?'
+                    : '○'}
+            </span>
+            <span className="ms-rstrip__label">{r.label}</span>
+            {r.note !== undefined && <span className="ms-rstrip__note mv-hud">{r.note}</span>}
+          </li>
+        ))}
+      </ol>
 
       {spec.kind === 'loading' && <SkeletonRows label="Reading the registered specification…" />}
       {spec.kind === 'error' && (
@@ -365,120 +398,242 @@ export function MissionSetup({
           it — the server requires operator or above.
         </p>
       )}
-
       {registered !== null && (
         <p role="status" className="mv-droom__notice" data-testid="setup-registered-notice">
           {registered.replayed
             ? 'This exact specification was already registered — nothing changed (idempotent).'
             : 'Specification registered.'}{' '}
-          Spec <span className="mv-num">{registered.specId}</span> · digest{' '}
-          <span className="mv-num">{registered.digest}</span>. Specifications are immutable history;
-          the next step is to onboard the sources that will report.
+          The next step is to onboard the sources that will report.
         </p>
       )}
 
-      {/* -------------------------------------------- registered specification */}
-      {view !== null && (
+      {/* ================= registered: brief (65) + financial boundaries (35) */}
+      {view !== null && view.registered && (
+        <div className="ms-grid">
+          {/* ---------- left · mission brief ---------- */}
+          <section className="ms-brief" aria-label="Mission brief" data-testid="setup-spec-summary">
+            <h3 className="ms-coltitle">Mission brief</h3>
+            <dl className="ms-rows">
+              <div className="ms-row">
+                <dt>Objective</dt>
+                <dd>{view.objective}</dd>
+              </div>
+              <div className="ms-row">
+                <dt>Participating assets</dt>
+                <dd>
+                  <ul className="ms-assets">
+                    {view.assets.map((a) => (
+                      <li key={a.assetId}>
+                        <span className="ms-assets__name">{a.label}</span>
+                        <span className="ms-assets__meta mv-hud">
+                          {a.domainKind} · <span className="mv-num">{a.assetId}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+              <div className="ms-row">
+                <dt>Safety policy</dt>
+                <dd>
+                  {view.safetyPolicy.uavWindLimitKt !== undefined && (
+                    <p className="ms-row__line">
+                      Flights are permitted only below{' '}
+                      <strong>{String(view.safetyPolicy.uavWindLimitKt)} kt modeled wind</strong> —
+                      an operating rule this mission declares, not a measurement.
+                    </p>
+                  )}
+                  {view.safetyPolicy.groundInterrupts !== undefined && (
+                    <p className="ms-row__line">
+                      Ground operations halt on{' '}
+                      <strong>{view.safetyPolicy.groundInterrupts.join(', ')}</strong>.
+                    </p>
+                  )}
+                  {view.safetyPolicy.uavWindLimitKt === undefined &&
+                    view.safetyPolicy.groundInterrupts === undefined && (
+                      <p className="ms-row__line">No domain thresholds declared.</p>
+                    )}
+                </dd>
+              </div>
+              <div className="ms-row">
+                <dt>Operating constraints</dt>
+                <dd>
+                  <ul className="ms-suppliers">
+                    <li>
+                      <span className="ms-suppliers__role">Incumbent</span>{' '}
+                      {view.offers.incumbent.id} → {view.offers.incumbent.beneficiary} ·{' '}
+                      <span className="mv-num">
+                        {safeMoney(
+                          view.offers.incumbent.currency,
+                          view.offers.incumbent.baseCostMinor + view.offers.incumbent.feeMinor,
+                        )}
+                      </span>
+                    </li>
+                    {view.offers.alternatives.map((o) => (
+                      <li key={o.id}>
+                        <span className="ms-suppliers__role">Alternative</span> {o.id} →{' '}
+                        {o.beneficiary} ·{' '}
+                        <span className="mv-num">
+                          {safeMoney(o.currency, o.baseCostMinor + o.feeMinor)}
+                        </span>
+                      </li>
+                    ))}
+                    {view.offers.diagnostics !== undefined && (
+                      <li>
+                        <span className="ms-suppliers__role">Diagnostics</span>{' '}
+                        {view.offers.diagnostics.id} → {view.offers.diagnostics.beneficiary}
+                      </li>
+                    )}
+                  </ul>
+                </dd>
+              </div>
+            </dl>
+
+            <details className="ms-details" data-testid="ms-techdetails">
+              <summary>Technical details</summary>
+              <div className="ms-details__body">
+                <dl className="ms-rows">
+                  <div className="ms-row">
+                    <dt>Specification id</dt>
+                    <dd className="mv-num">{view.specId}</dd>
+                  </div>
+                  <div className="ms-row">
+                    <dt>Digest</dt>
+                    <dd className="mv-num">
+                      {view.specDigest} <CopyButton value={view.specDigest} label="digest" />
+                    </dd>
+                  </div>
+                  <div className="ms-row">
+                    <dt>Industry label</dt>
+                    <dd>{view.industry}</dd>
+                  </div>
+                  <div className="ms-row">
+                    <dt>Truth label</dt>
+                    <dd>{view.truthLabel}</dd>
+                  </div>
+                </dl>
+                <details className="mv-governed__manual">
+                  <summary>Raw specification JSON</summary>
+                  <pre className="ms-json mv-num" tabIndex={0}>
+                    {JSON.stringify(view, null, 2)}
+                  </pre>
+                </details>
+                <p className="mv-governed__note">
+                  Read-only configuration; spending authority lives only in ledger mandates.
+                </p>
+              </div>
+            </details>
+
+            {canOperate && (
+              <div className="ms-brief__actions">
+                <button
+                  type="button"
+                  className="mv-btn"
+                  data-testid="setup-new-version"
+                  onClick={() => setShowForm(true)}
+                >
+                  Create new specification version
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* ---------- right · financial boundaries ---------- */}
+          <section
+            className="ms-financial"
+            aria-label="Financial boundaries"
+            data-testid="setup-authority"
+          >
+            <h3 className="ms-coltitle">Financial boundaries</h3>
+            <p className="mv-governed__note">
+              Planning parameters for this mission — not account balances. Spending authority exists
+              only as a ledger mandate granted by an owner or admin; a separate human approves every
+              plan.
+            </p>
+            <dl className="ms-rows">
+              <div className="ms-row">
+                <dt>Mission value at stake</dt>
+                <dd className="mv-num">
+                  {safeMoney(view.economics.currency, view.economics.missionValueMinor)}
+                </dd>
+              </div>
+              <div className="ms-row">
+                <dt>Failure cost avoided</dt>
+                <dd className="mv-num">
+                  {safeMoney(view.economics.currency, view.economics.failureCostMinor)}
+                </dd>
+              </div>
+              <div className="ms-row">
+                <dt>Protected reserve — never spendable</dt>
+                <dd className="mv-num">
+                  {safeMoney(view.economics.currency, view.economics.protectedReserveMinor)}
+                </dd>
+              </div>
+              <div className="ms-row">
+                <dt>Decision deadline</dt>
+                <dd className="mv-num">
+                  +{String(view.economics.deadlineOffsetMinutes)} min after evaluation
+                </dd>
+              </div>
+            </dl>
+            <p className="mv-governed__note" data-testid="setup-mandate-shape">
+              Expected mandate shape: {view.financialMandateShape.currency} · beneficiaries{' '}
+              {view.financialMandateShape.allowedBeneficiaries.join(', ')} · purposes{' '}
+              {view.financialMandateShape.allowedPurposes.join(', ')}
+            </p>
+            {mandate !== null ? (
+              <p role="status" data-testid="setup-mandate-active">
+                Active mandate v{String(mandate.version)}:{' '}
+                <span className="mv-num">{money(mandate.currency, mandate.remaining_minor)}</span>{' '}
+                remaining of {money(mandate.currency, mandate.total_budget_minor)} · expires{' '}
+                {mandate.expires_at}
+              </p>
+            ) : (
+              <p className="mv-governed__note">
+                No active mandate in {economicsCurrency} for this mission — every spend candidate
+                will be refused until one is granted.
+              </p>
+            )}
+            {mandateNotice !== null && (
+              <p role="status" className="mv-droom__notice" data-testid="setup-mandate-notice">
+                {mandateNotice}
+              </p>
+            )}
+            <div className="ms-financial__actions">
+              <button
+                type="button"
+                className="mv-btn"
+                data-testid="setup-grant-authority"
+                disabled={csrfToken === null}
+                onClick={() => setSheet('mandate')}
+              >
+                {canGrant ? 'Grant spending authority' : 'Review the authority request'}
+              </button>
+              <a
+                className="mv-btn mv-btn--primary"
+                href="#decisions"
+                data-testid="setup-open-decisions"
+              >
+                Continue: evaluate field evidence →
+              </a>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ================= unregistered: honest note, then the authoring form */}
+      {view !== null && !view.registered && (
         <section
-          className="mv-governed"
+          className="ms-brief"
           aria-label="Registered specification"
           data-testid="setup-spec-summary"
         >
-          <h3 className="mv-droom__secttitle">Registered specification</h3>
-          {!view.registered ? (
-            <p className="mv-governed__note" data-testid="setup-unregistered">
-              <strong>No specification is registered for this mission.</strong> Without one the
-              server would evaluate against the built-in harbor DEMO default — MOTERVA will not do
-              that for a customer mission silently. Register your own specification below before
-              evaluating.
-            </p>
-          ) : (
-            <>
-              <dl className="mv-mandate__meta">
-                <div>
-                  <dt>Spec id · digest</dt>
-                  <dd className="mv-num">
-                    {view.specId} · {view.specDigest}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Industry label</dt>
-                  <dd>{view.industry}</dd>
-                </div>
-                <div>
-                  <dt>Objective</dt>
-                  <dd>{view.objective}</dd>
-                </div>
-                <div>
-                  <dt>Assets</dt>
-                  <dd>
-                    {view.assets
-                      .map((a) => `${a.label} (${a.domainKind}, ${a.assetId})`)
-                      .join(' · ')}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Safety thresholds</dt>
-                  <dd>
-                    {view.safetyPolicy.uavWindLimitKt !== undefined
-                      ? `wind limit ${String(view.safetyPolicy.uavWindLimitKt)} kt (modeled rule, not a measurement)`
-                      : null}
-                    {view.safetyPolicy.groundInterrupts !== undefined
-                      ? ` ground interrupts: ${view.safetyPolicy.groundInterrupts.join(', ')}`
-                      : null}
-                    {view.safetyPolicy.uavWindLimitKt === undefined &&
-                    view.safetyPolicy.groundInterrupts === undefined
-                      ? 'none declared'
-                      : null}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Economics</dt>
-                  <dd className="mv-num">
-                    value {safeMoney(view.economics.currency, view.economics.missionValueMinor)} ·
-                    failure {safeMoney(view.economics.currency, view.economics.failureCostMinor)} ·
-                    reserve{' '}
-                    {safeMoney(view.economics.currency, view.economics.protectedReserveMinor)} ·
-                    deadline +{String(view.economics.deadlineOffsetMinutes)} min
-                  </dd>
-                </div>
-                <div>
-                  <dt>Suppliers</dt>
-                  <dd>
-                    incumbent {view.offers.incumbent.id} → {view.offers.incumbent.beneficiary} (
-                    {safeMoney(
-                      view.offers.incumbent.currency,
-                      view.offers.incumbent.baseCostMinor + view.offers.incumbent.feeMinor,
-                    )}
-                    )
-                    {view.offers.alternatives.map((o) => (
-                      <span key={o.id}>
-                        {' '}
-                        · alternative {o.id} → {o.beneficiary} (
-                        {safeMoney(o.currency, o.baseCostMinor + o.feeMinor)})
-                      </span>
-                    ))}
-                    {view.offers.diagnostics !== undefined
-                      ? ` · diagnostics ${view.offers.diagnostics.id}`
-                      : ''}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mv-governed__note">
-                {view.truthLabel}. Read-only: spending authority lives only in ledger mandates.
-              </p>
-            </>
-          )}
-          {canOperate && view.registered && !showForm && (
-            <button
-              type="button"
-              className="mv-btn"
-              data-testid="setup-new-version"
-              onClick={() => setShowForm(true)}
-            >
-              Register a new specification version
-            </button>
-          )}
+          <h3 className="ms-coltitle">Mission brief</h3>
+          <p className="mv-governed__note" data-testid="setup-unregistered">
+            <strong>No specification is registered for this mission.</strong> Without one the server
+            would evaluate against the built-in harbor DEMO default — MOTERVA will not do that for a
+            customer mission silently. Register your own specification below before evaluating.
+          </p>
         </section>
       )}
 
@@ -578,7 +733,7 @@ export function MissionSetup({
         </section>
       )}
 
-      {/* ------------------------------------------------- sources + guide */}
+      {/* ---------------------------- sources + collapsed developer integration */}
       {isRegistered && (
         <>
           <SourceCredentials
@@ -592,70 +747,24 @@ export function MissionSetup({
             onSessionExpired={onSessionExpired}
             onIssued={() => setIssuedKeyCount((n) => n + 1)}
           />
-          <HeadlessGuide
-            missionId={mission.id}
-            orgId={orgId}
-            source={sourceForGuide}
-            assetDomain={domainOf(sourceForGuide?.assetIds[0])}
-          />
-
-          {/* -------------------------------------------------- authority */}
-          <section
-            className="mv-governed"
-            aria-label="Spending authority"
-            data-testid="setup-authority"
-          >
-            <h3 className="mv-droom__secttitle">Spending authority</h3>
-            <p className="mv-governed__lead">
-              The specification only states which suppliers and purposes this mission{' '}
-              <em>expects</em>. Authority to spend exists only as a ledger mandate granted by a
-              human owner or admin — with a cap, a budget, an expiry, and exact beneficiaries and
-              purposes. A separate human approves every plan.
-            </p>
-            <p className="mv-governed__note" data-testid="setup-mandate-shape">
-              Expected mandate shape: {view?.financialMandateShape.currency} · beneficiaries{' '}
-              {view?.financialMandateShape.allowedBeneficiaries.join(', ')} · purposes{' '}
-              {view?.financialMandateShape.allowedPurposes.join(', ')}
-            </p>
-            {mandate !== null ? (
-              <p role="status" data-testid="setup-mandate-active">
-                Active mandate v{String(mandate.version)}:{' '}
-                <span className="mv-num">{money(mandate.currency, mandate.remaining_minor)}</span>{' '}
-                remaining of {money(mandate.currency, mandate.total_budget_minor)} · expires{' '}
-                {mandate.expires_at}
-              </p>
-            ) : (
-              <p className="mv-governed__note">
-                No active mandate in {economicsCurrency} for this mission — every spend candidate
-                will be refused until one is granted.
-              </p>
-            )}
-            {mandateNotice !== null && (
-              <p role="status" className="mv-droom__notice" data-testid="setup-mandate-notice">
-                {mandateNotice}
-              </p>
-            )}
-            <div className="mv-droom__actions">
-              <button
-                type="button"
-                className="mv-btn"
-                data-testid="setup-grant-authority"
-                disabled={csrfToken === null}
-                onClick={() => setSheet('mandate')}
-              >
-                {canGrant
-                  ? 'Grant spending authority (prefilled from the specification)'
-                  : 'Review the authority request (owner or admin grants it)'}
-              </button>
-              <a
-                className="mv-btn mv-btn--primary"
-                href="#decisions"
-                data-testid="setup-open-decisions"
-              >
-                Continue: evaluate field evidence →
-              </a>
+          <details className="ms-devint" data-testid="developer-integration">
+            <summary>
+              Developer integration / API reference
+              <span className="ms-devint__hint mv-hud">
+                how a field system sends signed evidence
+              </span>
+            </summary>
+            <div className="ms-devint__inner">
+              <h3 className="ms-coltitle">How a field system sends signed evidence</h3>
+              <HeadlessGuide
+                missionId={mission.id}
+                orgId={orgId}
+                source={sourceForGuide}
+                assetDomain={domainOf(sourceForGuide?.assetIds[0])}
+                embedded
+              />
             </div>
-          </section>
+          </details>
         </>
       )}
 
