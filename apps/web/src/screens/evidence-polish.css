@@ -1,0 +1,374 @@
+/*
+ * Evidence Replay screen polish (MTV-20) — screen-specific styles only.
+ * Global rules live in styles.css and route every color through the
+ * semantic --mv-* tokens (theme/tokens.css); this file layers the compact
+ * timeline aesthetic (Sentry/Linear spirit) on top of the existing
+ * .mv-evidence hooks without editing global styles.
+ */
+
+/* ---------- summary line ------------------------------------------------ */
+
+.mv-evsum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.78rem;
+  color: var(--mv-ink-2);
+}
+
+.mv-evsum .mv-num {
+  font-weight: 600;
+  color: var(--mv-ink-1);
+}
+
+.mv-evsum__dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+  align-self: center;
+}
+
+.mv-evsum__topic--financial {
+  color: var(--mv-accent-text);
+}
+
+.mv-evsum__topic--operational {
+  color: var(--mv-info-text);
+}
+
+.mv-evsum__scope {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+/* ---------- timeline list ---------------------------------------------- */
+
+.mv-evtl {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+/* Restrained timeline spine down the left edge of the rows. */
+.mv-evtl::before {
+  content: '';
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 1.55rem;
+  width: 1px;
+  background: var(--mv-line-strong);
+  opacity: 0.7;
+}
+
+/* ---------- event row --------------------------------------------------- */
+
+.mv-evrow {
+  position: relative;
+}
+
+.mv-evrow__select {
+  display: grid;
+  grid-template-columns: 3.1rem 1fr;
+  align-items: start;
+  width: 100%;
+  gap: 0 0.4rem;
+  padding: 0.5rem 0.6rem 0.5rem 0.35rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-height: 60px;
+  max-height: 90px;
+  transition:
+    background-color var(--mv-motion-fast, 120ms) ease,
+    box-shadow var(--mv-motion-fast, 120ms) ease;
+}
+
+.mv-evrow__select:hover {
+  background: var(--mv-surface-raised);
+}
+
+.mv-evrow__select:focus-visible {
+  outline: 2px solid var(--mv-accent-fill);
+  outline-offset: -2px;
+}
+
+.mv-evrow.is-selected .mv-evrow__select {
+  background: var(--mv-surface-raised);
+  box-shadow: inset 2px 0 0 var(--mv-accent-fill);
+}
+
+.mv-evrow__seq {
+  grid-column: 1;
+  text-align: right;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  opacity: 0.6;
+  padding-top: 0.1rem;
+}
+
+/* Sequence node on the spine: a quiet ring, no animation, no fake live dot. */
+.mv-evrow__spine {
+  position: absolute;
+  left: 1.48rem;
+  top: 0.95rem;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--mv-line-strong);
+  background: var(--mv-surface-card);
+}
+
+.mv-evrow.is-selected .mv-evrow__spine {
+  border-color: var(--mv-accent-fill);
+}
+
+.mv-evrow__body {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 0.9rem;
+  min-width: 0;
+}
+
+.mv-evrow__toprow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.mv-evrow__title {
+  font-size: 0.86rem;
+  font-weight: 550;
+  color: var(--mv-ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.mv-evrow__topic,
+.mv-evrow__tier {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  line-height: 1.5;
+}
+
+.mv-evrow__topic--financial {
+  color: var(--mv-accent-text);
+  border-color: var(--mv-accent-text);
+}
+
+.mv-evrow__topic--operational {
+  color: var(--mv-info-text);
+  border-color: var(--mv-info-text);
+}
+
+.mv-evrow__tier--journal {
+  color: var(--mv-ink-2);
+  border-color: var(--mv-line-strong);
+}
+
+.mv-evrow__tier--field {
+  color: var(--mv-verified-text);
+  border-color: var(--mv-verified-text);
+}
+
+.mv-evrow__tier--provider {
+  color: var(--mv-verified-text);
+  background: var(--mv-verified-bg);
+  border-color: var(--mv-verified-text);
+}
+
+.mv-evrow__line {
+  font-size: 0.76rem;
+  color: var(--mv-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mv-evrow__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.7rem;
+  color: var(--mv-ink-3);
+}
+
+.mv-evrow__inspect {
+  margin-left: auto;
+  opacity: 0;
+  font-size: 0.68rem;
+  color: var(--mv-accent-text);
+  transition: opacity var(--mv-motion-fast, 120ms) ease;
+  white-space: nowrap;
+}
+
+.mv-evrow__select:hover .mv-evrow__inspect,
+.mv-evrow__select:focus-visible .mv-evrow__inspect,
+.mv-evrow.is-selected .mv-evrow__inspect {
+  opacity: 1;
+}
+
+.mv-evrow__subtle {
+  font-size: 0.74rem;
+  opacity: 0.75;
+  margin: 0.2rem 0 0;
+  color: var(--mv-ink-3);
+}
+
+/* Unrecognized future event types: honest fallback styling (dotted node). */
+.mv-evrow--unrecognized .mv-evrow__spine {
+  border-style: dashed;
+}
+
+/* Retained shared-e2e payload hook: present in DOM, never visible. */
+.mv-evrow__hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- search ------------------------------------------------------ */
+
+.mv-evidence__searchwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mv-evidence__search {
+  min-width: 0;
+  width: clamp(9rem, 18vw, 15rem);
+  padding: 0.3rem 0.6rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--mv-ink-1);
+  background: var(--mv-surface-card);
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+}
+
+.mv-evidence__search:focus-visible {
+  outline: 2px solid var(--mv-accent-fill);
+  outline-offset: 1px;
+}
+
+.mv-evidence__searchscope {
+  font-size: 0.66rem;
+  font-style: italic;
+  color: var(--mv-ink-3);
+  white-space: nowrap;
+}
+
+/* ---------- inspector tier banner --------------------------------------- */
+
+.mv-evdetail__tier {
+  margin: 0 0 0.7rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  border: 1px solid var(--mv-line-strong);
+}
+
+.mv-evdetail__tier--journal {
+  color: var(--mv-ink-2);
+}
+
+.mv-evdetail__tier--field {
+  color: var(--mv-verified-text);
+}
+
+.mv-evdetail__tier--provider {
+  color: var(--mv-verified-text);
+  background: var(--mv-verified-bg);
+}
+
+/* ---------- responsive --------------------------------------------------- */
+
+@media (max-width: 420px) {
+  .mv-evrow__select {
+    grid-template-columns: 2.2rem 1fr;
+    min-height: 74px;
+  }
+
+  .mv-evtl::before {
+    left: 1.15rem;
+  }
+
+  .mv-evrow__spine {
+    left: 1.08rem;
+  }
+
+  .mv-evrow__tier {
+    display: none;
+  }
+
+  .mv-evsum__scope {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+
+  .mv-evidence__search {
+    width: 100%;
+  }
+
+  .mv-evidence__searchwrap {
+    width: 100%;
+  }
+}
+
+@media (min-width: 421px) and (max-width: 1100px) {
+  .mv-evrow__select {
+    grid-template-columns: 2.7rem 1fr;
+  }
+
+  .mv-evtl::before {
+    left: 1.35rem;
+  }
+
+  .mv-evrow__spine {
+    left: 1.28rem;
+  }
+}
+
+/* ---------- reduced motion ----------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-evrow__select,
+  .mv-evrow__inspect {
+    transition: none;
+  }
+}
+
+/* ---------- 200% zoom / narrow safety ------------------------------------ */
+
+@media (max-width: 700px) {
+  .mv-evrow__title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
