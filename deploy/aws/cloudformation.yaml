@@ -171,7 +171,9 @@ Resources:
           ROOT_SRC=$(findmnt -n -o SOURCE /)                 # e.g. /dev/nvme0n1p1
           ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -n1)
           [ -n "$ROOT_DISK" ] || ROOT_DISK=$(echo "$ROOT_SRC" | sed -E 's/[0-9]+$//;s#^/dev/##')
-          DATADEVS=$(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v "^/dev/${ROOT_DISK}$")
+          # UserData is Fn::Sub: use unbraced $ROOT_DISK so CloudFormation
+          # does not treat the shell variable as a resource dependency.
+          DATADEVS=$(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v "^/dev/$ROOT_DISK$")
           DEV_COUNT=$(echo "$DATADEVS" | grep -c . || true)
           [ "$DEV_COUNT" = "1" ] || { echo "FATAL: expected exactly one data disk, found $DEV_COUNT ($DATADEVS)"; exit 1; }
           DATADEV=$(echo "$DATADEVS" | head -n1)
