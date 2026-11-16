@@ -59,6 +59,14 @@ terminal `ROLLBACK_COMPLETE` CloudFormation stack record; keep Cognito,
 Secrets Manager and any retained ECR repositories). Recovery is required
 only after a failed first CloudFormation creation, not during regular redeploys.
 
+**Resume an existing healthy stack:** after a failure *following* a successful
+CloudFormation creation (for example, during SSM compose delivery), rerun the
+new SHA-pinned bootstrap with `--skip-stack`, not
+`--recover-rolled-back-stack`. The CloudFormation stack, Elastic IP, EBS
+ledger, Cognito user pool and custody key remain intact. Commands delivered
+over SSM use JSON parameter maps, not AWS CLI's fragile shorthand parser;
+this includes both bootstrap and GitHub Actions image deployment/readback.
+
 ### Spend honesty (CTO P0-8)
 
 The budget is an **ALERT, not a hard spending cap**. Expected steady state

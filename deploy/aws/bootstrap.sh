@@ -99,10 +99,14 @@ fetch_companion() { # fetch + VERIFY a companion against the embedded sha256 map
 
 ssm_run() { # run a shell command on the judge instance, wait, return stdout
   local instance_id="$1" cmd="$2" timeout="${3:-120}"
-  local cid status
+  local cid status parameters
+  # JSON is essential: AWS CLI shorthand commands=[...] breaks on quotes,
+  # commas and shell pipelines (the first live compose delivery proved it).
+  # jq encodes the exact command as one SSM commands list entry.
+  parameters=$(jq -nc --arg cmd "$cmd" '{commands:[$cmd]}')
   cid=$(aws ssm send-command --region "$REGION" --instance-ids "$instance_id" \
     --document-name AWS-RunShellScript --comment "moterva-bootstrap" \
-    --parameters "commands=[$cmd]" --timeout-seconds "$timeout" \
+    --parameters "$parameters" --timeout-seconds "$timeout" \
     --query 'Command.CommandId' --output text)
   for _ in $(seq 1 "$timeout"); do
     status=$(aws ssm get-command-invocation --region "$REGION" --command-id "$cid" \
