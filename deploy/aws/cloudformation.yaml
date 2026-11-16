@@ -16,7 +16,7 @@
 #   - Elastic IP (stable judge URL)
 #   - ECR repositories (immutable tags) the CI deploy workflow pushes to
 #   - a monthly cost Budget with ALERT emails (an alert is NOT a hard cap;
-#     steady ≈ $13.5/mo incl. public IPv4 $3.60; credits may not cover all fees)
+#     steady ≈ $15/mo incl. 16 GB root and public IPv4; credits may not cover all fees)
 #   - status-check alarm + SNS alert topic
 #   - user-data: Docker/compose install, ledger volume mount (nofail), swap,
 #     Secrets Manager env fetch, /opt/moterva update helper — cfn-signals
@@ -37,7 +37,7 @@ Parameters:
   MonthlyBudgetLimit:
     Type: Number
     Default: 18
-    Description: USD monthly budget ALERT threshold (alert only — not a cap; steady ≈ $13.5 incl. public IPv4).
+    Description: USD monthly budget ALERT threshold (alert only, not a cap; steady about $15 incl. both EBS volumes and public IPv4).
   VpcId:
     Type: AWS::EC2::VPC::Id
   SubnetId:
@@ -47,19 +47,35 @@ Parameters:
     Type: String
     Default: t3.micro
     AllowedValues: [t3.micro, t3.small]
+  CreateApiRepository:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create the API ECR repository only when it does not already exist.
+  CreateWebRepository:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create the web ECR repository only when it does not already exist.
+
+Conditions:
+  ShouldCreateApiRepository: !Equals [!Ref CreateApiRepository, 'true']
+  ShouldCreateWebRepository: !Equals [!Ref CreateWebRepository, 'true']
 
 Resources:
   # ------------------------------------------------------------ ECR
   ApiRepository:
     Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
+    Condition: ShouldCreateApiRepository
+    DeletionPolicy: RetainExceptOnCreate
     Properties:
       RepositoryName: moterva-api
       ImageTagMutability: IMMUTABLE
       ImageScanningConfiguration: { ScanOnPush: true }
   WebRepository:
     Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
+    Condition: ShouldCreateWebRepository
+    DeletionPolicy: RetainExceptOnCreate
     Properties:
       RepositoryName: moterva-web
       ImageTagMutability: IMMUTABLE
@@ -94,8 +110,10 @@ Resources:
                   - 'ecr:BatchCheckLayerAvailability'
                   - 'ecr:DescribeRepositories'
                 Resource:
-                  - !GetAtt ApiRepository.Arn
-                  - !GetAtt WebRepository.Arn
+                  # Existing repositories can be reused after an earlier
+                  # failed stack; no GetAtt of a conditional resource.
+                  - !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-api'
+                  - !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/moterva-web'
               - Effect: Allow
                 Action: 'secretsmanager:GetSecretValue'
                 Resource: !Ref MotervaSecretArn
@@ -115,7 +133,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: moterva-judge-sg
-      GroupDescription: MOTERVA judge edge — HTTPS + ACME HTTP-01 only; no SSH ingress
+      GroupDescription: MOTERVA judge edge - HTTPS + ACME HTTP-01 only; no SSH ingress
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
@@ -129,7 +147,7 @@ Resources:
     # never succeed with a broken runtime.
     CreationPolicy:
       ResourceSignal:
-        Timeout: PT10M
+        Timeout: PT20M
     Properties:
       ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
       InstanceType: !Ref InstanceType
@@ -141,14 +159,14 @@ Resources:
         - { Key: moterva:role, Value: judge }
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
-          Ebs: { VolumeSize: 8, VolumeType: gp3, Encrypted: true }
+          Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true }
         - DeviceName: /dev/xvdf
           Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: false }
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -euxo pipefail
-          dnf install -y docker jq aws-cfn-bootstrap
+          dnf install -y docker jq aws-cfn-bootstrap xfsprogs
           systemctl enable --now docker
           mkdir -p /usr/local/lib/docker/cli-plugins
           curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
@@ -159,7 +177,7 @@ Resources:
           # ResourceSignal — success is signaled ONLY at the very end; the
           # ERR trap signals failure so a broken boot FAILS THE STACK fast.
           SIGNAL_BIN=$(command -v cfn-signal || echo /opt/aws/apitools/cfn-init/bin/cfn-signal)
-          SIGNAL_OK() { "$SIGNAL_BIN" -e 0 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
+          SIGNAL_OK() { "$SIGNAL_BIN" -e 0 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1; }
           SIGNAL_FAIL() { "$SIGNAL_BIN" -e 1 --stack ${AWS::StackName} --resource JudgeInstance --region ${AWS::Region} >/dev/null 2>&1 || true; }
           trap 'echo "user-data FAILED — signaling stack failure"; SIGNAL_FAIL' ERR
 
@@ -253,8 +271,6 @@ Resources:
           # (SSM) once immutable images exist. Signal success LAST.
           SIGNAL_OK
           trap - ERR
-
-  ElasticIP:
 
   ElasticIP:
     Type: AWS::EC2::EIP

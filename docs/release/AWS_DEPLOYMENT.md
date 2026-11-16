@@ -16,7 +16,7 @@ main-branch fallback exists.
 ```bash
 curl -fsSL \
   https://raw.githubusercontent.com/CosmasMandikonza/Morteva/<REVIEWED_SHA>/deploy/aws/bootstrap.sh \
-  | bash -s -- --ref <REVIEWED_SHA> --domain judge.your-domain.com --email you@your-domain.com
+  | bash -s -- --ref <REVIEWED_SHA> --domain moterva.duckdns.org --email you@your-domain.com
 ```
 
 This single command, idempotently:
@@ -33,7 +33,7 @@ This single command, idempotently:
 4. Deploys the CloudFormation stack (`cloudformation.yaml`): t3.micro,
    SSM-managed (no SSH), encrypted dedicated ledger EBS **bind-mounted into
    the api container** (never a Docker named volume on the root disk),
-   EIP, immutable-tag ECR repos, **$18/month budget ALERT** (alert-only —
+   EIP, immutable-tag ECR repos (reusing any retained by a failed creation), **$18/month budget ALERT** (alert-only —
    see Spend honesty) + status-check alarm, creation that **fails the stack
    on any boot failure** (CreationPolicy ResourceSignal + ERR-trap signal).
    **This step is the founder's approval to spend.**
@@ -53,14 +53,18 @@ This single command, idempotently:
 
 Flags: `--ref <sha>` (**required** for curl|bash runs — provenance),
 `--release-sha <sha>` (wait for a specific SHA), `--refresh-env`
-(re-push secret values into the running stack), `--skip-stack`.
+(re-push secret values into the running stack), `--skip-stack`,
+`--recover-rolled-back-stack` (explicitly permit deletion of only the
+terminal `ROLLBACK_COMPLETE` CloudFormation stack record; keep Cognito,
+Secrets Manager and any retained ECR repositories). Recovery is required
+only after a failed first CloudFormation creation, not during regular redeploys.
 
 ### Spend honesty (CTO P0-8)
 
 The budget is an **ALERT, not a hard spending cap**. Expected steady state
-≈ **$13.5/month**: t3.micro $7.60 + 20 GB gp3 $1.60 + **public IPv4 $3.60**
-(charged even while attached since Feb 2024) + ECR/CloudWatch/transfer
-≈ $0.70. Promotional credits do **not** necessarily cover every fee (e.g.
+≈ **$15/month**: t3.micro $7.60 + 16 GB root gp3 $1.30 + 20 GB data gp3
+$1.60 + **public IPv4 $3.60** (charged even while attached since Feb 2024)
+plus ECR/CloudWatch/transfer ≈ $0.90. Promotional credits do **not** necessarily cover every fee (e.g.
 some marketplace/support charges are credit-ineligible). The $18 budget
 (email at 80% actual / 100% forecast) is the control, not a cap.
 
