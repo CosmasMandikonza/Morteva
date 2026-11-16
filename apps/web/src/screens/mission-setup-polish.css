@@ -1,0 +1,337 @@
+/* ================================================================ Mission
+   Setup clarity polish (screen-scoped, ms-* prefix). Existing MOTERVA
+   semantic tokens and primitives only — no new visual system. Dark flagship,
+   light functional, reduced-motion safe. */
+
+.ms-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px 32px;
+  flex-wrap: wrap;
+  padding: 6px 0 18px;
+}
+.ms-head__titlebox {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.ms-kicker {
+  color: var(--mv-ink-3);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ms-title {
+  font-family: var(--mv-font-display);
+  font-size: clamp(28px, 3.4vw, 40px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.ms-support {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-md);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ms-head__badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+.ms-policychip {
+  color: var(--mv-ink-3);
+  border: 1px solid var(--mv-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: help;
+}
+
+/* ------------------------------------------------------- readiness strip */
+.ms-rstrip {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 26px;
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-card);
+}
+.ms-rstrip__item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.ms-rstrip__dot {
+  font-size: var(--mv-size-sm);
+  line-height: 1;
+}
+.ms-rstrip__item.is-done .ms-rstrip__dot {
+  color: var(--mv-info-text);
+}
+.ms-rstrip__item.is-active .ms-rstrip__dot {
+  color: var(--mv-accent-text);
+}
+.ms-rstrip__item.is-pending .ms-rstrip__dot {
+  color: var(--mv-ink-3);
+}
+.ms-rstrip__item.is-unknown .ms-rstrip__dot {
+  color: var(--mv-hold-text);
+}
+.ms-rstrip__label {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-1);
+}
+.ms-rstrip__note {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------- 65/35 content grid */
+.ms-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
+  gap: 20px 28px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+.ms-brief,
+.ms-financial {
+  min-width: 0;
+  border: 1px solid var(--mv-line);
+  border-radius: 10px;
+  background: var(--mv-surface-card);
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+.ms-coltitle {
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* readable definition rows */
+.ms-rows {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.ms-row {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px dashed var(--mv-line);
+  padding-bottom: 12px;
+}
+.ms-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.ms-row dt {
+  font-size: var(--mv-size-xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+}
+.ms-row dd {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  line-height: 1.55;
+  color: var(--mv-ink-1);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ms-row__line {
+  margin: 0 0 4px;
+}
+.ms-row__line:last-child {
+  margin-bottom: 0;
+}
+
+/* assets: display name first, id secondary */
+.ms-assets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ms-assets li {
+  min-width: 0;
+}
+.ms-assets__name {
+  display: block;
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+}
+.ms-assets__meta {
+  display: block;
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  overflow-wrap: anywhere;
+}
+
+/* suppliers */
+.ms-suppliers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ms-suppliers li {
+  min-width: 0;
+  font-size: var(--mv-size-sm);
+  overflow-wrap: anywhere;
+}
+.ms-suppliers__role {
+  display: inline-block;
+  font-size: var(--mv-size-2xs);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+  border: 1px solid var(--mv-line);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin-right: 6px;
+}
+
+/* technical details disclosure */
+.ms-details {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-sunken);
+}
+.ms-details > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+  letter-spacing: var(--mv-track-caps);
+  text-transform: uppercase;
+}
+.ms-details > summary:hover,
+.ms-details > summary:focus-visible {
+  color: var(--mv-ink-1);
+}
+.ms-details[open] > summary {
+  border-bottom: 1px solid var(--mv-line);
+}
+.ms-details__body {
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+.ms-json {
+  margin: 0;
+  max-width: 100%;
+  overflow: auto;
+  max-height: 320px;
+  font-size: var(--mv-size-xs);
+  line-height: 1.5;
+  white-space: pre;
+  border: 1px solid var(--mv-line);
+  border-radius: 6px;
+  background: var(--mv-surface-page);
+  padding: 10px;
+}
+
+.ms-brief__actions,
+.ms-financial__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ms-financial__actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.ms-financial__actions .mv-btn {
+  text-align: center;
+  text-decoration: none;
+}
+
+/* --------------------------------------------- developer integration box */
+.ms-devint {
+  border: 1px solid var(--mv-line);
+  border-radius: 10px;
+  background: var(--mv-surface-card);
+}
+.ms-devint > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--mv-ink-2);
+  font-size: var(--mv-size-sm);
+}
+.ms-devint > summary:hover,
+.ms-devint > summary:focus-visible {
+  color: var(--mv-ink-1);
+}
+.ms-devint__hint {
+  color: var(--mv-ink-3);
+  font-size: var(--mv-size-xs);
+  overflow-wrap: anywhere;
+}
+.ms-devint[open] > summary {
+  border-bottom: 1px solid var(--mv-line);
+}
+.ms-devint__inner {
+  padding: 14px 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+.ms-devint__body {
+  display: grid;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------- responsive */
+@media (max-width: 1023px) {
+  .ms-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .ms-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ms-rstrip {
+    gap: 6px 16px;
+  }
+  .ms-financial__actions {
+    flex-direction: column;
+  }
+}
+
+/* ---------------------------------------------------------- motion + a11y */
+@media (prefers-reduced-motion: no-preference) {
+  .ms-details,
+  .ms-devint {
+    transition: border-color 160ms ease;
+  }
+}
+.ms-details:focus-within,
+.ms-devint:focus-within {
+  border-color: var(--mv-focus-ring);
+}

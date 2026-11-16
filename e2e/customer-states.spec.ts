@@ -114,6 +114,9 @@ test.describe('configuration: empty and invalid inputs', () => {
     await signIn(page, 'founder');
     await selectMission(page, title);
     await page.getByRole('link', { name: 'Mission Setup' }).click();
+    // spec id moved into the collapsed Technical details disclosure (clarity
+    // redesign) — open it, then assert the same identity.
+    await page.getByTestId('ms-techdetails').locator('> summary').click();
     await expect(page.getByTestId('setup-spec-summary')).toContainText(UNSEEN.specId);
     await page.getByTestId('setup-new-version').click();
     // same spec id, different objective → the server refuses (immutable history)
@@ -596,6 +599,7 @@ test.describe('responsive: 320 / 390 / 640 (200% zoom of a 1280 window) / 1024',
       await page.getByRole('link', { name: 'Mission Setup' }).click();
       await expect(page.getByTestId('setup-spec-summary')).toBeVisible();
       await noHorizontalOverflow(page, width, 'setup');
+      await page.getByTestId('developer-integration').locator('> summary').click();
       const guide = page.getByTestId('headless-guide');
       await guide.scrollIntoViewIfNeeded();
       await expect(guide).toBeVisible();
