@@ -93,6 +93,37 @@ check(
   'ownership not granted post-mount',
 );
 
+// Fn::Sub treats EVERY ${...} in UserData as a CloudFormation logical ID,
+// parameter, or pseudo-parameter. A shell variable such as ${ROOT_DISK}
+// therefore makes ValidateTemplate fail before the first EC2 resource.
+const cfnLogicalIds = new Set(
+  [...cfn.matchAll(/^ {2}([A-Za-z][A-Za-z0-9]*):\s*$/gm)].map((match) => match[1]),
+);
+const cfnPseudoParameters = new Set([
+  'AWS::AccountId',
+  'AWS::Region',
+  'AWS::StackName',
+  'AWS::StackId',
+  'AWS::Partition',
+  'AWS::URLSuffix',
+  'AWS::NoValue',
+  'AWS::NotificationARNs',
+]);
+const unresolvedSubReferences = [...cfn.matchAll(/\$\{([^}]+)\}/g)]
+  .map((match) => match[1])
+  .filter(
+    (name) =>
+      !name.startsWith('!') &&
+      !cfnPseudoParameters.has(name) &&
+      !cfnLogicalIds.has(name.split('.')[0]),
+  );
+check(
+  'CFN-SUB-1',
+  'every Fn::Sub interpolation resolves to a declared logical ID or AWS pseudo-parameter',
+  unresolvedSubReferences.length === 0,
+  `unresolved: ${unresolvedSubReferences.join(', ')}`,
+);
+
 // ---- P0-3: the secret must carry WEB_ORIGIN (what config.ts reads), not
 // the dead MOTERVA_PUBLIC_ORIGIN variable. Scoped to merge_secret's body —
 // the dead variable's name may appear in an explanatory comment, never as
