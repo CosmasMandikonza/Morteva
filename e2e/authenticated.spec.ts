@@ -28,10 +28,10 @@ test.describe('authenticated treasury journey', () => {
     await signIn(page);
     await expect(page.getByTestId('actor-chip')).toContainText('E2E Founder');
 
-    // Provenance is explicit, compact and accurate for a seeded demo.
-    await expect(page.getByTestId('provenance-chip')).toContainText(
-      'Demo workspace · Sample financial data',
-    );
+    // An authenticated workspace has no global demo banner. Financial
+    // sample provenance remains visible at the figures where it matters.
+    await expect(page.getByTestId('provenance-chip')).toHaveCount(0);
+    await expect(page.getByTestId('provenance-banner')).toHaveCount(0);
 
     // Real missions from the ledger.
     const missions = page.getByTestId('missions-panel');
@@ -72,7 +72,7 @@ test.describe('authenticated treasury journey', () => {
     // Provenance (position panel replaced the old capabilities panel): the
     // balance source + freshness is explicit, provider state stays accurate.
     const position = page.getByTestId('position-panel');
-    await expect(position).toContainText('seeded demo data');
+    await expect(position).toContainText('illustrative ledger data');
     await expect(position).toContainText('internal record, not provider-verified');
     await expect(position.getByText('No simulated or fixture data')).toHaveCount(0);
 
@@ -201,23 +201,14 @@ test.describe('authenticated treasury journey', () => {
     await expect(page.getByTestId('actor-chip')).toHaveCount(0);
   });
 
-  test('mobile presents provenance as a banner and keeps the top bar clear', async ({ page }) => {
+  test('mobile keeps the workspace header clean and the data provenance precise', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await signIn(page);
 
-    // Exactly one provenance instance: banner visible, cramped chip hidden.
-    const banner = page.getByTestId('provenance-banner');
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText('Demo workspace · Sample financial data');
-    await expect(page.getByTestId('provenance-chip')).toBeHidden();
-
-    // The banner must not crowd the controls: it lives below the top bar and
-    // never exceeds the viewport width.
-    const box = await banner.boundingBox();
-    expect(box?.x).toBeDefined();
-    if (box) {
-      expect(box.x + box.width).toBeLessThanOrEqual(391);
-    }
+    await expect(page.getByTestId('provenance-chip')).toHaveCount(0);
+    await expect(page.getByTestId('provenance-banner')).toHaveCount(0);
     const scrollWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
     expect(scrollWidth).toBeLessThanOrEqual(391);
 
@@ -227,10 +218,11 @@ test.describe('authenticated treasury journey', () => {
     await expect(page.getByTestId('position-panel')).toContainText(
       'internal record, not provider-verified',
     );
+    await expect(page.getByTestId('position-panel')).toContainText('illustrative ledger data');
     await expect(page.getByText(/hackathon|npm run dev|STATE.md/)).toHaveCount(0);
   });
 
-  test('at 320px the breadcrumb and provenance banner are vertically visible, not overlapped', async ({
+  test('at 320px the breadcrumb and content are vertically visible, not overlapped', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 320, height: 844 });
@@ -243,10 +235,10 @@ test.describe('authenticated treasury journey', () => {
       scrollY: number;
       topbar: { top: number; bottom: number } | null;
       crumb: { top: number; bottom: number } | null;
-      banner: { top: number; bottom: number } | null;
+      main: { top: number; bottom: number } | null;
     }
     const geometry = await page.evaluate<Geometry>(
-      '(() => { const rect = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; }; return { viewportH: window.innerHeight, scrollY: Math.round(window.scrollY), topbar: rect(".mv-topbar"), crumb: rect(".mv-crumb"), banner: rect(".mv-provenance-banner") }; })()',
+      '(() => { const rect = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; }; return { viewportH: window.innerHeight, scrollY: Math.round(window.scrollY), topbar: rect(".mv-topbar"), crumb: rect(".mv-crumb"), main: rect(".mv-main") }; })()',
     );
 
     // Anchored at the top of the page, not mid-scroll.
@@ -254,10 +246,9 @@ test.describe('authenticated treasury journey', () => {
     // The breadcrumb sits fully below the sticky top bar.
     expect(geometry.crumb).not.toBeNull();
     expect(geometry.crumb!.top).toBeGreaterThanOrEqual(geometry.topbar!.bottom);
-    // The entire banner is inside the viewport and below the top bar —
-    // vertical visibility, not just width.
-    expect(geometry.banner).not.toBeNull();
-    expect(geometry.banner!.top).toBeGreaterThanOrEqual(geometry.topbar!.bottom);
-    expect(geometry.banner!.bottom).toBeLessThanOrEqual(geometry.viewportH);
+    // Removing the redundant banner leaves the content below the breadcrumb.
+    expect(geometry.main).not.toBeNull();
+    expect(geometry.main!.top).toBeGreaterThanOrEqual(geometry.crumb!.bottom);
+    expect(geometry.main!.top).toBeLessThanOrEqual(geometry.viewportH);
   });
 });
