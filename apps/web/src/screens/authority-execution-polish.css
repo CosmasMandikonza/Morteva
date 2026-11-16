@@ -1,0 +1,496 @@
+/*
+ * Authority & Execution console polish (screen-local, MTV-20).
+ *
+ * Scope: styles for the reworked AuthorityExecution screen ONLY. Every value
+ * routes through the shared --mv-* semantic tokens (styles.css /
+ * theme/tokens.css) — no raw colors here, so dark/light stay in lockstep.
+ * Class prefix mv-apx- avoids any collision with shared classes; shared
+ * primitives (mv-btn, mv-chip via StatusChip, mv-hud, mv-num, mv-tag,
+ * mv-mandate__meta, mv-stepper, mv-visually-hidden) are reused as-is.
+ *
+ * Density follows the financial-console brief: compact rows, money in
+ * tabular mono, labels in normal sans. No entrance animations; the only
+ * motion is the envelope-fill width transition (same pattern/token as the
+ * shared mv-progress bar), which the global reduced-motion gate collapses.
+ */
+
+/* ------------------------------------------------------------ sections */
+.mv-apx-section {
+  border-top: 1px solid var(--mv-line);
+  padding-top: 14px;
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+.mv-apx-heading {
+  margin: 0;
+  font-family: var(--mv-font-display);
+  font-size: var(--mv-size-md);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.mv-apx-note {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-3);
+}
+.mv-apx-error {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-danger-text);
+  background: var(--mv-danger-bg);
+  border: 1px solid var(--mv-danger-text);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+/* ------------------------------------------------- needs-attention band */
+.mv-apx-attention {
+  border: 1px solid var(--mv-accent-fill);
+  border-left: 3px solid var(--mv-accent-fill);
+  border-radius: 8px;
+  background: var(--mv-accent-soft);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.mv-apx-attention__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mv-apx-attention__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-apx-attention__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--mv-surface-card);
+  border: 1px solid var(--mv-line);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.mv-apx-attention__amount {
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+}
+.mv-apx-attention__terms {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mv-apx-attention__terms strong {
+  color: var(--mv-ink-1);
+  font-weight: 600;
+}
+.mv-apx-attention__row .mv-btn {
+  flex-shrink: 0;
+}
+.mv-apx-readonlynote {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-3);
+  font-style: italic;
+}
+
+/* --------------------------------------------------------- summary row */
+.mv-apx-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.mv-apx-stat {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-raised);
+  padding: 10px 14px 12px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+.mv-apx-stat__label {
+  font-size: var(--mv-size-sm);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+}
+.mv-apx-stat__cur {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mv-apx-stat__currow {
+  display: grid;
+  gap: 2px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  min-width: 0;
+}
+.mv-apx-stat__code {
+  font-size: var(--mv-size-sm);
+  font-weight: 600;
+  color: var(--mv-accent-text);
+  letter-spacing: 0.06em;
+}
+.mv-apx-stat__figure {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+}
+.mv-apx-stat__number {
+  font-size: var(--mv-size-xl);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+  margin-right: 2px;
+}
+.mv-apx-stat__empty {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-3);
+}
+.mv-apx-unavailable {
+  margin: 0;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-danger-text);
+}
+
+/* ---------------------------------------------------- authority matrix */
+.mv-apx-matrixwrap {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  overflow-x: auto; /* a very long raw kind never clips a button */
+  background: var(--mv-surface-raised);
+}
+.mv-apx-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mv-size-sm);
+}
+.mv-apx-matrix th {
+  text-align: left;
+  font-size: var(--mv-size-2xs);
+  font-weight: 600;
+  letter-spacing: var(--mv-track-hud);
+  text-transform: uppercase;
+  color: var(--mv-ink-3);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mv-line-strong);
+  white-space: nowrap;
+}
+.mv-apx-matrix td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mv-line);
+  vertical-align: middle;
+  color: var(--mv-ink-2);
+}
+.mv-apx-matrix tbody tr:last-child td {
+  border-bottom: 0;
+}
+.mv-apx-matrix tbody tr:hover td {
+  background: var(--mv-surface-sunken);
+}
+.mv-apx-matrix__code {
+  font-weight: 600;
+  color: var(--mv-accent-text);
+  letter-spacing: 0.06em;
+}
+.mv-apx-matrix__money {
+  color: var(--mv-ink-1);
+  font-size: var(--mv-size-md);
+}
+.mv-apx-matrix__unit {
+  display: block;
+  margin-top: 2px;
+}
+.mv-apx-matrix__expiry {
+  white-space: nowrap;
+}
+.mv-apx-matrix__kinds {
+  font-family: var(--mv-font-mono);
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* compact envelope meter — width transition matches the shared bar token;
+   the global prefers-reduced-motion gate collapses it. Text always carries
+   the exact figures (role=img + visible "% committed" line). */
+.mv-apx-meter {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+.mv-apx-meter__track {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--mv-surface-sunken);
+  border: 1px solid var(--mv-line);
+  overflow: hidden;
+}
+.mv-apx-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--mv-accent-fill);
+  transition: width var(--mv-motion-fast) var(--mv-motion-standard);
+}
+.mv-apx-meter--warn .mv-apx-meter__fill {
+  background: var(--mv-hold-text);
+}
+.mv-apx-meter__text {
+  font-size: var(--mv-size-xs);
+  color: var(--mv-ink-3);
+}
+/* an amount never breaks mid-number: line breaks fall between figures */
+.mv-apx-meter__text .mv-num,
+.mv-apx-stat__currow .mv-num,
+.mv-apx-matrix__money {
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------ audit details */
+.mv-apx-audit {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-card);
+}
+.mv-apx-audit > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 12px;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  border-radius: 8px;
+}
+.mv-apx-audit > summary::-webkit-details-marker {
+  display: none;
+}
+.mv-apx-audit > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--mv-ink-3);
+  transition: transform var(--mv-motion-fast) var(--mv-motion-standard);
+}
+.mv-apx-audit[open] > summary::before {
+  transform: rotate(90deg);
+}
+.mv-apx-audit > summary:hover {
+  color: var(--mv-ink-1);
+  border-color: var(--mv-line-strong);
+}
+.mv-apx-audit__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px 12px;
+  display: grid;
+  gap: 10px;
+}
+.mv-apx-audit__raw {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: var(--mv-size-xs);
+}
+.mv-apx-histrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  border-top: 1px solid var(--mv-line);
+  padding-top: 8px;
+}
+.mv-apx-histrow:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* ---------------------------------------------------------- proposals */
+.mv-apx-proposals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.mv-apx-proposal {
+  border: 1px solid var(--mv-line);
+  border-radius: 8px;
+  background: var(--mv-surface-raised);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+.mv-apx-proposal__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mv-apx-proposal__amount {
+  font-size: var(--mv-size-lg);
+  font-weight: 600;
+  color: var(--mv-ink-1);
+}
+.mv-apx-proposal__terms {
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mv-apx-proposal__terms strong {
+  color: var(--mv-ink-1);
+  font-weight: 600;
+}
+.mv-apx-proposal__approval {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  border-left: 3px solid var(--mv-verified-text);
+  padding-left: 10px;
+}
+.mv-apx-proposal__audit {
+  background: var(--mv-surface-card);
+}
+.mv-apx-proposal .mv-stepper {
+  font-size: var(--mv-size-xs);
+  gap: 4px 14px;
+}
+.mv-apx-proposal .mv-stepper__note {
+  margin-left: 4px;
+}
+
+/* ------------------------------------------------------------ empty state */
+.mv-apx-empty {
+  border: 1px dashed var(--mv-line-strong);
+  border-radius: 8px;
+  padding: 18px 16px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+}
+.mv-apx-empty__glyph {
+  font-size: var(--mv-size-xl);
+  color: var(--mv-ink-3);
+}
+.mv-apx-empty__title {
+  margin: 0;
+  font-size: var(--mv-size-md);
+  color: var(--mv-ink-1);
+}
+.mv-apx-empty .mv-apx-note {
+  max-width: 46ch;
+}
+
+/* --------------------------------------------------- operational history */
+.mv-apx-ops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mv-apx-op {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--mv-size-sm);
+  color: var(--mv-ink-2);
+  border-bottom: 1px solid var(--mv-line);
+  padding: 6px 2px 8px;
+}
+.mv-apx-op:last-child {
+  border-bottom: 0;
+}
+.mv-apx-op__amount {
+  color: var(--mv-ink-1);
+}
+.mv-apx-op__beneficiary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------- small screens */
+/* Below ~1024px (and at 200% zoom on a 1440+ window, which is the same
+   effective width) the matrix becomes stacked row-cards: every cell carries
+   its data-label, money wraps, nothing clips. */
+@media (max-width: 1023px) {
+  .mv-apx-matrix thead {
+    display: none;
+  }
+  .mv-apx-matrix,
+  .mv-apx-matrix tbody,
+  .mv-apx-matrix tr,
+  .mv-apx-matrix td {
+    display: block;
+    width: 100%;
+  }
+  .mv-apx-matrix tr {
+    border-bottom: 1px solid var(--mv-line);
+    padding: 6px 0;
+  }
+  .mv-apx-matrix tr:last-child {
+    border-bottom: 0;
+  }
+  .mv-apx-matrix td {
+    border-bottom: 0;
+    padding: 4px 12px;
+    display: grid;
+    grid-template-columns: minmax(96px, auto) 1fr;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .mv-apx-matrix td::before {
+    content: attr(data-label);
+    font-size: var(--mv-size-2xs);
+    letter-spacing: var(--mv-track-hud);
+    text-transform: uppercase;
+    color: var(--mv-ink-3);
+  }
+  .mv-apx-matrix__unit {
+    display: inline;
+    margin-left: 6px;
+  }
+  .mv-apx-meter {
+    min-width: 0;
+  }
+}
+@media (max-width: 560px) {
+  .mv-apx-attention__row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .mv-apx-attention__row .mv-btn {
+    width: 100%; /* full-width target; no clipped buttons at 320px */
+  }
+  .mv-apx-proposal__main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .mv-apx-stat__number {
+    font-size: var(--mv-size-lg);
+  }
+}
