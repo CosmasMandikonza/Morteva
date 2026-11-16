@@ -215,7 +215,12 @@ export function journeySteps(
 ): readonly JourneyStep[] {
   const state = operation?.state ?? null;
   const rail = operation?.dispatch?.rail ?? null;
-  return [
+  const completed = state === 'SETTLED' || state === 'RECONCILED';
+  // Internal holds can complete without ever going to a payment provider.
+  // Do not put a green "Verified settled" step on that ledger-only path.
+  const internalPath =
+    operation !== null && (operation.kind === 'internal_hold' || (completed && rail === null));
+  const authoritySteps: JourneyStep[] = [
     {
       key: 'proposed',
       label: 'Proposed',
@@ -249,6 +254,28 @@ export function journeySteps(
             ? 'internal ledger hold — not provider escrow'
             : 'ledger re-checks all authority',
     },
+  ];
+
+  if (internalPath) {
+    return [
+      ...authoritySteps,
+      {
+        key: 'verified',
+        label: completed
+          ? state === 'RECONCILED'
+            ? 'Reconciled internally'
+            : 'Completed internally'
+          : 'Internal completion',
+        state: completed ? 'done' : state === 'STATUS_UNKNOWN' ? 'unknown' : 'pending',
+        note: completed
+          ? 'internal completion — no provider dispatch or provider settlement'
+          : 'ledger-only operation — no provider submission',
+      },
+    ];
+  }
+
+  return [
+    ...authoritySteps,
     {
       key: 'submitted',
       label: 'Submitted',
@@ -268,13 +295,8 @@ export function journeySteps(
     {
       key: 'verified',
       label: 'Verified settled',
-      state: state === 'SETTLED' || state === 'RECONCILED' ? 'done' : 'pending',
-      note:
-        state === 'SETTLED' || state === 'RECONCILED'
-          ? rail !== null
-            ? 'provider readback attested'
-            : 'internal completion — not a provider settlement'
-          : 'provider readback only',
+      state: completed && rail !== null ? 'done' : 'pending',
+      note: completed && rail !== null ? 'provider readback attested' : 'provider readback only',
     },
   ];
 }

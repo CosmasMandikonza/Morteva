@@ -269,12 +269,18 @@ describe('journeySteps — every done step needs ledger evidence', () => {
     expect(steps[4]?.state).toBe('pending');
   });
 
-  it('a RESERVED operation proves reservation (internal hold), submission still pending', () => {
-    const steps = journeySteps(freshPlan, approval(), operation(), 'operator');
+  it('a RESERVED internal hold proves reservation but never implies a provider submission', () => {
+    const steps = journeySteps(
+      freshPlan,
+      approval(),
+      operation({ kind: 'internal_hold', dispatch: null }),
+      'operator',
+    );
     expect(steps[2]?.state).toBe('done');
     expect(steps[2]?.note).toContain('internal ledger hold');
     expect(steps[3]?.state).toBe('pending');
-    expect(steps[4]?.state).toBe('pending');
+    expect(steps[3]?.label).toBe('Internal completion');
+    expect(steps.some((step) => step.label === 'Submitted')).toBe(false);
   });
 
   it('an outbox rail plus SUBMITTING proves submission', () => {
@@ -292,7 +298,7 @@ describe('journeySteps — every done step needs ledger evidence', () => {
     expect(steps[4]?.state).toBe('pending'); // submitted ≠ verified
   });
 
-  it('provider-rail SETTLED is provider-verified; internal SETTLED says so honestly', () => {
+  it('provider-rail SETTLED is provider-verified; internal completion has its own path', () => {
     const providerSteps = journeySteps(
       freshPlan,
       approval(),
@@ -311,9 +317,20 @@ describe('journeySteps — every done step needs ledger evidence', () => {
       operation({ state: 'RECONCILED', kind: 'internal_hold', dispatch: null }),
       'operator',
     );
-    expect(internalSteps[4]?.state).toBe('done');
-    expect(internalSteps[4]?.note).toContain('internal completion');
-    expect(internalSteps[4]?.note).toContain('not a provider settlement');
+    expect(internalSteps).toHaveLength(4);
+    expect(internalSteps[3]?.state).toBe('done');
+    expect(internalSteps[3]?.label).toBe('Reconciled internally');
+    expect(internalSteps[3]?.note).toContain('no provider dispatch');
+    expect(internalSteps.map((step) => step.label)).not.toContain('Verified settled');
+
+    const undispatchedSteps = journeySteps(
+      freshPlan,
+      approval(),
+      operation({ state: 'SETTLED', kind: 'airwallex_transfer', dispatch: null }),
+      'operator',
+    );
+    expect(undispatchedSteps[3]?.label).toBe('Completed internally');
+    expect(undispatchedSteps[3]?.note).toContain('no provider dispatch');
   });
 
   it('STATUS_UNKNOWN halts nothing falsely: submission is unknown, verified stays pending', () => {
