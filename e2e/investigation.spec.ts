@@ -72,7 +72,7 @@ test('mission → position → operation → required action → evidence, one i
   // Clearing the filter returns the full mission timeline (operational
   // observations labeled by topic, financial journal newest-first).
   await page.getByTestId('clear-op-filter').click();
-  await expect(page.getByTestId('evidence-list')).toContainText('operation');
+  await expect(page.getByTestId('evidence-list')).toContainText(/operation/i);
   await expect(evidence.getByTestId('clear-op-filter')).toHaveCount(0);
 
   // (6) Navigation preserves mission context back into the Treasury.
