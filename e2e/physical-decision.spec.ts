@@ -79,6 +79,12 @@ test('one synthetic physical incident changes a real ledger-bound financial deci
     .getByRole('navigation', { name: 'Primary' })
     .getByRole('link', { name: 'Evidence Replay', exact: true })
     .click();
-  await expect(page.getByTestId('evidence-list')).toContainText(result.incident.eventId);
-  await expect(page.getByTestId('evidence-list')).toContainText('mission.event.ingested');
+  // The compact timeline keeps raw event IDs in the inspector while local
+  // search still indexes the API's allowlisted event identity.
+  await page.getByTestId('evidence-search').fill(result.incident.eventId);
+  const matchingRow = page.getByTestId('evidence-list').locator('.mv-evrow__select').first();
+  await expect(matchingRow).toBeVisible({ timeout: 10_000 });
+  await matchingRow.click();
+  await expect(page.getByTestId('evidence-detail')).toContainText(result.incident.eventId);
+  await expect(page.getByTestId('evidence-detail')).toContainText('mission.event.ingested');
 });

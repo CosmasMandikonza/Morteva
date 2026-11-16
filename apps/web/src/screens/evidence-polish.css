@@ -51,6 +51,8 @@
 
 .mv-evtl {
   list-style: none;
+  display: grid;
+  gap: 6px;
   margin: 0;
   padding: 0;
   position: relative;
@@ -74,6 +76,20 @@
   position: relative;
 }
 
+/* The legacy evidence list uses a two-column card grid with extra padding
+ * and staggered fade animation. These rows replace that layout entirely;
+ * leaving those rules active caused wide empty cards and temporarily faded
+ * audit rows in the first viewport. Keep the old selector for E2E identity,
+ * but override its old presentation explicitly. */
+.mv-evidence__event.mv-evrow {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--mv-line);
+  border-radius: 9px;
+  background: var(--mv-surface-page);
+  animation: none;
+}
+
 .mv-evrow__select {
   display: grid;
   grid-template-columns: 3.1rem 1fr;
@@ -91,6 +107,14 @@
   transition:
     background-color var(--mv-motion-fast, 120ms) ease,
     box-shadow var(--mv-motion-fast, 120ms) ease;
+}
+
+.mv-evidence__select.mv-evrow__select {
+  display: grid;
+  grid-template-columns: 3.1rem 1fr;
+  gap: 0 0.4rem;
+  padding: 0.5rem 0.6rem 0.5rem 0.35rem;
+  border-left: 0;
 }
 
 .mv-evrow__select:hover {
@@ -239,17 +263,6 @@
   border-style: dashed;
 }
 
-/* Retained shared-e2e payload hook: present in DOM, never visible. */
-.mv-evrow__hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* ---------- search ------------------------------------------------------ */
 
 .mv-evidence__searchwrap {
@@ -309,7 +322,7 @@
 /* ---------- responsive --------------------------------------------------- */
 
 @media (max-width: 420px) {
-  .mv-evrow__select {
+  .mv-evidence__select.mv-evrow__select {
     grid-template-columns: 2.2rem 1fr;
     min-height: 74px;
   }
@@ -341,7 +354,7 @@
 }
 
 @media (min-width: 421px) and (max-width: 1100px) {
-  .mv-evrow__select {
+  .mv-evidence__select.mv-evrow__select {
     grid-template-columns: 2.7rem 1fr;
   }
 

@@ -46,17 +46,28 @@ interface EventPresentation {
   readonly tier: EvidenceTier;
 }
 
-const PROVIDER_VERIFIED_TYPES = new Set([
-  'operation.settled',
-  'operation.reconciled',
-  'settlement.reversed',
-  'settlement.reversed.after_reconciled',
-  'dispatch.result',
-  'dispatch.reconcile',
-  'dispatch.unknown',
-]);
+/** The event name alone cannot prove provider verification. In particular,
+ *  internal holds can be SETTLED/RECONCILED without any external dispatch,
+ *  and an unknown/failed dispatch result is explicitly NOT verified. The
+ *  allowlisted reconciliation projection contains the provider's readback
+ *  status and timestamp, so only a confirmed, dated readback earns this tier.
+ */
+function isProviderVerifiedReadback(event: MissionEvidenceEventView): boolean {
+  if (event.type !== 'dispatch.reconcile') return false;
+  const payload = event.payload as Record<string, unknown> | null;
+  if (payload?.providerStatus !== 'confirmed') return false;
+  const verifiedAt = payload.verifiedAt;
+  return typeof verifiedAt === 'string' && Number.isFinite(Date.parse(verifiedAt));
+}
 
-const FIELD_CLAIM_TYPES = new Set(['mission.event.ingested']);
+/** Ingest can also carry a SYNTHETIC test event. Its name alone must not
+ *  award the stronger signed-field tier. Provenance is explicitly projected
+ *  by the server; absent provenance remains ordinary journal evidence. */
+function isSignedFieldClaim(event: MissionEvidenceEventView): boolean {
+  if (event.type !== 'mission.event.ingested') return false;
+  const payload = event.payload as Record<string, unknown> | null;
+  return payload?.provenance === 'FIELD';
+}
 
 /**
  * Honest, conservative copy for every event type the engines write today
@@ -93,7 +104,7 @@ const EVENT_COPY: Readonly<Record<string, string>> = {
   'operation.submitting': 'Provider submission started',
   'operation.in_flight': 'Operation in flight',
   'operation.status_unknown': 'Outcome recorded as unknown',
-  'operation.settled': 'Verified settlement recorded',
+  'operation.settled': 'Operation settlement recorded',
   'operation.reconciled': 'Operation reconciliation recorded',
   'operation.cancelled': 'Operation cancellation recorded',
   'operation.rejected': 'Operation rejection recorded',
@@ -221,9 +232,9 @@ function presentEvent(event: MissionEvidenceEventView): EventPresentation {
   const payload = (event.payload ?? null) as Record<string, unknown> | null;
   const known = Object.prototype.hasOwnProperty.call(EVENT_COPY, type);
   const title = known ? (EVENT_COPY[type] as string) : 'Journal event recorded';
-  const tier: EvidenceTier = PROVIDER_VERIFIED_TYPES.has(type)
+  const tier: EvidenceTier = isProviderVerifiedReadback(event)
     ? 'provider'
-    : FIELD_CLAIM_TYPES.has(type)
+    : isSignedFieldClaim(event)
       ? 'field'
       : 'journal';
   const summary = known ? summarize(type, payload) : null;
@@ -255,6 +266,12 @@ function relativeDay(iso: string, nowMs: number): string {
 const SEARCHABLE_FIELDS = [
   'type',
   'eventKey',
+  'eventId',
+  'operationId',
+  'planId',
+  'evaluationId',
+  'sourceId',
+  'assetId',
   'currency',
   'rail',
   'role',
@@ -560,17 +577,6 @@ export function Evidence({
                       </span>
                     </span>
                     {summaryLine !== null && <span className="mv-evrow__line">{summaryLine}</span>}
-                    {/* Retained payload hook (shared e2e reads .mv-evidence__payload dd). */}
-                    <span className="mv-evidence__payload mv-evrow__hidden">
-                      {event.payload !== null && (
-                        <dl>
-                          <div>
-                            <dt>seq</dt>
-                            <dd className="mv-num">{String(event.seq)}</dd>
-                          </div>
-                        </dl>
-                      )}
-                    </span>
                     <span className="mv-evrow__meta">
                       <time dateTime={event.recordedAt}>{formatDate(event.recordedAt)}</time>
                       <span className="mv-evrow__inspect">Inspect evidence →</span>
