@@ -578,12 +578,13 @@ export function Treasury({
                         {c.provenance.providerVerified
                           ? ' · provider-verified'
                           : ' · internal record, not provider-verified'}
-                        {isDemoLedger ? ' · seeded demo data' : ''}
+                        {isDemoLedger ? ' · illustrative ledger data' : ''}
                       </p>
                     )}
                     {c.provenance === null && (
                       <p className="mv-position__provenance">
-                        no balance observation recorded{isDemoLedger ? ' · seeded demo data' : ''}
+                        no balance observation recorded
+                        {isDemoLedger ? ' · illustrative ledger data' : ''}
                       </p>
                     )}
                   </div>
@@ -715,7 +716,7 @@ export function Treasury({
                 <p className="mv-hero__meta">
                   {selectedMission.status} mission · spending envelopes from mandates effective now
                   — not an account balance.
-                  {isDemoLedger ? ' Sample data.' : ''}
+                  {isDemoLedger ? ' Illustrative figures.' : ''}
                 </p>
               </section>
             )}

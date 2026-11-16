@@ -860,12 +860,6 @@ a {
   font-size: var(--mv-size-xs);
   margin-left: auto;
 }
-.mv-provenance-chip {
-  max-width: 340px;
-  white-space: normal;
-  line-height: 1.35;
-}
-
 /* Provenance kinds (compact inline labels, not warning cards). */
 .mv-caps__kind {
   display: inline-block;
@@ -888,33 +882,6 @@ a {
 .mv-caps__kind--none {
   color: var(--mv-ink-3);
   border: 1px solid var(--mv-line-strong);
-}
-
-/* ------------------------------------------------------------ mobile provenance banner */
-/* Desktop keeps the compact top-bar chip; narrow screens get a composed
-   one-line banner so the header never crowds. Only one instance renders. */
-.mv-provenance-banner {
-  display: none;
-  margin: 10px 16px 0;
-  padding: 6px 12px;
-  border: 1px solid var(--mv-hold-text);
-  border-left-width: 3px;
-  border-radius: 7px;
-  color: var(--mv-hold-text);
-  font-size: var(--mv-size-sm);
-  line-height: 1.35;
-}
-.mv-provenance-banner__glyph {
-  color: var(--mv-accent-text);
-  margin-right: 8px;
-}
-@media (max-width: 1023px) {
-  .mv-provenance-chip {
-    display: none;
-  }
-  .mv-provenance-banner {
-    display: block;
-  }
 }
 
 /* System-status disclosure: provider name + label always visible; the long

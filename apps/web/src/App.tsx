@@ -242,15 +242,6 @@ export function App(): JSX.Element {
         </nav>
 
         <div className="mv-topbar__ops">
-          {actor !== null && session.kind === 'signed-in' && session.session.demoAuth && (
-            <span
-              className="mv-tag mv-tag--demo mv-provenance-chip"
-              data-testid="provenance-chip"
-              title="This workspace runs on locally seeded sample data. Figures are genuine internal ledger records, not provider funds."
-            >
-              Demo workspace · Sample financial data
-            </span>
-          )}
           {actor !== null && (
             <span className="mv-actor" data-testid="actor-chip">
               <span className="mv-actor__name">{actor.displayName}</span>
@@ -282,18 +273,6 @@ export function App(): JSX.Element {
           <li aria-current="page">{active.label}</li>
         </ol>
       </nav>
-
-      {/* Mobile provenance banner: same honest copy as the top-bar chip,
-          composed for narrow screens instead of a cramped pill. Rendered
-          only while the demo gate session is active. */}
-      {actor !== null && session.kind === 'signed-in' && session.session.demoAuth && (
-        <p className="mv-provenance-banner" data-testid="provenance-banner">
-          <span className="mv-provenance-banner__glyph" aria-hidden="true">
-            ▚
-          </span>
-          Demo workspace · Sample financial data
-        </p>
-      )}
 
       <main className="mv-main" id="main">
         <h1 className="mv-h1">{active.label}</h1>
