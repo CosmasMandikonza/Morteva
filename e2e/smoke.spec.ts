@@ -27,9 +27,12 @@ test.describe('app shell smoke', () => {
       await expect(nav.getByRole('link', { name: label })).toBeVisible();
     }
 
-    // Breadcrumb orientation.
-    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
-      'Mission Treasury',
+    // Location indication: the primary navigation marks the current route
+    // (the redundant breadcrumb was removed with the shell polish — the
+    // active tab IS the orientation).
+    await expect(nav.getByRole('link', { name: 'Mission Treasury' })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
 
     // Honesty contract (founder UX gate): no engineering status card on the

@@ -56,7 +56,12 @@ a {
   color: var(--mv-ink-3);
 }
 
-/* ------------------------------------------------------------ top bar */
+/* ------------------------------------------------------------ top bar
+   One compact horizontal row where the width allows it: brand left,
+   section navigation center, identity + theme right. Below 1200px the row
+   intentionally splits: brand and utility controls keep the first row, and
+   the section navigation becomes a slim, horizontally scrollable labeled
+   tab strip on its own line (never squashed pills, never clipped labels). */
 .mv-app {
   min-height: 100vh;
   display: flex;
@@ -64,14 +69,43 @@ a {
 }
 
 .mv-topbar {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: 'brand nav ops';
   gap: 16px;
-  flex-wrap: wrap;
-  padding: 14px 24px;
+  align-items: center;
+  padding: 10px 24px;
   background: var(--mv-surface-card);
   border-bottom: 1px solid var(--mv-line);
   z-index: 20;
+}
+@media (max-width: 1359px) {
+  .mv-topbar {
+    grid-template-columns: auto auto;
+    grid-template-areas:
+      'brand ops'
+      'nav nav';
+    gap: 2px 16px;
+    padding: 10px 16px 0;
+  }
+}
+/* Phone: the brand never shares a row with the utility controls — three
+   slim, intentional rows (brand / identity+theme / navigation strip). The
+   header scrolls away below 721px, so the extra rows never block content. */
+@media (max-width: 640px) {
+  .mv-topbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'brand'
+      'ops'
+      'nav';
+    gap: 6px;
+    padding: 10px 16px 0;
+  }
+  .mv-topbar__ops {
+    justify-self: end;
+    flex-wrap: nowrap;
+  }
 }
 /* The header only STICKS where the viewport can spare it. On a phone (or a
    200%-zoomed window, which is a ~640px viewport) a sticky header that wraps
@@ -89,10 +123,11 @@ a {
 }
 
 .mv-topbar__brand {
+  grid-area: brand;
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-right: 8px;
+  min-width: 0;
 }
 .mv-mark {
   color: var(--mv-accent-fill);
@@ -105,8 +140,14 @@ a {
   font-size: var(--mv-size-lg);
   letter-spacing: 0.08em;
 }
+/* Understated brand support — quiet supporting words, NOT a letter-spaced
+   competing heading. */
 .mv-brand__sub {
   display: none;
+  font-size: var(--mv-size-2xs);
+  color: var(--mv-ink-3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 @media (min-width: 1024px) {
   .mv-brand__sub {
@@ -114,22 +155,43 @@ a {
   }
 }
 
+.mv-nav {
+  grid-area: nav;
+  justify-self: center;
+  min-width: 0;
+  max-width: 100%;
+}
 .mv-nav ul {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   list-style: none;
   margin: 0;
   padding: 0;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+/* Narrower than the single-row budget: the labeled tab strip scrolls
+   horizontally inside the header (focus rings stay inside via padding; the
+   page itself never scrolls sideways). */
+@media (max-width: 1359px) {
+  .mv-nav {
+    justify-self: stretch;
+  }
+  .mv-nav ul {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding: 0 2px 8px;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 .mv-nav a {
   display: inline-block;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 6px 12px;
+  border-radius: 6px;
   color: var(--mv-ink-2);
   text-decoration: none;
   font-size: var(--mv-size-sm);
-  border: 1px solid transparent;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
   transition:
     color var(--mv-motion-fast) ease,
     border-color var(--mv-motion-fast) ease,
@@ -137,31 +199,41 @@ a {
 }
 .mv-nav a:hover {
   color: var(--mv-ink-1);
-  border-color: var(--mv-line-strong);
+  background: var(--mv-surface-raised);
 }
+.mv-nav a:focus-visible {
+  outline-offset: -2px;
+}
+/* Active destination: unmistakable (accent underline + full ink) but
+   subtle — no filled pill competing with page content. */
 .mv-nav a.is-active {
-  color: var(--mv-accent-text);
-  border-color: var(--mv-accent-fill);
-  background: var(--mv-accent-soft);
+  color: var(--mv-ink-1);
+  font-weight: 600;
+  border-bottom-color: var(--mv-accent-fill);
 }
 
 .mv-topbar__ops {
+  grid-area: ops;
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-left: auto;
+  justify-self: end;
+  gap: 10px;
+  min-width: 0;
 }
 .mv-actor {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 3px 4px 3px 12px;
   border: 1px solid var(--mv-line);
   border-radius: 999px;
   background: var(--mv-surface-raised);
+  min-width: 0;
 }
 .mv-actor__name {
   font-size: var(--mv-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
 }
 .mv-actor__role {
   color: var(--mv-accent-text);
@@ -170,6 +242,11 @@ a {
   color: var(--mv-danger-text);
   font-size: var(--mv-size-sm);
   max-width: 320px;
+}
+.mv-actor .mv-btn--ghost,
+.mv-theme-toggle {
+  padding: 4px 10px;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------ buttons */
@@ -212,40 +289,33 @@ a {
   cursor: progress;
 }
 
-/* ------------------------------------------------------------ breadcrumb */
-.mv-crumb ol {
-  display: flex;
-  gap: 8px;
-  list-style: none;
-  margin: 0;
-  padding: 10px 24px 0;
-  color: var(--mv-ink-3);
-  font-size: var(--mv-size-sm);
-}
-.mv-crumb li + li::before {
-  content: '/';
-  margin-right: 8px;
-  color: var(--mv-ink-3);
-}
-.mv-crumb [aria-current='page'] {
-  color: var(--mv-ink-1);
-}
-
-/* ------------------------------------------------------------ layout */
+/* ------------------------------------------------------------ layout
+   Consistent outer spacing: 24px gutters (32px on wide desktops), 16px on
+   compact screens, one controlled readable content width, and no dead
+   space above the primary content (the old breadcrumb + display-title
+   stack is gone; the nav's active tab carries the location). */
 .mv-main {
   flex: 1;
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
-  padding: 20px 24px 48px;
+  padding: 14px 24px 48px;
+}
+@media (min-width: 1200px) {
+  .mv-main {
+    padding: 18px 32px 56px;
+  }
 }
 
-.mv-h1 {
+.mv-pagehead {
+  margin: 0 0 14px;
+}
+.mv-pagehead__title {
   font-family: var(--mv-font-display);
-  font-size: var(--mv-size-2xl);
+  font-size: var(--mv-size-lg);
   font-weight: 600;
-  letter-spacing: var(--mv-track-display);
-  margin: 8px 0 20px;
+  margin: 0;
+  color: var(--mv-ink-1);
 }
 
 .mv-grid {
@@ -806,17 +876,8 @@ a {
 
 /* ------------------------------------------------------------ narrow screens */
 @media (max-width: 640px) {
-  .mv-topbar {
-    padding: 12px 16px;
-  }
-  .mv-crumb ol {
-    padding: 8px 16px 0;
-  }
   .mv-main {
-    padding: 16px 16px 40px;
-  }
-  .mv-h1 {
-    font-size: var(--mv-size-xl);
+    padding: 12px 16px 40px;
   }
   .mv-mandate__meta {
     grid-template-columns: 1fr;

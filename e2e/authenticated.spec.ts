@@ -222,33 +222,140 @@ test.describe('authenticated treasury journey', () => {
     await expect(page.getByText(/hackathon|npm run dev|STATE.md/)).toHaveCount(0);
   });
 
-  test('at 320px the breadcrumb and content are vertically visible, not overlapped', async ({
+  test('shell header: one desktop row, unmistakable active tab, honest phone stack, surviving mission context', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 320, height: 844 });
+    // ---- Desktop 1440×900: brand | centered navigation | identity — ONE row.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await signIn(page);
+
+    interface RowBox {
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+      height: number;
+    }
+    const boxes = await page.evaluate<Record<string, RowBox | null>>(() => {
+      const rect = (selector: string) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          top: Math.round(r.top),
+          bottom: Math.round(r.bottom),
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+          height: Math.round(r.height),
+        };
+      };
+      return {
+        brand: rect('.mv-topbar__brand'),
+        nav: rect('.mv-nav'),
+        ops: rect('.mv-topbar__ops'),
+        topbar: rect('.mv-topbar'),
+        h1: rect('.mv-pagehead__title'),
+      };
+    });
+    // All three regions share ONE band (no wrapped second full-width row);
+    // the brand's baseline-aligned mark shifts its box a couple of px.
+    expect(boxes.brand).not.toBeNull();
+    expect(boxes.nav).not.toBeNull();
+    expect(boxes.ops).not.toBeNull();
+    expect(
+      Math.abs(boxes.brand!.top - boxes.nav!.top),
+      'brand on the header row',
+    ).toBeLessThanOrEqual(4);
+    expect(
+      Math.abs(boxes.nav!.top - boxes.ops!.top),
+      'navigation on the header row',
+    ).toBeLessThanOrEqual(4);
+    // The header stays compact (one 56-64px band — the old two-row header
+    // with the utility pill row measured ~100px+).
+    expect(boxes.topbar!.height, 'compact single-row header').toBeLessThan(80);
+    // Navigation sits BETWEEN brand and ops (centered region, never wrapped).
+    expect(boxes.nav!.left).toBeGreaterThan(boxes.brand!.right);
+    expect(boxes.nav!.right).toBeLessThan(boxes.ops!.left);
+
+    // The active destination is unmistakable: aria-current lives on exactly
+    // one nav link, and a real semantic h1 names the section — compact, no
+    // giant display stack (the old h1 measured ~40px tall).
+    const current = page.locator('.mv-nav a[aria-current="page"]');
+    await expect(current).toHaveCount(1);
+    await expect(current).toHaveText('Mission Treasury');
+    const h1 = page.getByRole('heading', { level: 1, name: 'Mission Treasury' });
+    await expect(h1).toBeVisible();
+    expect(boxes.h1!.height, 'compact page heading').toBeLessThan(40);
+    await expect(page.locator('.mv-crumb')).toHaveCount(0);
+
+    // ---- Navigation works from the header and the selected mission
+    // survives the round trip (session-scoped context, unchanged semantics).
+    await page.getByRole('button', { name: /Subsea mooring survey/ }).click();
+    await expect(page.getByTestId('mission-hero')).toContainText('Subsea mooring survey');
+    await page.getByRole('link', { name: 'Decision Room' }).click();
+    await expect(current).toHaveText('Decision Room');
+    await page.getByRole('link', { name: 'Mission Treasury' }).click();
+    await expect(current).toHaveText('Mission Treasury');
+    await expect(page.getByTestId('mission-hero')).toContainText('Subsea mooring survey');
+
+    // ---- 320×844: intentional phone stack — brand, identity, navigation
+    // strip; nothing clipped, no sideways BODY scroll, content reachable.
+    await page.setViewportSize({ width: 320, height: 844 });
     await page.evaluate('window.scrollTo(0, 0)');
     await page.waitForTimeout(300);
-
-    interface Geometry {
-      viewportH: number;
-      scrollY: number;
-      topbar: { top: number; bottom: number } | null;
-      crumb: { top: number; bottom: number } | null;
-      main: { top: number; bottom: number } | null;
+    const scrollWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
+    expect(scrollWidth).toBeLessThanOrEqual(320);
+    const phone = await page.evaluate<Record<string, RowBox | null>>(() => {
+      const rect = (selector: string) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          top: Math.round(r.top),
+          bottom: Math.round(r.bottom),
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+          height: Math.round(r.height),
+        };
+      };
+      return {
+        brand: rect('.mv-topbar__brand'),
+        ops: rect('.mv-topbar__ops'),
+        nav: rect('.mv-nav'),
+        main: rect('.mv-main'),
+        topbar: rect('.mv-topbar'),
+      };
+    });
+    // The brand owns its own row: identity and theme follow BELOW it, and
+    // the navigation strip follows them (vertical stack, nothing clipped).
+    expect(phone.ops!.top).toBeGreaterThanOrEqual(phone.brand!.bottom);
+    // The navigation strip follows, and the content starts below the header.
+    expect(phone.nav!.top).toBeGreaterThanOrEqual(phone.ops!.bottom);
+    expect(phone.main!.top).toBeGreaterThanOrEqual(phone.nav!.bottom);
+    // All five destinations remain labeled and reachable in the strip.
+    for (const label of [
+      'Mission Treasury',
+      'Mission Setup',
+      'Decision Room',
+      'Authority & Execution',
+      'Evidence Replay',
+    ]) {
+      const link = page.getByRole('link', { name: label });
+      await expect(link).toBeAttached();
     }
-    const geometry = await page.evaluate<Geometry>(
-      '(() => { const rect = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; }; return { viewportH: window.innerHeight, scrollY: Math.round(window.scrollY), topbar: rect(".mv-topbar"), crumb: rect(".mv-crumb"), main: rect(".mv-main") }; })()',
-    );
+    // The strip scrolls INSIDE the header: its own overflow may exceed the
+    // viewport, but the page never gains a horizontal scrollbar.
+    await expect(page.getByTestId('actor-chip')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
-    // Anchored at the top of the page, not mid-scroll.
-    expect(geometry.scrollY).toBe(0);
-    // The breadcrumb sits fully below the sticky top bar.
-    expect(geometry.crumb).not.toBeNull();
-    expect(geometry.crumb!.top).toBeGreaterThanOrEqual(geometry.topbar!.bottom);
-    // Removing the redundant banner leaves the content below the breadcrumb.
-    expect(geometry.main).not.toBeNull();
-    expect(geometry.main!.top).toBeGreaterThanOrEqual(geometry.crumb!.bottom);
-    expect(geometry.main!.top).toBeLessThanOrEqual(geometry.viewportH);
+    // ---- 1024×900: the intentional two-band header (identity row + tab
+    // strip), still without body overflow.
+    await page.setViewportSize({ width: 1024, height: 900 });
+    const tabletWidth = await page.evaluate<number>('document.documentElement.scrollWidth');
+    expect(tabletWidth).toBeLessThanOrEqual(1024);
+    const tabletNav = await page.locator('.mv-nav ul').evaluate((el) => ({
+      overflowX: getComputedStyle(el).overflowX,
+    }));
+    expect(['auto', 'scroll', 'hidden']).toContain(tabletNav.overflowX);
   });
 });
