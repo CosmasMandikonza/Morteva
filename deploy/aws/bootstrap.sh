@@ -4,7 +4,7 @@
 # The founder's single action (in CloudShell, region us-east-1):
 #
 #   curl -fsSL https://raw.githubusercontent.com/CosmasMandikonza/Morteva/<ACCEPTED_SHA>/deploy/aws/bootstrap.sh \
-#     | bash -s -- --domain judge.your-domain.com --email you@your-domain.com
+#     | bash -s -- --domain moterva.duckdns.org --email you@your-domain.com
 #
 # Unavoidable inputs (documented in AWS_DEPLOYMENT.md):
 #   --domain  a DNS hostname YOU control (judge URL; point its A record at
@@ -24,6 +24,7 @@
 #   (default)            full provision + first deploy if images exist
 #   --refresh-env        re-push Secrets Manager values into the running stack
 #   --wait-images <min>  poll ECR for the release images then deploy
+#   --recover-rolled-back-stack  remove ONLY a ROLLBACK_COMPLETE stack record
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -38,7 +39,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 MODE="provision"
 WAIT_MINUTES=15
-DOMAIN=""; EMAIL=""; RELEASE_SHA=""; SKIP_STACK=false
+DOMAIN=""; EMAIL=""; RELEASE_SHA=""; SKIP_STACK=false; RECOVER_ROLLBACK=false
 # PROVENANCE (P0): --ref is REQUIRED and must be an exact reviewed SHA or
 # the founder's documented release ref. Companions are fetched ONLY from
 # this ref and verified against the embedded sha256 map below — a silent
@@ -53,6 +54,7 @@ while [ $# -gt 0 ]; do
     --refresh-env) MODE="refresh-env"; shift ;;
     --wait-images) WAIT_MINUTES="$2"; MODE="wait-images"; shift 2 ;;
     --skip-stack) SKIP_STACK=true; shift ;;
+    --recover-rolled-back-stack) RECOVER_ROLLBACK=true; shift ;;
     *) echo "unknown arg $1"; exit 2 ;;
   esac
 done
@@ -65,7 +67,7 @@ done
 EXPECTED_SHA256_provision_cognito_sh="6251eaaa2d57347903d9acc150fc7ddfd78c5e95993d6822168498ba053726d2"
 EXPECTED_SHA256_reviewer_smoke_sh="475319311eb7bef4d0b8c03a2f5defa7e4f6962618cd938fc42be8f5d3cd9f2e"
 EXPECTED_SHA256_compose_production_yml="347baf02c64a4a2f0912bf38e434f263367218402cbbd1da02c5d97dd737f4c5"
-EXPECTED_SHA256_cloudformation_yaml="3d97fc9f397826af58a436c6e59087a9e2756502363e63da8cb4247fdd9cc263"
+EXPECTED_SHA256_cloudformation_yaml="a49ca04670d13eec0d9ed6d0d1b2f1de42339e93d3c67aa3e6321c7c364390ec"
 EXPECTED_SHA256_link_owner_sh="eade3ab815b520b581ab054afbcb26e51474b424f1253d29496c4a7b7b936feb"
 EXPECTED_SHA256_ensure_kek_sh="2ccbefed3cdd6979a4a2631ddde790aa887119eae6512b935f68ac51aa99d0f3"
 
@@ -204,10 +206,65 @@ if [ "$SKIP_STACK" = false ]; then
   aws cloudformation validate-template --region "$REGION" \
     --template-body "file://$TMP/cloudformation.yaml" >/dev/null \
     || die "cloudformation validate-template failed — fix the template before provisioning"
+
+  # Failed first deployments leave a ROLLBACK_COMPLETE stack record that
+  # CloudFormation refuses to update. Delete ONLY that terminal, rolled-back
+  # stack when the founder explicitly opts into recovery. This never touches
+  # the separate Cognito user pool, Secrets Manager secret or any ECR repo.
+  if STACK_STATUS=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
+      --query 'Stacks[0].StackStatus' --output text 2>&1); then
+    :
+  elif [[ "$STACK_STATUS" == *'does not exist'* ]]; then
+    STACK_STATUS=None
+  else
+    die "cannot inspect CloudFormation stack $STACK: $STACK_STATUS"
+  fi
+  STACK_PRESENT=false
+  case "$STACK_STATUS" in
+    ''|None|DELETE_COMPLETE) ;;
+    ROLLBACK_COMPLETE)
+      [ "$RECOVER_ROLLBACK" = true ] || die "$STACK is ROLLBACK_COMPLETE; rerun with --recover-rolled-back-stack to remove only the failed stack record"
+      log "recovering $STACK: deleting the ROLLBACK_COMPLETE stack record (existing Cognito, secret and ECR are kept)"
+      aws cloudformation delete-stack --region "$REGION" --stack-name "$STACK" \
+        || die "cannot delete rolled-back stack; inspect its events before proceeding"
+      aws cloudformation wait stack-delete-complete --region "$REGION" --stack-name "$STACK" \
+        || die "rolled-back stack deletion did not finish"
+      ;;
+    CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) STACK_PRESENT=true ;;
+    *) die "$STACK has status '$STACK_STATUS'; refusing to modify an active or failed non-terminal stack" ;;
+  esac
+
+  # A failed CloudFormation create may retain one or both ECR repositories.
+  # Conditional repo resources reuse them without deleting images or hitting
+  # RepositoryAlreadyExistsException. Healthy stacks keep managing the repos
+  # that they originally created (idempotent updates never orphan them).
+  ecr_should_create() { # <repo> <CloudFormation logical ID> => true/false
+    local repository="$1" logical_id="$2" mutability
+    if [ "$STACK_PRESENT" = true ] && aws cloudformation describe-stack-resource \
+        --region "$REGION" --stack-name "$STACK" --logical-resource-id "$logical_id" >/dev/null 2>&1; then
+      echo true
+      return
+    fi
+    if mutability=$(aws ecr describe-repositories --region "$REGION" \
+        --repository-names "$repository" --query 'repositories[0].imageTagMutability' --output text 2>&1); then
+      [ "$mutability" = IMMUTABLE ] || die "existing ECR $repository is $mutability (expected IMMUTABLE); refusing unsafe overwrite"
+      echo false
+    elif [[ "$mutability" == *RepositoryNotFoundException* ]]; then
+      echo true
+    else
+      die "cannot inspect ECR $repository: $mutability"
+    fi
+  }
+  CREATE_API_REPO=$(ecr_should_create moterva-api ApiRepository)
+  CREATE_WEB_REPO=$(ecr_should_create moterva-web WebRepository)
+  log "ECR plan: create API=$CREATE_API_REPO, create web=$CREATE_WEB_REPO (existing immutable repositories are preserved)"
+
   log "template valid. ensuring CloudFormation stack $STACK (this creates/bills the EC2 instance)"
   VPCID=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
+  [ -n "$VPCID" ] && [ "$VPCID" != None ] || die "no default VPC in $REGION; bootstrap requires an existing default VPC"
   SUBNET=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=vpc-id,Values=$VPCID" "Name=default-for-az,Values=true" \
     --query 'Subnets[0].SubnetId' --output text)
+  [ -n "$SUBNET" ] && [ "$SUBNET" != None ] || die "no default subnet in VPC $VPCID; refusing to launch with an invalid subnet"
   aws cloudformation deploy --region "$REGION" \
     --stack-name "$STACK" --template-file "$TMP/cloudformation.yaml" \
     --capabilities CAPABILITY_NAMED_IAM \
@@ -215,7 +272,12 @@ if [ "$SKIP_STACK" = false ]; then
       "MotervaSecretArn=$SECRET_ARN" "MotervaSecretName=$SECRET_NAME" \
       "FounderEmail=$EMAIL" "MonthlyBudgetLimit=18" \
       "VpcId=$VPCID" "SubnetId=$SUBNET" "InstanceType=t3.micro" \
+      "CreateApiRepository=$CREATE_API_REPO" "CreateWebRepository=$CREATE_WEB_REPO" \
     --no-fail-on-empty-changeset || die "cloudformation deploy failed"
+  for repository in moterva-api moterva-web; do
+    aws ecr describe-repositories --region "$REGION" --repository-names "$repository" >/dev/null \
+      || die "CloudFormation completed but ECR $repository is missing"
+  done
 fi
 
 ELASTIC_IP=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
@@ -246,15 +308,14 @@ PROVIDER_ARN=$(aws iam list-open-id-connect-providers --query \
         --query 'Url' --output text 2>/dev/null | grep -q 'token.actions.githubusercontent.com'; then echo "$arn"; break; fi
   done)
 if [ -z "$PROVIDER_ARN" ]; then
-  log "creating GitHub OIDC provider (thumbprints computed live from the token host)"
-  THUMBPRINTS=$(echo | openssl s_client -showcerts -servername token.actions.githubusercontent.com \
-    -connect token.actions.githubusercontent.com:443 2>/dev/null \
-    | awk '/BEGIN CERT/,/END CERT/{c=/BEGIN CERT/?c+1:c; print > ("/tmp/ghcert." c)}' ; \
-    TH=""; for f in /tmp/ghcert.*; do TH="$TH \"$(openssl x509 -in "$f" -fingerprint -sha1 -noout | cut -d= -f2 | tr -d ':')\","; rm -f "$f"; done; echo "$TH" | sed 's/,$//')
+  # IAM obtains the top intermediate CA thumbprint automatically when the
+  # optional list is omitted. Do not pass a shell-generated bracketed list:
+  # the CLI requires 40-hex strings, not JSON-like quoted fragments.
+  log "creating GitHub OIDC provider (IAM resolves the trusted CA thumbprint)"
   PROVIDER_ARN=$(aws iam create-open-id-connect-provider \
     --url https://token.actions.githubusercontent.com \
     --client-id-list "sts.amazonaws.com" \
-    --thumbprint-list "[$THUMBPRINTS]" --query 'OpenIDConnectProviderArn' --output text)
+    --query 'OpenIDConnectProviderArn' --output text)
   # Tag as ours so teardown deletes ONLY this provider (it is account-global;
   # a pre-existing provider from another project is never touched).
   aws iam tag-open-id-connect-provider --open-id-connect-provider-arn "$PROVIDER_ARN" \
@@ -283,7 +344,8 @@ EOF
 #   2. ssm:SendCommand on the TARGET EC2 INSTANCE ARNs — scoped by the
 #      moterva-judge resource-tag CONDITION (the tag belongs on the
 #      instance, not on the shared document);
-#   3. ssm:GetCommandInvocation on the instance ARNs, separately.
+#   3. ssm:GetCommandInvocation on '*': this read action does not support
+#      resource-level ARNs (per the SSM service authorization reference).
 DEPLOY_POLICY=$(cat <<EOF
 {
   "Version": "2012-10-17",
@@ -297,7 +359,7 @@ DEPLOY_POLICY=$(cat <<EOF
      "Resource": "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*",
      "Condition": {"StringEquals": {"ssm:resourceTag/Name": "moterva-judge"}}},
     {"Sid": "ReadCommandInvocation", "Effect": "Allow", "Action": "ssm:GetCommandInvocation",
-     "Resource": "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/*"},
+     "Resource": "*"},
     {"Effect": "Allow", "Action": ["ssm:DescribeInstanceInformation", "ec2:DescribeInstances"], "Resource": "*"},
     {"Effect": "Deny", "Action": ["iam:*", "s3:*", "secretsmanager:*", "ec2:Delete*", "ec2:TerminateInstances"], "Resource": "*"}
   ]
@@ -338,9 +400,9 @@ sim_assert "AWS-managed RunShellScript document (no account id in ARN)" \
   "arn:aws:ssm:${REGION}::document/AWS-RunShellScript" "ssm:SendCommand"
 sim_assert "tagged judge instance (tag context supplied)" \
   "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/i-00000000000000000" "ssm:SendCommand" \
-  --context-entry "Name=ssm:resourceTag/Name,Values=moterva-judge"
+  --context-entries "ContextKeyName=ssm:resourceTag/Name,ContextKeyValues=moterva-judge,ContextKeyType=string"
 sim_assert "command invocation readback" \
-  "arn:aws:ec2:${REGION}:${ACCOUNT}:instance/i-00000000000000000" "ssm:GetCommandInvocation"
+  "*" "ssm:GetCommandInvocation"
 sim_assert "api repository push" \
   "arn:aws:ecr:${REGION}:${ACCOUNT}:repository/moterva-api" "ecr:PutImage"
 sim_assert "web repository push" \
@@ -394,8 +456,9 @@ cat <<SUMMARY
    - runs the reviewer smoke checks against https://$DOMAIN
 
  Spend honesty: the budget is an ALERT ONLY (no hard spending cap).
- Expected steady state ≈ \$13.5/month (t3.micro 7.6 + 20 GB gp3 1.6 +
- public IPv4 3.6 + ECR/alarms/transfer ≈ 0.7) — promotional credits do
+ Expected steady state ≈ \$15/month (t3.micro 7.6 + 16 GB root gp3 1.3 +
+ 20 GB data gp3 1.6 + public IPv4 3.6 + ECR/alarms/transfer ≈ 0.9).
+ Promotional credits do
  NOT necessarily cover every fee; the \$EMAIL budget alert is the control.
  Teardown: deploy/aws/teardown.sh (reverses everything incl. Cognito).
 ==========================================================================

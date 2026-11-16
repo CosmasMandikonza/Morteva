@@ -52,7 +52,8 @@ aws iam delete-role --role-name "$ROLE_NAME" 2>/dev/null && log "deploy role del
 # The GitHub OIDC provider is account-global: delete ONLY if tagged as ours.
 for ARN in $(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output text); do
   URL=$(aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$ARN" --query Url --output text 2>/dev/null || true)
-  [ "$URL" = "https://token.actions.githubusercontent.com" ] || continue
+  # IAM normally returns the issuer host without the https:// scheme.
+  [ "$URL" = "token.actions.githubusercontent.com" ] || [ "$URL" = "https://token.actions.githubusercontent.com" ] || continue
   OWNED=$(aws iam list-open-id-connect-provider-tags --open-id-connect-provider-arn "$ARN" \
     --query "Tags[?Key=='created-by' && Value=='moterva-bootstrap'] | [0].Key" --output text 2>/dev/null || echo None)
   if [ "$OWNED" = "created-by" ]; then

@@ -22,6 +22,7 @@ const bootstrap = read('deploy/aws/bootstrap.sh');
 const workflow = read('.github/workflows/deploy-aws.yml');
 const linkOwner = read('deploy/aws/link-owner.sh');
 const ensureKek = read('deploy/aws/ensure-kek.sh');
+const teardown = read('deploy/aws/teardown.sh');
 
 const results = [];
 function check(id, name, ok, detail) {
@@ -122,6 +123,65 @@ check(
   'every Fn::Sub interpolation resolves to a declared logical ID or AWS pseudo-parameter',
   unresolvedSubReferences.length === 0,
   `unresolved: ${unresolvedSubReferences.join(', ')}`,
+);
+
+// AWS EC2 security-group descriptions accept a specific ASCII-only
+// character set. CloudFormation's ValidateTemplate does NOT enforce this:
+// the live stack failed at CREATE_FAILED because an em dash was accepted
+// by ValidateTemplate but rejected by the EC2 CreateSecurityGroup API.
+const sgDescription = /^ {6}GroupDescription:\s*(.+)$/m.exec(cfn)?.[1] ?? '';
+const awsEc2GroupChars = new Set(
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:/()#,@[]+=&;{}!$*',
+);
+check(
+  'CFN-EC2-1',
+  'security-group description uses AWS EC2 permitted characters only (ASCII, <=255)',
+  sgDescription.length > 0 &&
+    sgDescription.length <= 255 &&
+    [...sgDescription].every((character) => awsEc2GroupChars.has(character)),
+  `invalid GroupDescription: ${sgDescription}`,
+);
+
+// YAML parsers can silently accept the last duplicate key, hiding a
+// malformed resource map even when AWS ValidateTemplate happens to pass.
+const resourcesBody = cfn.split(/^Resources:\s*$/m)[1]?.split(/^Outputs:\s*$/m)[0] ?? '';
+const resourcesNames = [...resourcesBody.matchAll(/^ {2}([A-Za-z][A-Za-z0-9]*):\s*$/gm)].map(
+  (match) => match[1],
+);
+const duplicates = resourcesNames.filter((name, idx) => resourcesNames.indexOf(name) !== idx);
+check(
+  'CFN-YAML-1',
+  'CloudFormation Resources block has no duplicate logical IDs',
+  resourcesBody.length > 0 && duplicates.length === 0,
+  `duplicate resource logical IDs: ${duplicates.join(', ')}`,
+);
+check(
+  'CFN-ECR-1',
+  'ECR repositories are independently conditional for retained-repo reuse, with no conditional GetAtt',
+  /ShouldCreateApiRepository: !Equals/.test(cfn) &&
+    /ShouldCreateWebRepository: !Equals/.test(cfn) &&
+    /ApiRepository:\s*\n\s+Type: AWS::ECR::Repository\s*\n\s+Condition: ShouldCreateApiRepository/.test(
+      cfn,
+    ) &&
+    /WebRepository:\s*\n\s+Type: AWS::ECR::Repository\s*\n\s+Condition: ShouldCreateWebRepository/.test(
+      cfn,
+    ) &&
+    !/!GetAtt (?:ApiRepository|WebRepository)\./.test(cfn) &&
+    (cfn.match(/DeletionPolicy: RetainExceptOnCreate/g) ?? []).length === 2,
+  'retained repository cannot safely be reused after rollback',
+);
+const userDataBody = /^ {8}Fn::Base64: !Sub \|\n([\s\S]*?)(?=^ {2}[A-Za-z][A-Za-z0-9]*:\s*$)/m.exec(
+  cfn,
+)?.[1];
+const userDataSyntax = spawnSync('bash', ['-n'], {
+  input: userDataBody?.replace(/^ {10}/gm, '') ?? '',
+  encoding: 'utf8',
+});
+check(
+  'CFN-USERDATA-1',
+  'actual CloudFormation Fn::Sub user-data and both embedded helpers parse under bash -n',
+  Boolean(userDataBody) && userDataSyntax.status === 0,
+  userDataSyntax.stderr?.trim() || `exit=${userDataSyntax.status}`,
 );
 
 // ---- P0-3: the secret must carry WEB_ORIGIN (what config.ts reads), not
@@ -511,14 +571,14 @@ check(
 );
 check(
   'IAM-7',
-  'ssm:GetCommandInvocation is a SEPARATE statement on instance ARNs',
+  'ssm:GetCommandInvocation is a SEPARATE statement with Resource=* (the action is not ARN-scopeable)',
   policyJson.Statement.some(
     (s) =>
       (s.Action === 'ssm:GetCommandInvocation' ||
         (Array.isArray(s.Action) && s.Action.includes('ssm:GetCommandInvocation'))) &&
-      (Array.isArray(s.Resource) ? s.Resource : [s.Resource]).every((r) => /:instance\//.test(r)),
+      s.Resource === '*',
   ),
-  'GetCommandInvocation not separately instance-scoped',
+  'GetCommandInvocation not separately authorized with Resource=*',
 );
 check(
   'IAM-8',
@@ -537,8 +597,126 @@ check(
   'the simulation asserts BOTH the document and a tagged instance, with the tag context entry',
   /arn:aws:ssm:\$\{REGION\}::document\/AWS-RunShellScript" "ssm:SendCommand/.test(bootstrap) &&
     /instance\/i-00000000000000000" "ssm:SendCommand"/.test(bootstrap) &&
-    /ssm:resourceTag\/Name,Values=moterva-judge/.test(bootstrap),
+    /--context-entries "ContextKeyName=ssm:resourceTag\/Name,ContextKeyValues=moterva-judge,ContextKeyType=string"/.test(
+      bootstrap,
+    ) &&
+    !/--context-entry\s/.test(bootstrap),
   'simulation coverage incomplete',
+);
+check(
+  'IAM-16',
+  'IAM simulation uses the documented --context-entries option and wildcard for unscopable readback',
+  /--context-entries "ContextKeyName=/.test(bootstrap) &&
+    /"\*" "ssm:GetCommandInvocation"/.test(bootstrap),
+  'IAM simulation has an unsupported AWS CLI flag or readback ARN',
+);
+check(
+  'IAM-OIDC-1',
+  'GitHub OIDC provider creation uses IAM automatic CA thumbprint resolution (no malformed list)',
+  /aws iam create-open-id-connect-provider/.test(bootstrap) &&
+    !/--thumbprint-list/.test(bootstrap) &&
+    !/openssl s_client/.test(bootstrap),
+  'OIDC command still constructs unsupported certificate thumbprint arguments',
+);
+check(
+  'IAM-OIDC-2',
+  'full teardown recognizes the scheme-less GitHub OIDC provider URL returned by IAM',
+  teardown.includes('[ "$URL" = "token.actions.githubusercontent.com" ]'),
+  'teardown would leave behind a bootstrap-created OIDC provider',
+);
+check(
+  'CFN-ROLLBACK-1',
+  'ROLLBACK_COMPLETE recovery requires explicit opt-in and never invokes full project teardown',
+  /--recover-rolled-back-stack\) RECOVER_ROLLBACK=true/.test(bootstrap) &&
+    /ROLLBACK_COMPLETE\)/.test(bootstrap) &&
+    /\[ "\$RECOVER_ROLLBACK" = true \]/.test(bootstrap) &&
+    /aws cloudformation delete-stack --region "\$REGION" --stack-name "\$STACK"/.test(bootstrap) &&
+    !/bash .*teardown\.sh/.test(bootstrap),
+  'unsafe or non-opt-in rolled-back stack recovery',
+);
+
+// Execute the REAL repo decision helper with mocked AWS responses: a failed
+// first stack can leave retained repositories with existing images. They must
+// be reused without destructive deletion, while healthy stacks keep managing
+// their original resources. Also fail closed on non-immutable or denied repos.
+const ecrDecisionHelper = /^ {2}ecr_should_create\(\) \{[\s\S]*?^ {2}\}/m.exec(bootstrap)?.[0];
+function ecrDecision(state, managed, stackPresent, expected, expectSuccess) {
+  const script = [
+    'set -euo pipefail',
+    'REGION=us-east-1; STACK=moterva-judge',
+    `STACK_PRESENT=${stackPresent ? 'true' : 'false'}`,
+    `MOCK_ECR=${state}; MOCK_MANAGED=${managed ? 'true' : 'false'}`,
+    'die() { echo "$*" >&2; exit 1; }',
+    'aws() {',
+    '  case "$*" in',
+    '    *describe-stack-resource*) [ "$MOCK_MANAGED" = true ] ;;',
+    '    *describe-repositories*)',
+    '      case "$MOCK_ECR" in',
+    '        existing) echo IMMUTABLE ;;',
+    '        mutable) echo MUTABLE ;;',
+    '        missing) echo "RepositoryNotFoundException" >&2; return 254 ;;',
+    '        denied) echo "AccessDeniedException" >&2; return 254 ;;',
+    '      esac ;;',
+    '    *) echo "unexpected AWS call: $*" >&2; return 2 ;;',
+    '  esac',
+    '}',
+    ecrDecisionHelper ?? 'false',
+    `result=$(ecr_should_create moterva-api ApiRepository)`,
+    `[ "$result" = "${expected}" ]`,
+  ].join('\n');
+  const out = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return expectSuccess ? out.status === 0 : out.status !== 0;
+}
+check(
+  'CFN-ECR-2',
+  'real ECR helper handles retained, absent, stack-managed, mutable and access-denied cases under nounset',
+  Boolean(ecrDecisionHelper) &&
+    ecrDecision('existing', false, false, 'false', true) &&
+    ecrDecision('missing', false, false, 'true', true) &&
+    ecrDecision('existing', true, true, 'true', true) &&
+    ecrDecision('mutable', false, false, '', false) &&
+    ecrDecision('denied', false, false, '', false),
+  'mocked ECR decision matrix was not respected',
+);
+const rollbackRecoveryBody =
+  /^ {2}if STACK_STATUS=\$\(aws cloudformation describe-stacks[\s\S]*?^ {2}esac$/m.exec(
+    bootstrap,
+  )?.[0];
+function recoveryDecision(stackStatus, optedIn, shouldSucceed, shouldDelete) {
+  const script = [
+    'set -euo pipefail',
+    `MOCK_STATUS=${stackStatus}; RECOVER_ROLLBACK=${optedIn ? 'true' : 'false'}`,
+    'REGION=us-east-1; STACK=moterva-judge',
+    'die() { echo "$*" >&2; exit 1; }',
+    'log() { :; }',
+    'aws() {',
+    '  case "$*" in',
+    '    *describe-stacks*)',
+    '      if [ "$MOCK_STATUS" = absent ]; then echo "Stack does not exist" >&2; return 254; fi',
+    '      echo "$MOCK_STATUS" ;;',
+    '    *delete-stack*) echo DELETE_TRIGGERED ;;',
+    '    *stack-delete-complete*) echo WAIT_TRIGGERED ;;',
+    '    *) echo "unexpected AWS call: $*" >&2; return 2 ;;',
+    '  esac',
+    '}',
+    rollbackRecoveryBody ?? 'false',
+  ].join('\n');
+  const out = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return (
+    (out.status === 0) === shouldSucceed &&
+    (out.stdout?.includes('DELETE_TRIGGERED') ?? false) === shouldDelete
+  );
+}
+check(
+  'CFN-ROLLBACK-2',
+  'real recovery guard deletes ONLY an opted-in ROLLBACK_COMPLETE stack; other states are preserved',
+  Boolean(rollbackRecoveryBody) &&
+    recoveryDecision('ROLLBACK_COMPLETE', false, false, false) &&
+    recoveryDecision('ROLLBACK_COMPLETE', true, true, true) &&
+    recoveryDecision('CREATE_COMPLETE', true, true, false) &&
+    recoveryDecision('UPDATE_IN_PROGRESS', true, false, false) &&
+    recoveryDecision('absent', true, true, false),
+  'mocked rollback decision matrix was not respected',
 );
 check(
   'IAM-11',
