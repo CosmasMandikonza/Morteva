@@ -222,7 +222,7 @@ export function App(): JSX.Element {
             ▚
           </span>
           <span className="mv-brand">MOTERVA</span>
-          <span className="mv-brand__sub mv-hud">mission financial control</span>
+          <span className="mv-brand__sub">mission financial control</span>
         </div>
 
         <nav className="mv-nav" aria-label="Primary">
@@ -267,15 +267,13 @@ export function App(): JSX.Element {
         </div>
       </header>
 
-      <nav className="mv-crumb" aria-label="Breadcrumb">
-        <ol>
-          <li>MOTERVA</li>
-          <li aria-current="page">{active.label}</li>
-        </ol>
-      </nav>
-
       <main className="mv-main" id="main">
-        <h1 className="mv-h1">{active.label}</h1>
+        {/* One heading per section: a compact page title. The breadcrumb and
+            oversized display title were redundant with the nav's active tab
+            and each screen's own panel headings (h2). */}
+        <div className="mv-pagehead">
+          <h1 className="mv-pagehead__title">{active.label}</h1>
+        </div>
         {section === 'missions' ? (
           <Treasury
             session={session}
