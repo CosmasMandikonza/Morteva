@@ -365,14 +365,21 @@ test.describe('governed two-actor journey (durable contracts)', () => {
     await runStage(page, 'incident');
     await page.getByRole('navigation').getByRole('link', { name: 'Evidence Replay' }).click();
     await expect(page.getByTestId('evidence-panel')).toBeVisible();
-    // The signed synthetic incident event is present with its full identity.
-    await expect(page.getByTestId('evidence-panel')).toContainText('evt_demo_incident_', {
-      timeout: 10_000,
-    });
-    // The durable snapshot is journaled with its evaluation identity.
-    await expect(page.getByTestId('evidence-panel')).toContainText('planner.decision.snapshot', {
-      timeout: 10_000,
-    });
+    // Identifiers now live in the audit inspector, not in each timeline row.
+    // Search is local to the loaded 50 events and includes allowlisted IDs.
+    const search = page.getByTestId('evidence-search');
+    const events = page.getByTestId('evidence-list');
+    await search.fill('evt_demo_incident_');
+    await expect(events.locator('.mv-evrow__select').first()).toBeVisible({ timeout: 10_000 });
+    await events.locator('.mv-evrow__select').first().click();
+    const detail = page.getByTestId('evidence-detail');
+    await expect(detail).toContainText('evt_demo_incident_');
+    await detail.getByRole('button', { name: /close/i }).click();
+    // The durable snapshot remains discoverable by its actual journal type.
+    await search.fill('planner.decision.snapshot');
+    await expect(events.locator('.mv-evrow__select').first()).toBeVisible({ timeout: 10_000 });
+    await events.locator('.mv-evrow__select').first().click();
+    await expect(page.getByTestId('evidence-detail')).toContainText('planner.decision.snapshot');
   });
 
   test('responsive widths: governed panels hold an authoritative proposal without overflow', async ({

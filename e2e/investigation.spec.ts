@@ -62,14 +62,17 @@ test('mission → position → operation → required action → evidence, one i
   // The filtered journal shows this operation's own lifecycle events.
   const events = page.getByTestId('evidence-list');
   await expect(events.locator('.mv-evidence__event').first()).toBeVisible();
-  const eventIds = await events.locator('.mv-evidence__payload dd').allTextContents();
-  const flat = eventIds.join(' ');
-  expect(flat).toContain((opId ?? '').slice(0, 11));
+  // The compact timeline intentionally keeps raw operation IDs in the
+  // inspector, not in every row. Verify the same identity there.
+  await events.locator('.mv-evrow__select').first().click();
+  const evidenceDetail = page.getByTestId('evidence-detail');
+  await expect(evidenceDetail).toContainText(opId ?? 'operation identity missing');
+  await evidenceDetail.getByRole('button', { name: /close/i }).click();
 
   // Clearing the filter returns the full mission timeline (operational
   // observations labeled by topic, financial journal newest-first).
   await page.getByTestId('clear-op-filter').click();
-  await expect(page.getByTestId('evidence-list')).toContainText('operation');
+  await expect(page.getByTestId('evidence-list')).toContainText(/operation/i);
   await expect(evidence.getByTestId('clear-op-filter')).toHaveCount(0);
 
   // (6) Navigation preserves mission context back into the Treasury.
